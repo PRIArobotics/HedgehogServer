@@ -1,14 +1,14 @@
 import unittest
 import zmq
 from hedgehog.protocol import messages
-from hedgehog.simulator.controller import HedgehogController
+from hedgehog.simulator import HedgehogSimulator
 
 
 class TestSimulator(unittest.TestCase):
     def test_analog_request(self):
         context = zmq.Context.instance()
 
-        controller = HedgehogController('tcp://*:5555', context=context)
+        controller = HedgehogSimulator('tcp://*:5555', context=context)
         controller.start()
 
         socket = context.socket(zmq.DEALER)
