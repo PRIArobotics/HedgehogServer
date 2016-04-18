@@ -1,24 +1,7 @@
 import zmq
 import threading
 from collections import OrderedDict
-import hedgehog.proto
-
-
-class Killer:
-    def __init__(self, context=None):
-        self.context = context or zmq.Context.instance()
-        self.endpoint = 'inproc://killer'
-        self.sender = self.context.socket(zmq.PAIR)
-        self.sender.bind(self.endpoint)
-
-    def connect_receiver(self):
-        receiver = self.context.socket(zmq.PAIR)
-        receiver.connect(self.endpoint)
-        return receiver
-
-    def kill(self):
-        self.sender.send(b'')
-        self.sender.close()
+from hedgehog.protocol import messages, utils
 
 
 class HedgehogController(threading.Thread):
@@ -26,7 +9,7 @@ class HedgehogController(threading.Thread):
         super(HedgehogController, self).__init__()
         self.context = context or zmq.Context.instance()
         self.endpoint = endpoint
-        self.killer = Killer(context=self.context)
+        self.killer = utils.Killer(context=self.context)
 
     def kill(self):
         self.killer.kill()
@@ -41,7 +24,7 @@ class HedgehogController(threading.Thread):
             if pollin:
                 if socket in pollin:
                     ident, payload = socket.recv_multipart()
-                    msg = hedgehog.proto.parse(payload)
+                    msg = messages.parse(payload)
                     try:
                         handler = getattr(self, msg.WhichOneof('command'))
                     except AttributeError:
@@ -60,5 +43,5 @@ class HedgehogController(threading.Thread):
         response = OrderedDict()
         for sensor in msg.analog_request.sensors:
             response[sensor] = 0
-        msg = hedgehog.proto.AnalogUpdate(response)
+        msg = messages.AnalogUpdate(response)
         socket.send_multipart([ident, msg.SerializeToString()])
