@@ -1,6 +1,6 @@
 import unittest
 import zmq
-from hedgehog.protocol import messages
+from hedgehog.protocol import messages, sockets
 from hedgehog.simulator import HedgehogSimulator
 
 
@@ -12,17 +12,14 @@ class TestSimulator(unittest.TestCase):
         controller.start()
 
         socket = context.socket(zmq.DEALER)
-        socket.identity = b'A'
         socket.connect('tcp://localhost:5555')
+        socket = sockets.DealerWrapper(socket)
 
-        msg = messages.AnalogRequest([0, 1])
-        socket.send(msg.SerializeToString())
+        socket.send(messages.AnalogRequest([0, 1]))
+        sensors = socket.recv().analog_update.sensors
+        self.assertEqual(sensors, {0: 0, 1: 0})
 
-        payload = socket.recv()
-        msg = messages.parse(payload)
-        self.assertEqual(msg.analog_update.sensors, {0: 0, 1: 0})
-
-        controller.kill()
+        controller.close()
 
 
 if __name__ == '__main__':

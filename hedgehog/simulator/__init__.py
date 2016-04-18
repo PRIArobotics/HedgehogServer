@@ -1,7 +1,7 @@
 import zmq
 import threading
 from collections import OrderedDict
-from hedgehog.protocol import messages, utils
+from hedgehog.protocol import messages, sockets, utils
 
 
 class HedgehogSimulator(threading.Thread):
@@ -11,20 +11,20 @@ class HedgehogSimulator(threading.Thread):
         self.endpoint = endpoint
         self.killer = utils.Killer(context=self.context)
 
-    def kill(self):
+    def close(self):
         self.killer.kill()
 
     def run(self):
         socket = self.context.socket(zmq.ROUTER)
         socket.bind(self.endpoint)
+        socket = sockets.RouterWrapper(socket)
         killer = self.killer.connect_receiver()
 
         while True:
-            pollin, _, _ = zmq.select([socket, killer], [], [])
+            pollin, _, _ = zmq.select([socket.socket, killer], [], [])
             if pollin:
-                if socket in pollin:
-                    ident, payload = socket.recv_multipart()
-                    msg = messages.parse(payload)
+                if socket.socket in pollin:
+                    ident, msg = socket.recv()
                     try:
                         handler = getattr(self, msg.WhichOneof('command'))
                     except AttributeError:
@@ -43,5 +43,4 @@ class HedgehogSimulator(threading.Thread):
         response = OrderedDict()
         for sensor in msg.analog_request.sensors:
             response[sensor] = 0
-        msg = messages.AnalogUpdate(response)
-        socket.send_multipart([ident, msg.SerializeToString()])
+        socket.send(ident, messages.AnalogUpdate(response))
