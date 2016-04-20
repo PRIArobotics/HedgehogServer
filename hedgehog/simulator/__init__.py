@@ -9,7 +9,7 @@ class HedgehogSimulator(threading.Thread):
         super(HedgehogSimulator, self).__init__()
         self.context = context or zmq.Context.instance()
         self.endpoint = endpoint
-        self.killer = utils.Killer(context=self.context)
+        self.killer = utils.Killer()
 
     def close(self):
         self.killer.kill()
