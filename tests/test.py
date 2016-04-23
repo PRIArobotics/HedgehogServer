@@ -1,7 +1,7 @@
 import unittest
 import zmq
 from hedgehog.protocol import sockets
-from hedgehog.protocol.messages import analog
+from hedgehog.protocol.messages import analog, digital, motor, servo
 from hedgehog.simulator import HedgehogSimulator
 
 
@@ -20,6 +20,41 @@ class TestSimulator(unittest.TestCase):
         update = socket.recv()
         self.assertEqual(update.port, 0)
         self.assertEqual(update.value, 0)
+
+        controller.close()
+
+    def test_digital_request(self):
+        context = zmq.Context()
+
+        controller = HedgehogSimulator('tcp://*:5555', context=context)
+        controller.start()
+
+        socket = context.socket(zmq.DEALER)
+        socket.connect('tcp://localhost:5555')
+        socket = sockets.DealerWrapper(socket)
+
+        socket.send(digital.Request(0))
+        update = socket.recv()
+        self.assertEqual(update.port, 0)
+        self.assertEqual(update.value, False)
+
+        controller.close()
+
+    def test_motor_request(self):
+        context = zmq.Context()
+
+        controller = HedgehogSimulator('tcp://*:5555', context=context)
+        controller.start()
+
+        socket = context.socket(zmq.DEALER)
+        socket.connect('tcp://localhost:5555')
+        socket = sockets.DealerWrapper(socket)
+
+        socket.send(motor.Request(0))
+        update = socket.recv()
+        self.assertEqual(update.port, 0)
+        self.assertEqual(update.velocity, 0)
+        self.assertEqual(update.position, 0)
 
         controller.close()
 
