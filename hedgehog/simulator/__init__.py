@@ -2,6 +2,7 @@ import zmq
 import threading
 from collections import OrderedDict
 from hedgehog.protocol import messages, sockets, utils
+from hedgehog.protocol.messages import analog
 
 
 class HedgehogSimulator(threading.Thread):
@@ -26,7 +27,7 @@ class HedgehogSimulator(threading.Thread):
                 if socket.socket in pollin:
                     ident, msg = socket.recv()
                     try:
-                        handler = getattr(self, msg.WhichOneof('command'))
+                        handler = getattr(self, msg._command_oneof)
                     except AttributeError:
                         # TODO handle unknown commands
                         pass
@@ -40,7 +41,4 @@ class HedgehogSimulator(threading.Thread):
 
 
     def analog_request(self, socket, ident, msg):
-        response = OrderedDict()
-        for sensor in msg.analog_request.sensors:
-            response[sensor] = 0
-        socket.send(ident, messages.AnalogUpdate(response))
+        socket.send(ident, messages.analog.Update(msg.port, 0))
