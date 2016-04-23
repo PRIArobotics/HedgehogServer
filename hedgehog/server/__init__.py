@@ -1,47 +1,6 @@
 import zmq
 import threading
-from collections import OrderedDict
-from hedgehog.protocol import messages, sockets, utils
-from hedgehog.protocol.messages import analog, digital, motor, servo
-
-
-class SimulatorCommandHandler:
-    def analog_request(self, socket, ident, msg):
-        socket.send(ident, messages.analog.Update(msg.port, 0))
-
-    def analog_state_action(self, socket, ident, msg):
-        # TODO set analog pullup
-        pass
-
-    def digital_request(self, socket, ident, msg):
-        socket.send(ident, messages.digital.Update(msg.port, False))
-
-    def digital_state_action(self, socket, ident, msg):
-        # TODO set digital pullup, output
-        pass
-
-    def digital_action(self, socket, ident, msg):
-        # TODO set digital pullup, output
-        pass
-
-    def motor_action(self, socket, ident, msg):
-        # TODO set motor action
-        pass
-
-    def motor_request(self, socket, ident, msg):
-        socket.send(ident, messages.motor.Update(msg.port, 0, 0))
-
-    def motor_set_position_action(self, socket, ident, msg):
-        # TODO set motor position
-        pass
-
-    def servo_action(self, socket, ident, msg):
-        # TODO set servo position
-        pass
-
-    def servo_state_action(self, socket, ident, msg):
-        # TODO set servo active
-        pass
+from hedgehog.protocol import sockets, utils
 
 
 class HedgehogServer(threading.Thread):

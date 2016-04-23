@@ -1,5 +1,5 @@
-Simulated Hedgehog Robot Controller
-===================================
+Hedgehog Robot Controller Server
+================================
 
-This project provides a simulated Hedgehog Educational Robotics Controller.
-Clients can communicate with it in the same way as with a real Hedgehog controller, via ZMQ.
+This project provides the server for the Hedgehog Educational Robotics Controller.
+Clients can communicate with it via the ZMQ & Protobuf based Hedgehog Protocol.

@@ -18,11 +18,11 @@ with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
     long_description = f.read()
 
 setup(
-    name='hedgehog-simulator',
+    name='hedgehog-server',
     version='0.0.0',
-    description='A Simulated Hedgehog Robot Controller',
+    description='Hedgehog Robot Controller Server',
     long_description=long_description,
-    url="https://github.com/PRIArobotics/HedgehogSimulator",
+    url="https://github.com/PRIArobotics/HedgehogServer",
     author="Clemens Koza",
     author_email="koza@pria.at",
     license="AGPLv3+",
@@ -36,7 +36,7 @@ setup(
         'Programming Language :: Python :: 3',
     ],
 
-    keywords='hedgehog robotics simulator',
+    keywords='hedgehog robotics controller server',
 
     # You can just specify the packages manually here if your project is
     # simple. Or you can use find_packages().
@@ -60,7 +60,7 @@ setup(
 
     entry_points={
         'console_scripts': [
-            'hedgehog-simulator = hedgehog.simulator.__main__:main',
+            'hedgehog-simulator = hedgehog.server.simulator:main',
         ],
     },
 )
