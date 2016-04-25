@@ -1,17 +1,16 @@
-from hedgehog.protocol import messages
 from hedgehog.protocol.messages import analog, digital, motor, servo
 
 
 class SimulatorCommandHandler:
     def analog_request(self, server, ident, msg):
-        server.socket.send(ident, messages.analog.Update(msg.port, 0))
+        server.socket.send(ident, analog.Update(msg.port, 0))
 
     def analog_state_action(self, server, ident, msg):
         # TODO set analog pullup
         pass
 
     def digital_request(self, server, ident, msg):
-        server.socket.send(ident, messages.digital.Update(msg.port, False))
+        server.socket.send(ident, digital.Update(msg.port, False))
 
     def digital_state_action(self, server, ident, msg):
         # TODO set digital pullup, output
@@ -26,7 +25,7 @@ class SimulatorCommandHandler:
         pass
 
     def motor_request(self, server, ident, msg):
-        server.socket.send(ident, messages.motor.Update(msg.port, 0, 0))
+        server.socket.send(ident, motor.Update(msg.port, 0, 0))
 
     def motor_set_position_action(self, server, ident, msg):
         # TODO set motor position
