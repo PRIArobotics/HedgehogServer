@@ -10,31 +10,53 @@ class HedgehogServer(threading.Thread):
         self.endpoint = endpoint
         self.handler = handler
         self.killer = utils.Killer()
+        self._poller = None
+        self.socket = None
+
+    @property
+    def poller(self):
+        return self._poller[0]
+
+    @property
+    def sockets(self):
+        return self._poller[1]
+
+    def register(self, socket, cb):
+        self.poller.register(socket)
+        self.sockets[socket] = cb
+
+    def unregister(self, socket):
+        self.poller.unregister(socket)
+        del self.sockets[socket]
 
     def close(self):
         self.killer.kill()
 
     def run(self):
+        self._poller = zmq.Poller(), {}
+
         socket = self.context.socket(zmq.ROUTER)
         socket.bind(self.endpoint)
-        socket = sockets.RouterWrapper(socket)
+        self.socket = sockets.RouterWrapper(socket)
+        def socket_cb():
+            ident, msg = self.socket.recv()
+            try:
+                handler = getattr(self.handler, msg._command_oneof)
+            except AttributeError:
+                # TODO handle unknown commands
+                print(msg._command_oneof + ': unknown command')
+            else:
+                handler(self.socket, ident, msg)
+        self.register(socket, socket_cb)
+
         killer = self.killer.connect_receiver()
+        def killer_cb():
+            killer.recv()
+            for socket in list(self.sockets.keys()):
+                socket.close()
+                self.unregister(socket)
+        self.register(killer, killer_cb)
 
-        while True:
-            pollin, _, _ = zmq.select([socket.socket, killer], [], [])
-            if pollin:
-                if socket.socket in pollin:
-                    ident, msg = socket.recv()
-                    try:
-                        handler = getattr(self.handler, msg._command_oneof)
-                    except AttributeError:
-                        # TODO handle unknown commands
-                        print(msg._command_oneof + ': unknown command')
-                        pass
-                    else:
-                        handler(socket, ident, msg)
-                if killer in pollin:
-                    break
-
-        socket.close()
-        killer.close()
+        while len(self._poller[1]) > 0:
+            for socket, _ in self.poller.poll():
+                self.sockets[socket]()
