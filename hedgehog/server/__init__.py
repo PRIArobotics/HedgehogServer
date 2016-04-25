@@ -46,7 +46,7 @@ class HedgehogServer(threading.Thread):
                 # TODO handle unknown commands
                 print(msg._command_oneof + ': unknown command')
             else:
-                handler(self.socket, ident, msg)
+                handler(self, ident, msg)
         self.register(socket, socket_cb)
 
         killer = self.killer.connect_receiver()
