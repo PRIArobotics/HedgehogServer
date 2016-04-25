@@ -29,7 +29,7 @@ def run(*args):
         for _, file, endpoint in pipes:
             socket = context.socket(zmq.PAIR)
             socket.connect(endpoint)
-            poller.register(socket)
+            poller.register(socket, zmq.POLLIN)
             files[socket] = file
 
         while len(poller.sockets) > 0:
