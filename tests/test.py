@@ -1,8 +1,8 @@
 import unittest
 import zmq
 from hedgehog.protocol import sockets
-from hedgehog.protocol.messages import analog, digital, motor, servo
-from hedgehog.server import HedgehogServer, process
+from hedgehog.protocol.messages import analog, digital, motor, servo, process
+from hedgehog.server import HedgehogServer, process as server_process
 from hedgehog.server.simulator import SimulatorCommandHandler
 
 
@@ -59,6 +59,77 @@ class TestSimulator(unittest.TestCase):
 
         controller.close()
 
+    def test_process_execute_request_echo(self):
+        context = zmq.Context()
+
+        controller = HedgehogServer('tcp://*:5558', SimulatorCommandHandler(), context=context)
+        controller.start()
+
+        socket = context.socket(zmq.DEALER)
+        socket.connect('tcp://localhost:5558')
+        socket = sockets.DealerWrapper(socket)
+
+        socket.send(process.ExecuteRequest('echo', 'asdf'))
+        pid = socket.recv().pid
+
+        output = {
+            process.STDOUT: [],
+            process.STDERR: [],
+        }
+
+        socket.send(process.StreamAction(pid, process.STDIN, b''))
+
+        open = 2
+        while open > 0:
+            msg = socket.recv()
+            self.assertEqual(msg.pid, pid)
+            output[msg.fileno].append(msg.chunk)
+            if msg.chunk == b'':
+                open -= 1
+
+        output = {fileno: b''.join(chunks) for fileno, chunks in output.items()}
+
+        self.assertEqual(output[process.STDOUT], b'asdf\n')
+        self.assertEqual(output[process.STDERR], b'')
+
+        controller.close()
+
+    def test_process_execute_request_cat(self):
+        context = zmq.Context()
+
+        controller = HedgehogServer('tcp://*:5559', SimulatorCommandHandler(), context=context)
+        controller.start()
+
+        socket = context.socket(zmq.DEALER)
+        socket.connect('tcp://localhost:5559')
+        socket = sockets.DealerWrapper(socket)
+
+        socket.send(process.ExecuteRequest('cat'))
+        pid = socket.recv().pid
+
+        output = {
+            process.STDOUT: [],
+            process.STDERR: [],
+        }
+
+        socket.send(process.StreamAction(pid, process.STDIN, b'asdf'))
+        socket.send(process.StreamAction(pid, process.STDIN, b''))
+
+        open = 2
+        while open > 0:
+            msg = socket.recv()
+            self.assertEqual(msg.pid, pid)
+            output[msg.fileno].append(msg.chunk)
+            if msg.chunk == b'':
+                open -= 1
+
+        output = {fileno: b''.join(chunks) for fileno, chunks in output.items()}
+
+        self.assertEqual(output[process.STDOUT], b'asdf')
+        self.assertEqual(output[process.STDERR], b'')
+
+        controller.close()
+
 
 def collect_outputs(*sockets):
     output = {socket: [] for socket in sockets}
@@ -81,7 +152,7 @@ def collect_outputs(*sockets):
 
 class TestProcess(unittest.TestCase):
     def test_cat(self):
-        proc, stdin, stdout, stderr = process.run('cat')
+        proc, stdin, stdout, stderr = server_process.run('cat')
 
         stdin.send(b'as ')
         stdin.send(b'df')
@@ -93,7 +164,7 @@ class TestProcess(unittest.TestCase):
         self.assertEqual(err, b'')
 
     def test_echo(self):
-        proc, stdin, stdout, stderr = process.run('echo', 'as', 'df')
+        proc, stdin, stdout, stderr = server_process.run('echo', 'as', 'df')
 
         stdin.send(b'')
         stdin.close()
