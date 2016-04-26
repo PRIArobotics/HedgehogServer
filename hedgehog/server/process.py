@@ -7,7 +7,8 @@ def run(*args):
     """
     Runs a process defined by `args`.
 
-    Returned is the `Popen` object and three ZMQ sockets for piping `stdin`, `stdout`, and `stderr`.
+    Returned is the `Popen` object, three ZMQ sockets for piping `stdin`, `stdout`, and `stderr`,
+    and a socket that reports the process' exit status.
     The `Popen` object's file objects must not be used; use the ZMQ sockets!
 
     Data is sent as soon as it is available, i.e. not only after a full line or a fixed number of bytes.
@@ -18,7 +19,7 @@ def run(*args):
     and receiving `b''` from stdout or stderr means that EOF for the underlying file was reached.
 
     :param args: The command line arguments
-    :return: a tuple `(proc, stdin, stdout, stderr)`
+    :return: a tuple `(proc, stdin, stdout, stderr, exit)`
     """
 
     def write_handler(context, pipes):
@@ -45,7 +46,7 @@ def run(*args):
                     file.close()
                     socket.close()
 
-    def read_handler(context, pipes):
+    def read_handler(context, proc, exit_endpoint, pipes):
         selector = selectors.DefaultSelector()
 
         for _, file, endpoint in pipes:
@@ -56,6 +57,9 @@ def run(*args):
             socket = context.socket(zmq.PAIR)
             socket.connect(endpoint)
             selector.register(file, selectors.EVENT_READ, socket)
+
+        exit = context.socket(zmq.PAIR)
+        exit.connect(exit_endpoint)
 
         while len(selector.get_map()) > 0:
             for key, _ in selector.select():
@@ -73,6 +77,11 @@ def run(*args):
                     file.close()
                     socket.close()
 
+        status = proc.wait()
+        assert 0 <= status < 256
+        exit.send(status.to_bytes(1, 'big'))
+        exit.close()
+
     def pipe(context, file, endpoint):
         socket = context.socket(zmq.PAIR)
         socket.bind(endpoint)
@@ -89,9 +98,10 @@ def run(*args):
     stdin = pipe(context, proc.stdin, 'inproc://stdin')
     stdout = pipe(context, proc.stdout, 'inproc://stdout')
     stderr = pipe(context, proc.stderr, 'inproc://stderr')
+    exit, _, exit_endpoint = pipe(context, None, 'inproc://exit')
 
     threading.Thread(target=write_handler, args=[context, [stdin]]).start()
-    threading.Thread(target=read_handler, args=[context, [stdout, stderr]]).start()
+    threading.Thread(target=read_handler, args=[context, proc, exit_endpoint, [stdout, stderr]]).start()
 
     stdin, stdout, stderr = (socket for socket, _, _ in (stdin, stdout, stderr))
-    return proc, stdin, stdout, stderr
+    return proc, stdin, stdout, stderr, exit

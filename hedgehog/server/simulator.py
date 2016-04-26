@@ -44,9 +44,9 @@ class SimulatorCommandHandler:
         pass
 
     def process_execute_request(self, server, ident, msg):
-        proc, stdin, stdout, stderr = server_process.run(*msg.args)
+        proc, stdin, stdout, stderr, exit = server_process.run(*msg.args)
         pid = proc.pid
-        self._processes[pid] = proc, (stdin, stdout, stderr)
+        self._processes[pid] = proc, (stdin, stdout, stderr), exit
 
         def read_cb(socket, fileno):
             def cb():
@@ -55,12 +55,21 @@ class SimulatorCommandHandler:
                 server.socket.send(ident, msg)
             return cb
 
+        def exit_cb(socket):
+            def cb():
+                status = int.from_bytes(socket.recv(), 'big')
+                msg = process.ExitUpdate(pid, status)
+                server.socket.send(ident, msg)
+                del self._processes[pid]
+            return cb
+
         server.register(stdout, read_cb(stdout, process.STDOUT))
         server.register(stderr, read_cb(stderr, process.STDERR))
+        server.register(exit, exit_cb(exit))
         server.socket.send(ident, process.ExecuteReply(pid))
 
     def process_stream_action(self, server, ident, msg):
-        _, sockets = self._processes[msg.pid]
+        _, sockets, _ = self._processes[msg.pid]
         sockets[msg.fileno].send(msg.chunk)
 
 

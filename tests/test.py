@@ -86,6 +86,9 @@ class TestSimulator(unittest.TestCase):
             output[msg.fileno].append(msg.chunk)
             if msg.chunk == b'':
                 open -= 1
+        msg = socket.recv()
+        self.assertEqual(msg.pid, pid)
+        self.assertEqual(msg.exit_code, 0)
 
         output = {fileno: b''.join(chunks) for fileno, chunks in output.items()}
 
@@ -122,6 +125,9 @@ class TestSimulator(unittest.TestCase):
             output[msg.fileno].append(msg.chunk)
             if msg.chunk == b'':
                 open -= 1
+        msg = socket.recv()
+        self.assertEqual(msg.pid, pid)
+        self.assertEqual(msg.exit_code, 0)
 
         output = {fileno: b''.join(chunks) for fileno, chunks in output.items()}
 
@@ -131,7 +137,7 @@ class TestSimulator(unittest.TestCase):
         controller.close()
 
 
-def collect_outputs(*sockets):
+def collect_outputs(exit, *sockets):
     output = {socket: [] for socket in sockets}
 
     poller = zmq.Poller()
@@ -146,30 +152,33 @@ def collect_outputs(*sockets):
             else:
                 poller.unregister(socket)
                 socket.close()
+    status = int.from_bytes(exit.recv(), 'big')
 
-    return (b''.join(output[socket]) for socket in sockets)
+    return status, (b''.join(output[socket]) for socket in sockets)
 
 
 class TestProcess(unittest.TestCase):
     def test_cat(self):
-        proc, stdin, stdout, stderr = server_process.run('cat')
+        proc, stdin, stdout, stderr, exit = server_process.run('cat')
 
         stdin.send(b'as ')
         stdin.send(b'df')
         stdin.send(b'')
         stdin.close()
 
-        out, err = collect_outputs(stdout, stderr)
+        status, (out, err) = collect_outputs(exit, stdout, stderr)
+        self.assertEqual(status, 0)
         self.assertEqual(out, b'as df')
         self.assertEqual(err, b'')
 
     def test_echo(self):
-        proc, stdin, stdout, stderr = server_process.run('echo', 'as', 'df')
+        proc, stdin, stdout, stderr, exit = server_process.run('echo', 'as', 'df')
 
         stdin.send(b'')
         stdin.close()
 
-        out, err = collect_outputs(stdout, stderr)
+        status, (out, err) = collect_outputs(exit, stdout, stderr)
+        self.assertEqual(status, 0)
         self.assertEqual(out, b'as df\n')
         self.assertEqual(err, b'')
 
