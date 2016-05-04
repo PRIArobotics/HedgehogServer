@@ -1,12 +1,13 @@
 import zmq
 from hedgehog.server import HedgehogServer
 from hedgehog.server import handlers
-from hedgehog.server.handlers.simulator_handler import SimulatorHandler
+from hedgehog.server.handlers.hardware_handler import HardwareHandler
 from hedgehog.server.handlers.process_handler import ProcessHandler
+from hedgehog.server.hardware.simulated import SimulatedHardwareAdapter
 
 
 def handler():
-    return handlers.to_dict(SimulatorHandler(), ProcessHandler())
+    return handlers.to_dict(HardwareHandler(SimulatedHardwareAdapter()), ProcessHandler())
 
 
 def main():
