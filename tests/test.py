@@ -2,7 +2,8 @@ import unittest
 import zmq
 from hedgehog.protocol import sockets
 from hedgehog.protocol.messages import analog, digital, motor, servo, process
-from hedgehog.server import HedgehogServer, process as server_process
+from hedgehog.server import HedgehogServer
+from hedgehog.server.process import run
 from hedgehog.server.simulator import SimulatorCommandHandler
 
 
@@ -159,7 +160,7 @@ def collect_outputs(exit, *sockets):
 
 class TestProcess(unittest.TestCase):
     def test_cat(self):
-        proc, stdin, stdout, stderr, exit = server_process.run('cat')
+        proc, stdin, stdout, stderr, exit = run('cat')
 
         stdin.send(b'as ')
         stdin.send(b'df')
@@ -172,7 +173,7 @@ class TestProcess(unittest.TestCase):
         self.assertEqual(err, b'')
 
     def test_echo(self):
-        proc, stdin, stdout, stderr, exit = server_process.run('echo', 'as', 'df')
+        proc, stdin, stdout, stderr, exit = run('echo', 'as', 'df')
 
         stdin.send(b'')
         stdin.close()

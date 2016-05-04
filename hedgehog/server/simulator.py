@@ -1,5 +1,5 @@
 from hedgehog.protocol.messages import analog, digital, motor, servo, process
-from hedgehog.server import process as server_process
+from hedgehog.server.process import run
 
 
 class SimulatorCommandHandler:
@@ -44,7 +44,7 @@ class SimulatorCommandHandler:
         pass
 
     def process_execute_request(self, server, ident, msg):
-        proc, stdin, stdout, stderr, exit = server_process.run(*msg.args)
+        proc, stdin, stdout, stderr, exit = run(*msg.args)
         pid = proc.pid
         self._processes[pid] = proc, (stdin, stdout, stderr), exit
 
