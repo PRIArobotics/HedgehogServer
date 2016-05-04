@@ -54,10 +54,6 @@ setup(
         # 'dev': ['invoke'],
     },
 
-    dependency_links=[
-        'https://github.com/PRIArobotics/HedgehogProtocol/releases/download/0.0.0/hedgehog-protocol-0.0.0.tar.gz#egg=hedgehog-protocol-0.0.0',
-    ],
-
     # package_data={
     #     'proto': ['*.proto'],
     # },
