@@ -4,11 +4,11 @@ from hedgehog.protocol import sockets, utils
 
 
 class HedgehogServer(threading.Thread):
-    def __init__(self, endpoint, handler, context=None):
+    def __init__(self, endpoint, handlers, context=None):
         super().__init__()
         self.context = context or zmq.Context.instance()
         self.endpoint = endpoint
-        self.handler = handler
+        self.handlers = handlers
         self.killer = utils.Killer()
         self._poller = None
         self.socket = None
@@ -38,11 +38,12 @@ class HedgehogServer(threading.Thread):
         socket = self.context.socket(zmq.ROUTER)
         socket.bind(self.endpoint)
         self.socket = sockets.RouterWrapper(socket)
+
         def socket_cb():
             ident, msg = self.socket.recv()
             try:
-                handler = getattr(self.handler, msg._command_oneof)
-            except AttributeError:
+                handler = self.handlers[msg._command_oneof]
+            except KeyError:
                 # TODO handle unknown commands
                 print(msg._command_oneof + ': unknown command')
             else:
@@ -50,6 +51,7 @@ class HedgehogServer(threading.Thread):
         self.register(socket, socket_cb)
 
         killer = self.killer.connect_receiver()
+
         def killer_cb():
             killer.recv()
             for socket in list(self.sockets.keys()):

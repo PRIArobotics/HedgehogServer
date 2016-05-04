@@ -73,6 +73,11 @@ class SimulatorCommandHandler:
         sockets[msg.fileno].send(msg.chunk)
 
 
+def handlers():
+    import inspect
+    return dict(inspect.getmembers(SimulatorCommandHandler(), predicate=inspect.ismethod))
+
+
 def main():
     import zmq
     from hedgehog.server import HedgehogServer
