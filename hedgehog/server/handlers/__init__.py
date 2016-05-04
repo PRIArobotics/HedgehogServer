@@ -24,6 +24,6 @@ class CommandHandler:
 
     def __init__(self):
         self.handlers = {
-            key: handler.__get__(self, type(self))
+            key: handler.__get__(self)
             for key, handler in self._handlers.items()
         }
