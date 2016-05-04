@@ -10,7 +10,7 @@ class TestSimulator(unittest.TestCase):
     def test_analog_request(self):
         context = zmq.Context()
 
-        controller = HedgehogServer('tcp://*:5555', simulator.handlers(), context=context)
+        controller = HedgehogServer('tcp://*:5555', simulator.handler(), context=context)
         controller.start()
 
         socket = context.socket(zmq.DEALER)
@@ -27,7 +27,7 @@ class TestSimulator(unittest.TestCase):
     def test_digital_request(self):
         context = zmq.Context()
 
-        controller = HedgehogServer('tcp://*:5556', simulator.handlers(), context=context)
+        controller = HedgehogServer('tcp://*:5556', simulator.handler(), context=context)
         controller.start()
 
         socket = context.socket(zmq.DEALER)
@@ -44,7 +44,7 @@ class TestSimulator(unittest.TestCase):
     def test_motor_request(self):
         context = zmq.Context()
 
-        controller = HedgehogServer('tcp://*:5557', simulator.handlers(), context=context)
+        controller = HedgehogServer('tcp://*:5557', simulator.handler(), context=context)
         controller.start()
 
         socket = context.socket(zmq.DEALER)
@@ -62,7 +62,7 @@ class TestSimulator(unittest.TestCase):
     def test_process_execute_request_echo(self):
         context = zmq.Context()
 
-        controller = HedgehogServer('tcp://*:5558', simulator.handlers(), context=context)
+        controller = HedgehogServer('tcp://*:5558', simulator.handler(), context=context)
         controller.start()
 
         socket = context.socket(zmq.DEALER)
@@ -100,7 +100,7 @@ class TestSimulator(unittest.TestCase):
     def test_process_execute_request_cat(self):
         context = zmq.Context()
 
-        controller = HedgehogServer('tcp://*:5559', simulator.handlers(), context=context)
+        controller = HedgehogServer('tcp://*:5559', simulator.handler(), context=context)
         controller.start()
 
         socket = context.socket(zmq.DEALER)
