@@ -5,7 +5,7 @@ from hedgehog.protocol import sockets, utils
 
 class HedgehogServer(threading.Thread):
     def __init__(self, endpoint, handler, context=None):
-        super(HedgehogServer, self).__init__()
+        super().__init__()
         self.context = context or zmq.Context.instance()
         self.endpoint = endpoint
         self.handler = handler
