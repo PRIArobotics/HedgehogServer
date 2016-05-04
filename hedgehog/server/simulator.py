@@ -1,8 +1,8 @@
 import zmq
 from hedgehog.server import HedgehogServer
 from hedgehog.server import handlers
-from hedgehog.server.handlers.hardware_handler import HardwareHandler
-from hedgehog.server.handlers.process_handler import ProcessHandler
+from hedgehog.server.handlers.hardware import HardwareHandler
+from hedgehog.server.handlers.process import ProcessHandler
 from hedgehog.server.hardware.simulated import SimulatedHardwareAdapter
 
 
