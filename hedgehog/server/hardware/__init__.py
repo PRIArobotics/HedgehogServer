@@ -1,4 +1,4 @@
-from hedgehog.protocol.messages.motor import POWER, VELOCITY, FREEZE
+from hedgehog.protocol.messages.motor import POWER, VELOCITY, BRAKE
 
 class HardwareAdapter:
     def get_analog(self, port):
