@@ -1,4 +1,4 @@
-from hedgehog.protocol.messages import analog, digital, motor, servo
+from hedgehog.protocol.messages import ack, analog, digital, motor, servo
 from hedgehog.server.handlers import CommandHandler, command_handlers
 
 from hedgehog.server.hardware.simulated import SimulatedHardwareAdapter
@@ -20,6 +20,7 @@ class HardwareHandler(CommandHandler):
     @_command(analog.StateAction)
     def analog_state_action(self, server, ident, msg):
         self.adapter.set_analog_state(msg.port, msg.pullup)
+        server.socket.send(ident, ack.Acknowledgement())
 
     @_command(digital.Request)
     def digital_request(self, server, ident, msg):
@@ -29,10 +30,12 @@ class HardwareHandler(CommandHandler):
     @_command(digital.StateAction)
     def digital_state_action(self, server, ident, msg):
         self.adapter.set_digital_state(msg.port, msg.pullup, msg.output)
+        server.socket.send(ident, ack.Acknowledgement())
 
     @_command(digital.Action)
     def digital_action(self, server, ident, msg):
         self.adapter.set_digital(msg.port, msg.level)
+        server.socket.send(ident, ack.Acknowledgement())
 
     @_command(motor.Action)
     def motor_action(self, server, ident, msg):
@@ -42,6 +45,7 @@ class HardwareHandler(CommandHandler):
                 server.socket.send(ident, motor.StateUpdate(port, state))
             self.motor_cb[msg.port] = cb
         self.adapter.set_motor(msg.port, msg.state, msg.amount, msg.reached_state, msg.relative, msg.absolute)
+        server.socket.send(ident, ack.Acknowledgement())
 
     @_command(motor.Request)
     def motor_request(self, server, ident, msg):
@@ -56,11 +60,14 @@ class HardwareHandler(CommandHandler):
     @_command(motor.SetPositionAction)
     def motor_set_position_action(self, server, ident, msg):
         self.adapter.set_motor_position(msg.port, msg.position)
+        server.socket.send(ident, ack.Acknowledgement())
 
     @_command(servo.Action)
     def servo_action(self, server, ident, msg):
         self.adapter.set_servo(msg.port, msg.position)
+        server.socket.send(ident, ack.Acknowledgement())
 
     @_command(servo.StateAction)
     def servo_state_action(self, server, ident, msg):
         self.adapter.set_servo_state(msg.port, msg.active)
+        server.socket.send(ident, ack.Acknowledgement())

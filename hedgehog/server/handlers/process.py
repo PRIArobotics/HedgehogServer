@@ -1,4 +1,4 @@
-from hedgehog.protocol.messages import process
+from hedgehog.protocol.messages import ack, process
 from hedgehog.server.process import Process
 from hedgehog.server.handlers import CommandHandler, command_handlers
 
@@ -36,3 +36,4 @@ class ProcessHandler(CommandHandler):
     def process_stream_action(self, server, ident, msg):
         proc = self._processes[msg.pid]
         proc.write(msg.fileno, msg.chunk)
+        server.socket.send(ident, ack.Acknowledgement())
