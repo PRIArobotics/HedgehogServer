@@ -56,9 +56,6 @@ class Process:
         self.socket = self.context.socket(zmq.PAIR)
         self.socket.bind('inproc://socket')
 
-        signal = self.context.socket(zmq.PAIR)
-        signal.bind('inproc://signal')
-
         self.status = None
         self.proc = subprocess.Popen(
             args,
@@ -69,19 +66,12 @@ class Process:
         )
 
         threading.Thread(target=self._writer).start()
-        signal.recv()
-        signal.close()
-
-        threading.Thread(target=self._reader).start()
 
     def _writer(self):
         out = self.context.socket(zmq.PAIR)
         out.bind('inproc://out')
 
-        signal = self.context.socket(zmq.PAIR)
-        signal.connect('inproc://signal')
-        signal.send(b'')
-        signal.close()
+        threading.Thread(target=self._reader).start()
 
         socket = self.context.socket(zmq.PAIR)
         socket.connect('inproc://socket')
