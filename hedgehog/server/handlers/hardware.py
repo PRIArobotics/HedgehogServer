@@ -8,7 +8,9 @@ class HardwareHandler(CommandHandler):
 
     def __init__(self, adapter):
         super().__init__()
+        self.motor_cb = {}
         self.adapter = adapter
+        self.adapter.motor_state_update_cb = self.motor_state_update
 
     @_command(analog.Request)
     def analog_request(self, server, ident, msg):
@@ -34,12 +36,22 @@ class HardwareHandler(CommandHandler):
 
     @_command(motor.Action)
     def motor_action(self, server, ident, msg):
+        if msg.relative is not None or msg.absolute is not None:
+            # this action will end with a state update
+            def cb(port, state):
+                server.socket.send(ident, motor.StateUpdate(port, state))
+            self.motor_cb[msg.port] = cb
         self.adapter.set_motor(msg.port, msg.state, msg.amount, msg.reached_state, msg.relative, msg.absolute)
 
     @_command(motor.Request)
     def motor_request(self, server, ident, msg):
         velocity, position = self.adapter.get_motor(msg.port)
         server.socket.send(ident, motor.Update(msg.port, velocity, position))
+
+    def motor_state_update(self, port, state):
+        if port in self.motor_cb:
+            self.motor_cb[port](port, state)
+            del self.motor_cb[port]
 
     @_command(motor.SetPositionAction)
     def motor_set_position_action(self, server, ident, msg):
