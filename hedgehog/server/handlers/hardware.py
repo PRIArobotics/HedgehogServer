@@ -8,7 +8,7 @@ class HardwareHandler(CommandHandler):
 
     def __init__(self, adapter):
         super().__init__()
-        self.adapter = SimulatedHardwareAdapter()
+        self.adapter = adapter
 
     @_command(analog.Request)
     def analog_request(self, server, ident, msg):
