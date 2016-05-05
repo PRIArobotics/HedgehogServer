@@ -1,4 +1,4 @@
-from hedgehog.protocol.messages.motor import POWER, VELOCITY, BRAKE
+from hedgehog.protocol.messages.motor import POWER, BRAKE, VELOCITY
 
 class HardwareAdapter:
     def __init__(self, motor_state_update_cb=None):
