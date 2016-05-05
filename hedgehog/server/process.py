@@ -42,7 +42,7 @@ class Process:
     :return: a tuple `(proc, stdin, stdout, stderr, exit)`
     """
 
-    def __init__(self, *args):
+    def __init__(self, *args, **kwargs):
         """
         Runs a process defined by `args`.
 
@@ -64,7 +64,8 @@ class Process:
             args,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            stdin=subprocess.PIPE
+            stdin=subprocess.PIPE,
+            **kwargs
         )
 
         threading.Thread(target=self._writer).start()

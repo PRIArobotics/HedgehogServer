@@ -136,6 +136,44 @@ class TestSimulator(unittest.TestCase):
 
         controller.close()
 
+    def test_process_execute_request_pwd(self):
+        context = zmq.Context()
+
+        controller = HedgehogServer('tcp://*:5558', simulator.handler(), context=context)
+        controller.start()
+
+        socket = context.socket(zmq.DEALER)
+        socket.connect('tcp://localhost:5558')
+        socket = sockets.DealerWrapper(socket)
+
+        socket.send(process.ExecuteRequest('pwd', working_dir='/'))
+        pid = socket.recv().pid
+
+        output = {
+            process.STDOUT: [],
+            process.STDERR: [],
+        }
+
+        socket.send(process.StreamAction(pid, process.STDIN, b''))
+
+        open = 2
+        while open > 0:
+            msg = socket.recv()
+            self.assertEqual(msg.pid, pid)
+            output[msg.fileno].append(msg.chunk)
+            if msg.chunk == b'':
+                open -= 1
+        msg = socket.recv()
+        self.assertEqual(msg.pid, pid)
+        self.assertEqual(msg.exit_code, 0)
+
+        output = {fileno: b''.join(chunks) for fileno, chunks in output.items()}
+
+        self.assertEqual(output[process.STDOUT], b'/\n')
+        self.assertEqual(output[process.STDERR], b'')
+
+        controller.close()
+
 
 def collect_outputs(proc):
     output = {process.STDOUT: [], process.STDERR: []}
@@ -173,6 +211,19 @@ class TestProcess(unittest.TestCase):
         status, out, err = collect_outputs(proc)
         self.assertEqual(status, 0)
         self.assertEqual(out, b'as df\n')
+        self.assertEqual(err, b'')
+
+    def test_pwd(self):
+        import subprocess
+        proc = Process('pwd',
+                       cwd='/',
+                       )
+
+        proc.write(process.STDIN)
+
+        status, out, err = collect_outputs(proc)
+        self.assertEqual(status, 0)
+        self.assertEqual(out, b'/\n')
         self.assertEqual(err, b'')
 
 

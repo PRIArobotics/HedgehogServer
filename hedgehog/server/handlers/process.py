@@ -12,7 +12,7 @@ class ProcessHandler(CommandHandler):
 
     @_command(process.ExecuteRequest)
     def process_execute_request(self, server, ident, msg):
-        proc = Process(*msg.args)
+        proc = Process(*msg.args, cwd=msg.working_dir)
         pid = proc.proc.pid
         self._processes[pid] = proc
 
