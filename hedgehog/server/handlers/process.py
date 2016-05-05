@@ -1,5 +1,5 @@
 from hedgehog.protocol.messages import process
-from hedgehog.server.process import run
+from hedgehog.server.process import Process
 from hedgehog.server.handlers import CommandHandler, command_handlers
 
 
@@ -12,31 +12,27 @@ class ProcessHandler(CommandHandler):
 
     @_command(process.ExecuteRequest)
     def process_execute_request(self, server, ident, msg):
-        proc, stdin, stdout, stderr, exit = run(*msg.args)
-        pid = proc.pid
-        self._processes[pid] = proc, (stdin, stdout, stderr), exit
+        proc = Process(*msg.args)
+        pid = proc.proc.pid
+        self._processes[pid] = proc
 
-        def read_cb(socket, fileno):
-            def cb():
-                chunk = socket.recv()
-                msg = process.StreamUpdate(pid, fileno, chunk)
+        def cb():
+            msg = proc.read()
+            if msg is None:
+                msg = process.ExitUpdate(pid, proc.status)
                 server.socket.send(ident, msg)
-            return cb
-
-        def exit_cb(socket):
-            def cb():
-                status = int.from_bytes(socket.recv(), 'big')
-                msg = process.ExitUpdate(pid, status)
-                server.socket.send(ident, msg)
+                server.unregister(proc.socket)
+                proc.socket.close()
                 del self._processes[pid]
-            return cb
+            else:
+                fileno, msg = msg
+                msg = process.StreamUpdate(pid, fileno, msg)
+                server.socket.send(ident, msg)
 
-        server.register(stdout, read_cb(stdout, process.STDOUT))
-        server.register(stderr, read_cb(stderr, process.STDERR))
-        server.register(exit, exit_cb(exit))
+        server.register(proc.socket, cb)
         server.socket.send(ident, process.ExecuteReply(pid))
 
     @_command(process.StreamAction)
     def process_stream_action(self, server, ident, msg):
-        _, sockets, _ = self._processes[msg.pid]
-        sockets[msg.fileno].send(msg.chunk)
+        proc = self._processes[msg.pid]
+        proc.write(msg.fileno, msg.chunk)

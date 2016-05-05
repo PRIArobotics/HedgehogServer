@@ -3,7 +3,7 @@ import zmq
 from hedgehog.protocol import sockets
 from hedgehog.protocol.messages import analog, digital, motor, servo, process
 from hedgehog.server import HedgehogServer, simulator
-from hedgehog.server.process import run
+from hedgehog.server.process import Process
 
 
 class TestSimulator(unittest.TestCase):
@@ -137,47 +137,40 @@ class TestSimulator(unittest.TestCase):
         controller.close()
 
 
-def collect_outputs(exit, *sockets):
-    output = {socket: [] for socket in sockets}
+def collect_outputs(proc):
+    output = {process.STDOUT: [], process.STDERR: []}
 
-    poller = zmq.Poller()
-    for socket in sockets:
-        poller.register(socket)
+    msg = proc.read()
+    while msg is not None:
+        fileno, msg = msg
+        if msg != b'':
+            output[fileno].append(msg)
+        msg = proc.read()
+    proc.socket.close()
+    status = proc.status
 
-    while len(poller.sockets) > 0:
-        for socket, _ in poller.poll():
-            msg = socket.recv()
-            if msg != b'':
-                output[socket].append(msg)
-            else:
-                poller.unregister(socket)
-                socket.close()
-    status = int.from_bytes(exit.recv(), 'big')
-
-    return status, (b''.join(output[socket]) for socket in sockets)
+    return status, b''.join(output[process.STDOUT]), b''.join(output[process.STDERR])
 
 
 class TestProcess(unittest.TestCase):
     def test_cat(self):
-        proc, stdin, stdout, stderr, exit = run('cat')
+        proc = Process('cat')
 
-        stdin.send(b'as ')
-        stdin.send(b'df')
-        stdin.send(b'')
-        stdin.close()
+        proc.write(process.STDIN, b'as ')
+        proc.write(process.STDIN, b'df')
+        proc.write(process.STDIN)
 
-        status, (out, err) = collect_outputs(exit, stdout, stderr)
+        status, out, err = collect_outputs(proc)
         self.assertEqual(status, 0)
         self.assertEqual(out, b'as df')
         self.assertEqual(err, b'')
 
     def test_echo(self):
-        proc, stdin, stdout, stderr, exit = run('echo', 'as', 'df')
+        proc = Process('echo', 'as', 'df')
 
-        stdin.send(b'')
-        stdin.close()
+        proc.write(process.STDIN)
 
-        status, (out, err) = collect_outputs(exit, stdout, stderr)
+        status, out, err = collect_outputs(proc)
         self.assertEqual(status, 0)
         self.assertEqual(out, b'as df\n')
         self.assertEqual(err, b'')

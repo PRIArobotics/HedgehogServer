@@ -1,11 +1,31 @@
 import zmq
-import subprocess, fcntl, selectors
-import os, threading
+import subprocess, selectors, threading
+from hedgehog.protocol.messages.process import STDIN, STDOUT, STDERR
+
+EXIT = 0xFF
 
 
-def run(*args):
+class Process:
     """
-    Runs a process defined by `args`.
+    `Process` provides a ZMQ-based abstraction around a `Popen` object.
+
+    Using the `Process` class, users can (and must) interact with a child process via a single ZMQ socket, `socket`.
+    Messages are multipart, consisting of `(fileno, msg)`,
+    where `fileno` consists of one byte `STDIN`, `STDOUT`, `STDERR`, `EXIT`.
+    `STDIN` may be used to sending data to the process' `stdin` stream,
+    `STDOUT` and `STDERR` for receiving data from the corresponding streams,
+    and `EXIT` indicates the process has finished.
+    `msg` will contain a single byte that is the exit `status` of the process (`0 <= status < 256`).
+    (The `status` will also be available as a field.)
+
+    Data is sent as soon as it is available, i.e. not only after a full line or a fixed number of bytes.
+    The fragmentation of stream data into ZMQ messages is arbitrary, but a limited per-message length can be assumed.
+    An empty `msg` (`b''`) denotes EOF, both for reading and writing.
+    The `EXIT` message will always be the last message received from the socket;
+    at that point, both output streams will have reached EOF
+    and the process will have finished with the indicated `status`.
+
+
 
     Returned is the `Popen` object, three ZMQ sockets for piping `stdin`, `stdout`, and `stderr`,
     and a socket that reports the process' exit status.
@@ -22,86 +42,130 @@ def run(*args):
     :return: a tuple `(proc, stdin, stdout, stderr, exit)`
     """
 
-    def write_handler(context, pipes):
+    def __init__(self, *args):
+        """
+        Runs a process defined by `args`.
+
+        This will spawn a new process, along with two threads for handling input and output.
+        Communication with the process can be done via `socket`, or via the convenience methods `write` and `read`.
+
+        :param args: The command line arguments
+        """
+        self.context = zmq.Context()
+
+        self.socket = self.context.socket(zmq.PAIR)
+        self.socket.bind('inproc://socket')
+
+        signal = self.context.socket(zmq.PAIR)
+        signal.bind('inproc://signal')
+
+        self.status = None
+        self.proc = subprocess.Popen(
+            args,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            stdin=subprocess.PIPE
+        )
+
+        threading.Thread(target=self._writer).start()
+        signal.recv()
+        signal.close()
+
+        threading.Thread(target=self._reader).start()
+
+    def _writer(self):
+        out = self.context.socket(zmq.PAIR)
+        out.bind('inproc://out')
+
+        signal = self.context.socket(zmq.PAIR)
+        signal.connect('inproc://signal')
+        signal.send(b'')
+        signal.close()
+
+        socket = self.context.socket(zmq.PAIR)
+        socket.connect('inproc://socket')
+
         poller = zmq.Poller()
-
-        files = {}
-
-        for _, file, endpoint in pipes:
-            socket = context.socket(zmq.PAIR)
-            socket.connect(endpoint)
-            poller.register(socket, zmq.POLLIN)
-            files[socket] = file
+        poller.register(socket, zmq.POLLIN)
+        poller.register(out, zmq.POLLIN)
 
         while len(poller.sockets) > 0:
-            for socket, _ in poller.poll():
-                file = files[socket]
+            for sock, _ in poller.poll():
+                fileno, msg = sock.recv_multipart()
+                if fileno[0] == STDIN:
+                    # write message to stdin
+                    file = self.proc.stdin
+                    if msg != b'':
+                        file.write(msg)
+                        file.flush()
+                    else:
+                        file.close()
+                        poller.unregister(sock)
+                elif fileno[0] in {STDOUT, STDERR}:
+                    # pipe message to the socket
+                    socket.send_multipart([fileno, msg])
+                elif fileno[0] == EXIT:
+                    # pipe message to the socket, unregister sock
+                    socket.send_multipart([fileno, msg])
+                    poller.unregister(sock)
+                    sock.close()
+        socket.close()
 
-                msg = socket.recv()
-                if msg != b'':
-                    file.write(msg)
-                    file.flush()
-                else:
-                    poller.unregister(socket)
-                    file.close()
-                    socket.close()
+    def _reader(self):
+        out = self.context.socket(zmq.PAIR)
+        out.connect('inproc://out')
 
-    def read_handler(context, proc, exit_endpoint, pipes):
         selector = selectors.DefaultSelector()
-
-        for _, file, endpoint in pipes:
-            flags = fcntl.fcntl(file, fcntl.F_GETFL)
-            flags |= os.O_NONBLOCK
-            fcntl.fcntl(file, fcntl.F_SETFL, flags)
-
-            socket = context.socket(zmq.PAIR)
-            socket.connect(endpoint)
-            selector.register(file, selectors.EVENT_READ, socket)
-
-        exit = context.socket(zmq.PAIR)
-        exit.connect(exit_endpoint)
+        selector.register(self.proc.stdout, selectors.EVENT_READ, STDOUT)
+        selector.register(self.proc.stderr, selectors.EVENT_READ, STDERR)
 
         while len(selector.get_map()) > 0:
             for key, _ in selector.select():
-                socket, file = key.data, key.fileobj
+                fileno, file = key.data, key.fileobj
 
                 data = None
                 while data != b'':
                     data = file.read(4096)
                     if data is None:
                         break
-                    socket.send(data)
+                    out.send_multipart([bytes([fileno]), data])
 
                 if data == b'':
                     selector.unregister(file)
                     file.close()
-                    socket.close()
 
-        status = proc.wait()
-        assert 0 <= status < 256
-        exit.send(status.to_bytes(1, 'big'))
-        exit.close()
+        self.status = self.proc.wait()
+        assert 0 <= self.status < 256
+        out.send_multipart([bytes([EXIT]), self.status.to_bytes(1, 'big')])
+        out.close()
+        selector.close()
 
-    def pipe(context, file, endpoint):
-        socket = context.socket(zmq.PAIR)
-        socket.bind(endpoint)
-        return socket, file, endpoint
+    def write(self, fileno, msg=b''):
+        """
+        Writes `msg` to the child process' file `fileno`.
 
-    context = zmq.Context()
-    proc = subprocess.Popen(
-        args,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        stdin=subprocess.PIPE
-    )
+        An empty `msg` (the default) denotes EOF.
 
-    stdin = pipe(context, proc.stdin, 'inproc://stdin')
-    stdout = pipe(context, proc.stdout, 'inproc://stdout')
-    stderr = pipe(context, proc.stderr, 'inproc://stderr')
-    exit, _, exit_endpoint = pipe(context, None, 'inproc://exit')
+        :param fileno: Must be `STDIN`
+        :param msg: The data to write
+        """
+        self.socket.send_multipart([bytes([fileno]), msg])
 
-    threading.Thread(target=write_handler, args=[context, [stdin]]).start()
-    threading.Thread(target=read_handler, args=[context, proc, exit_endpoint, [stdout, stderr]]).start()
+    def read(self):
+        """
+        Reads from the child process' streams.
 
-    stdin, stdout, stderr = (socket for socket, _, _ in (stdin, stdout, stderr))
-    return proc, stdin, stdout, stderr, exit
+        If the message received from the socket is `EXIT`, `None` is returned;
+        otherwise, the return value is a tuple `(fileno, msg)`, where `fileno` is either `STDOUT` or `STDERR`.
+
+        Note that calling `read` after `EXIT` was received will block indefinitely,
+        and that this method will not close the underlying socket on `EXIT`.
+
+        :return: `None`, or `(fileno, msg)`
+        """
+        fileno, msg = self.socket.recv_multipart()
+        fileno = fileno[0]
+        if fileno == EXIT:
+            return None
+        else:
+            return fileno, msg
