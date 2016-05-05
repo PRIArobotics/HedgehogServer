@@ -34,6 +34,11 @@ class ProcessHandler(CommandHandler):
 
     @_command(process.StreamAction)
     def process_stream_action(self, server, ident, msg):
-        proc = self._processes[msg.pid]
-        proc.write(msg.fileno, msg.chunk)
-        server.socket.send(ident, ack.Acknowledgement())
+        # check whether the process has already finished
+        if msg.pid in self._processes:
+            proc = self._processes[msg.pid]
+            proc.write(msg.fileno, msg.chunk)
+            server.socket.send(ident, ack.Acknowledgement())
+        else:
+            # TODO send a NAK instead
+            server.socket.send(ident, ack.Acknowledgement())

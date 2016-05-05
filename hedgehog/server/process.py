@@ -80,26 +80,27 @@ class Process:
         poller.register(socket, zmq.POLLIN)
         poller.register(out, zmq.POLLIN)
 
+        stdin = self.proc.stdin
         while len(poller.sockets) > 0:
             for sock, _ in poller.poll():
                 fileno, msg = sock.recv_multipart()
                 if fileno[0] == STDIN:
                     # write message to stdin
-                    file = self.proc.stdin
                     if msg != b'':
-                        file.write(msg)
-                        file.flush()
+                        stdin.write(msg)
+                        stdin.flush()
                     else:
-                        file.close()
-                        poller.unregister(sock)
+                        stdin.close()
                 elif fileno[0] in {STDOUT, STDERR}:
                     # pipe message to the socket
                     socket.send_multipart([fileno, msg])
                 elif fileno[0] == EXIT:
-                    # pipe message to the socket, unregister sock
+                    # pipe message to the socket, break the loop
                     socket.send_multipart([fileno, msg])
-                    poller.unregister(sock)
-                    sock.close()
+                    poller.unregister(out)
+                    poller.unregister(socket)
+        stdin.close()
+        out.close()
         socket.close()
 
     def _reader(self):
