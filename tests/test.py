@@ -13,9 +13,9 @@ class TestSimulator(unittest.TestCase):
         controller = HedgehogServer('inproc://controller', simulator.handler(), context=context)
         controller.start()
 
-        socket = context.socket(zmq.DEALER)
+        socket = context.socket(zmq.REQ)
         socket.connect('inproc://controller')
-        socket = sockets.DealerWrapper(socket)
+        socket = sockets.ReqWrapper(socket)
 
         socket.send(analog.Request(0))
         update = socket.recv()
@@ -30,9 +30,9 @@ class TestSimulator(unittest.TestCase):
         controller = HedgehogServer('inproc://controller', simulator.handler(), context=context)
         controller.start()
 
-        socket = context.socket(zmq.DEALER)
+        socket = context.socket(zmq.REQ)
         socket.connect('inproc://controller')
-        socket = sockets.DealerWrapper(socket)
+        socket = sockets.ReqWrapper(socket)
 
         socket.send(analog.StateAction(0, False))
         response = socket.recv()
@@ -47,9 +47,9 @@ class TestSimulator(unittest.TestCase):
         controller = HedgehogServer('inproc://controller', simulator.handler(), context=context)
         controller.start()
 
-        socket = context.socket(zmq.DEALER)
+        socket = context.socket(zmq.REQ)
         socket.connect('inproc://controller')
-        socket = sockets.DealerWrapper(socket)
+        socket = sockets.ReqWrapper(socket)
 
         socket.send(digital.Request(0))
         update = socket.recv()
@@ -64,9 +64,9 @@ class TestSimulator(unittest.TestCase):
         controller = HedgehogServer('inproc://controller', simulator.handler(), context=context)
         controller.start()
 
-        socket = context.socket(zmq.DEALER)
+        socket = context.socket(zmq.REQ)
         socket.connect('inproc://controller')
-        socket = sockets.DealerWrapper(socket)
+        socket = sockets.ReqWrapper(socket)
 
         socket.send(digital.StateAction(0, False, False))
         response = socket.recv()
@@ -81,9 +81,9 @@ class TestSimulator(unittest.TestCase):
         controller = HedgehogServer('inproc://controller', simulator.handler(), context=context)
         controller.start()
 
-        socket = context.socket(zmq.DEALER)
+        socket = context.socket(zmq.REQ)
         socket.connect('inproc://controller')
-        socket = sockets.DealerWrapper(socket)
+        socket = sockets.ReqWrapper(socket)
 
         socket.send(digital.Action(0, False))
         response = socket.recv()
@@ -98,9 +98,9 @@ class TestSimulator(unittest.TestCase):
         controller = HedgehogServer('inproc://controller', simulator.handler(), context=context)
         controller.start()
 
-        socket = context.socket(zmq.DEALER)
+        socket = context.socket(zmq.REQ)
         socket.connect('inproc://controller')
-        socket = sockets.DealerWrapper(socket)
+        socket = sockets.ReqWrapper(socket)
 
         socket.send(motor.Action(0, motor.POWER))
         response = socket.recv()
@@ -115,9 +115,9 @@ class TestSimulator(unittest.TestCase):
         controller = HedgehogServer('inproc://controller', simulator.handler(), context=context)
         controller.start()
 
-        socket = context.socket(zmq.DEALER)
+        socket = context.socket(zmq.REQ)
         socket.connect('inproc://controller')
-        socket = sockets.DealerWrapper(socket)
+        socket = sockets.ReqWrapper(socket)
 
         socket.send(motor.Request(0))
         update = socket.recv()
@@ -133,9 +133,9 @@ class TestSimulator(unittest.TestCase):
         controller = HedgehogServer('inproc://controller', simulator.handler(), context=context)
         controller.start()
 
-        socket = context.socket(zmq.DEALER)
+        socket = context.socket(zmq.REQ)
         socket.connect('inproc://controller')
-        socket = sockets.DealerWrapper(socket)
+        socket = sockets.ReqWrapper(socket)
 
         socket.send(motor.SetPositionAction(0, 0))
         response = socket.recv()
@@ -150,9 +150,9 @@ class TestSimulator(unittest.TestCase):
         controller = HedgehogServer('inproc://controller', simulator.handler(), context=context)
         controller.start()
 
-        socket = context.socket(zmq.DEALER)
+        socket = context.socket(zmq.REQ)
         socket.connect('inproc://controller')
-        socket = sockets.DealerWrapper(socket)
+        socket = sockets.ReqWrapper(socket)
 
         socket.send(servo.Action(0, 0))
         response = socket.recv()
@@ -167,9 +167,9 @@ class TestSimulator(unittest.TestCase):
         controller = HedgehogServer('inproc://controller', simulator.handler(), context=context)
         controller.start()
 
-        socket = context.socket(zmq.DEALER)
+        socket = context.socket(zmq.REQ)
         socket.connect('inproc://controller')
-        socket = sockets.DealerWrapper(socket)
+        socket = sockets.ReqWrapper(socket)
 
         socket.send(servo.StateAction(0, False))
         response = socket.recv()
@@ -186,29 +186,25 @@ class TestSimulator(unittest.TestCase):
 
         socket = context.socket(zmq.DEALER)
         socket.connect('inproc://controller')
-        socket = sockets.DealerWrapper(socket)
+        socket = sockets.DealerRouterWrapper(socket)
 
-        socket.send(process.ExecuteRequest('echo', 'asdf'))
-        pid = socket.recv().pid
+        socket.send([], process.ExecuteRequest('echo', 'asdf'))
+        _, response = socket.recv()
+        pid = response.pid
 
         output = {
             process.STDOUT: [],
             process.STDERR: [],
         }
 
-        socket.send(process.StreamAction(pid, process.STDIN, b''))
-        response = socket.recv()
-        self.assertEqual(response.code, ack.OK)
-        self.assertEqual(response.message, '')
-
         open = 2
         while open > 0:
-            msg = socket.recv()
+            _, msg = socket.recv()
             self.assertEqual(msg.pid, pid)
             output[msg.fileno].append(msg.chunk)
             if msg.chunk == b'':
                 open -= 1
-        msg = socket.recv()
+        _, msg = socket.recv()
         self.assertEqual(msg.pid, pid)
         self.assertEqual(msg.exit_code, 0)
 
@@ -227,33 +223,34 @@ class TestSimulator(unittest.TestCase):
 
         socket = context.socket(zmq.DEALER)
         socket.connect('inproc://controller')
-        socket = sockets.DealerWrapper(socket)
+        socket = sockets.DealerRouterWrapper(socket)
 
-        socket.send(process.ExecuteRequest('cat'))
-        pid = socket.recv().pid
+        socket.send([], process.ExecuteRequest('cat'))
+        _, response = socket.recv()
+        pid = response.pid
 
         output = {
             process.STDOUT: [],
             process.STDERR: [],
         }
 
-        socket.send(process.StreamAction(pid, process.STDIN, b'asdf'))
-        response = socket.recv()
+        socket.send([], process.StreamAction(pid, process.STDIN, b'asdf'))
+        _, response = socket.recv()
         self.assertEqual(response.code, ack.OK)
         self.assertEqual(response.message, '')
-        socket.send(process.StreamAction(pid, process.STDIN, b''))
-        response = socket.recv()
+        socket.send([], process.StreamAction(pid, process.STDIN, b''))
+        _, response = socket.recv()
         self.assertEqual(response.code, ack.OK)
         self.assertEqual(response.message, '')
 
         open = 2
         while open > 0:
-            msg = socket.recv()
+            _, msg = socket.recv()
             self.assertEqual(msg.pid, pid)
             output[msg.fileno].append(msg.chunk)
             if msg.chunk == b'':
                 open -= 1
-        msg = socket.recv()
+        _, msg = socket.recv()
         self.assertEqual(msg.pid, pid)
         self.assertEqual(msg.exit_code, 0)
 
@@ -272,29 +269,25 @@ class TestSimulator(unittest.TestCase):
 
         socket = context.socket(zmq.DEALER)
         socket.connect('inproc://controller')
-        socket = sockets.DealerWrapper(socket)
+        socket = sockets.DealerRouterWrapper(socket)
 
-        socket.send(process.ExecuteRequest('pwd', working_dir='/'))
-        pid = socket.recv().pid
+        socket.send([], process.ExecuteRequest('pwd', working_dir='/'))
+        _, response = socket.recv()
+        pid = response.pid
 
         output = {
             process.STDOUT: [],
             process.STDERR: [],
         }
 
-        socket.send(process.StreamAction(pid, process.STDIN, b''))
-        response = socket.recv()
-        self.assertEqual(response.code, ack.OK)
-        self.assertEqual(response.message, '')
-
         open = 2
         while open > 0:
-            msg = socket.recv()
+            _, msg = socket.recv()
             self.assertEqual(msg.pid, pid)
             output[msg.fileno].append(msg.chunk)
             if msg.chunk == b'':
                 open -= 1
-        msg = socket.recv()
+        _, msg = socket.recv()
         self.assertEqual(msg.pid, pid)
         self.assertEqual(msg.exit_code, 0)
 

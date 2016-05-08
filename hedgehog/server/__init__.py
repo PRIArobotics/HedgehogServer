@@ -37,17 +37,18 @@ class HedgehogServer(threading.Thread):
 
         socket = self.context.socket(zmq.ROUTER)
         socket.bind(self.endpoint)
-        self.socket = sockets.RouterWrapper(socket)
+        self.socket = sockets.DealerRouterWrapper(socket)
 
         def socket_cb():
-            ident, msg = self.socket.recv()
-            try:
-                handler = self.handlers[msg._command_oneof]
-            except KeyError:
-                # TODO handle unknown commands
-                print(msg._command_oneof + ': unknown command')
-            else:
-                handler(self, ident, msg)
+            ident, msgs = self.socket.recv_multipart()
+            for msg in msgs:
+                try:
+                    handler = self.handlers[msg._command_oneof]
+                except KeyError:
+                    # TODO handle unknown commands
+                    print(msg._command_oneof + ': unknown command')
+                else:
+                    handler(self, ident, msg)
         self.register(socket, socket_cb)
 
         killer = self.killer.connect_receiver()
