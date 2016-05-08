@@ -30,7 +30,7 @@ class ProcessHandler(CommandHandler):
                 server.socket.send(ident, msg)
 
         server.register(proc.socket, cb)
-        server.socket.send(ident, process.ExecuteReply(pid))
+        return process.ExecuteReply(pid)
 
     @_command(process.StreamAction)
     def process_stream_action(self, server, ident, msg):
@@ -38,7 +38,7 @@ class ProcessHandler(CommandHandler):
         if msg.pid in self._processes:
             proc = self._processes[msg.pid]
             proc.write(msg.fileno, msg.chunk)
-            server.socket.send(ident, ack.Acknowledgement())
+            return ack.Acknowledgement()
         else:
             # TODO send a NAK instead
-            server.socket.send(ident, ack.Acknowledgement())
+            return ack.Acknowledgement()

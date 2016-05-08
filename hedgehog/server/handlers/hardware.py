@@ -15,27 +15,27 @@ class HardwareHandler(CommandHandler):
     @_command(analog.Request)
     def analog_request(self, server, ident, msg):
         value = self.adapter.get_analog(msg.port)
-        server.socket.send(ident, analog.Update(msg.port, value))
+        return analog.Update(msg.port, value)
 
     @_command(analog.StateAction)
     def analog_state_action(self, server, ident, msg):
         self.adapter.set_analog_state(msg.port, msg.pullup)
-        server.socket.send(ident, ack.Acknowledgement())
+        return ack.Acknowledgement()
 
     @_command(digital.Request)
     def digital_request(self, server, ident, msg):
         value = self.adapter.get_digital(msg.port)
-        server.socket.send(ident, digital.Update(msg.port, value))
+        return digital.Update(msg.port, value)
 
     @_command(digital.StateAction)
     def digital_state_action(self, server, ident, msg):
         self.adapter.set_digital_state(msg.port, msg.pullup, msg.output)
-        server.socket.send(ident, ack.Acknowledgement())
+        return ack.Acknowledgement()
 
     @_command(digital.Action)
     def digital_action(self, server, ident, msg):
         self.adapter.set_digital(msg.port, msg.level)
-        server.socket.send(ident, ack.Acknowledgement())
+        return ack.Acknowledgement()
 
     @_command(motor.Action)
     def motor_action(self, server, ident, msg):
@@ -45,12 +45,12 @@ class HardwareHandler(CommandHandler):
                 server.socket.send(ident, motor.StateUpdate(port, state))
             self.motor_cb[msg.port] = cb
         self.adapter.set_motor(msg.port, msg.state, msg.amount, msg.reached_state, msg.relative, msg.absolute)
-        server.socket.send(ident, ack.Acknowledgement())
+        return ack.Acknowledgement()
 
     @_command(motor.Request)
     def motor_request(self, server, ident, msg):
         velocity, position = self.adapter.get_motor(msg.port)
-        server.socket.send(ident, motor.Update(msg.port, velocity, position))
+        return motor.Update(msg.port, velocity, position)
 
     def motor_state_update(self, port, state):
         if port in self.motor_cb:
@@ -60,14 +60,14 @@ class HardwareHandler(CommandHandler):
     @_command(motor.SetPositionAction)
     def motor_set_position_action(self, server, ident, msg):
         self.adapter.set_motor_position(msg.port, msg.position)
-        server.socket.send(ident, ack.Acknowledgement())
+        return ack.Acknowledgement()
 
     @_command(servo.Action)
     def servo_action(self, server, ident, msg):
         self.adapter.set_servo(msg.port, msg.position)
-        server.socket.send(ident, ack.Acknowledgement())
+        return ack.Acknowledgement()
 
     @_command(servo.StateAction)
     def servo_state_action(self, server, ident, msg):
         self.adapter.set_servo_state(msg.port, msg.active)
-        server.socket.send(ident, ack.Acknowledgement())
+        return ack.Acknowledgement()

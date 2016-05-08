@@ -1,6 +1,7 @@
 import zmq
 import threading
 from hedgehog.protocol import sockets, utils
+from hedgehog.protocol.messages import ack
 
 
 class HedgehogServer(threading.Thread):
@@ -41,14 +42,18 @@ class HedgehogServer(threading.Thread):
 
         def socket_cb():
             ident, msgs = self.socket.recv_multipart()
-            for msg in msgs:
+            def handle(msg):
                 try:
                     handler = self.handlers[msg._command_oneof]
                 except KeyError:
                     # TODO handle unknown commands
                     print(msg._command_oneof + ': unknown command')
+                    # TODO send a NAK instead
+                    return ack.Acknowledgement()
                 else:
-                    handler(self, ident, msg)
+                    return handler(self, ident, msg)
+            msgs = [handle(msg) for msg in msgs]
+            self.socket.send_multipart(ident, msgs)
         self.register(socket, socket_cb)
 
         killer = self.killer.connect_receiver()

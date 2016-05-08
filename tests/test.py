@@ -7,6 +7,25 @@ from hedgehog.server.process import Process
 
 
 class TestSimulator(unittest.TestCase):
+    def test_multipart(self):
+        context = zmq.Context()
+
+        controller = HedgehogServer('inproc://controller', simulator.handler(), context=context)
+        controller.start()
+
+        socket = context.socket(zmq.REQ)
+        socket.connect('inproc://controller')
+        socket = sockets.ReqWrapper(socket)
+
+        socket.send_multipart([analog.Request(0), digital.Request(0)])
+        update = socket.recv_multipart()
+        self.assertEqual(update[0].port, 0)
+        self.assertEqual(update[0].value, 0)
+        self.assertEqual(update[1].port, 0)
+        self.assertEqual(update[1].value, False)
+
+        controller.close()
+
     def test_analog_request(self):
         context = zmq.Context()
 
