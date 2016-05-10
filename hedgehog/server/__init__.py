@@ -50,10 +50,10 @@ class HedgehogServer(threading.Thread):
                         handler = self.handlers[msg._command_oneof]
                     except KeyError as err:
                         raise UnsupportedCommandError(msg._command_oneof)
+                    else:
+                        return handler(self, ident, msg)
                 except HedgehogCommandError as err:
-                    return ack.Acknowledgement(err.code, err.args[0])
-                else:
-                    return handler(self, ident, msg)
+                    return err.to_message()
 
             msgs = [handle(msg) for msg in msgs_raw]
             self.socket.send_multipart(ident, msgs)

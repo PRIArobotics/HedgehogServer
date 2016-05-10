@@ -1,3 +1,4 @@
+from hedgehog.protocol.errors import FailedCommandError
 from hedgehog.protocol.messages import ack, process
 from hedgehog.server.process import Process
 from hedgehog.server.handlers import CommandHandler, command_handlers
@@ -40,4 +41,4 @@ class ProcessHandler(CommandHandler):
             proc.write(msg.fileno, msg.chunk)
             return ack.Acknowledgement()
         else:
-            return ack.Acknowledgement(ack.FAILED_COMMAND, "no process with pid {}".format(msg.pid))
+            raise FailedCommandError("no process with pid {}".format(msg.pid))

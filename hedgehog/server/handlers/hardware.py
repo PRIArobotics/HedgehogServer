@@ -14,30 +14,18 @@ class HardwareHandler(CommandHandler):
 
     @_command(io.StateAction)
     def analog_state_action(self, server, ident, msg):
-        try:
-            self.adapter.set_io_state(msg.port, msg.flags)
-        except HedgehogCommandError as err:
-            return ack.Acknowledgement(err.code, err.args[0])
-        else:
-            return ack.Acknowledgement()
+        self.adapter.set_io_state(msg.port, msg.flags)
+        return ack.Acknowledgement()
 
     @_command(analog.Request)
     def analog_request(self, server, ident, msg):
-        try:
-            value = self.adapter.get_analog(msg.port)
-        except HedgehogCommandError as err:
-            return ack.Acknowledgement(err.code, err.args[0])
-        else:
-            return analog.Update(msg.port, value)
+        value = self.adapter.get_analog(msg.port)
+        return analog.Update(msg.port, value)
 
     @_command(digital.Request)
     def digital_request(self, server, ident, msg):
-        try:
-            value = self.adapter.get_digital(msg.port)
-        except HedgehogCommandError as err:
-            return ack.Acknowledgement(err.code, err.args[0])
-        else:
-            return digital.Update(msg.port, value)
+        value = self.adapter.get_digital(msg.port)
+        return digital.Update(msg.port, value)
 
     @_command(motor.Action)
     def motor_action(self, server, ident, msg):
@@ -46,21 +34,13 @@ class HardwareHandler(CommandHandler):
             def cb(port, state):
                 server.socket.send(ident, motor.StateUpdate(port, state))
             self.motor_cb[msg.port] = cb
-        try:
-            self.adapter.set_motor(msg.port, msg.state, msg.amount, msg.reached_state, msg.relative, msg.absolute)
-        except HedgehogCommandError as err:
-            return ack.Acknowledgement(err.code, err.args[0])
-        else:
-            return ack.Acknowledgement()
+        self.adapter.set_motor(msg.port, msg.state, msg.amount, msg.reached_state, msg.relative, msg.absolute)
+        return ack.Acknowledgement()
 
     @_command(motor.Request)
     def motor_request(self, server, ident, msg):
-        try:
-            velocity, position = self.adapter.get_motor(msg.port)
-        except HedgehogCommandError as err:
-            return ack.Acknowledgement(err.code, err.args[0])
-        else:
-            return motor.Update(msg.port, velocity, position)
+        velocity, position = self.adapter.get_motor(msg.port)
+        return motor.Update(msg.port, velocity, position)
 
     def motor_state_update(self, port, state):
         if port in self.motor_cb:
@@ -69,18 +49,10 @@ class HardwareHandler(CommandHandler):
 
     @_command(motor.SetPositionAction)
     def motor_set_position_action(self, server, ident, msg):
-        try:
-            self.adapter.set_motor_position(msg.port, msg.position)
-        except HedgehogCommandError as err:
-            return ack.Acknowledgement(err.code, err.args[0])
-        else:
-            return ack.Acknowledgement()
+        self.adapter.set_motor_position(msg.port, msg.position)
+        return ack.Acknowledgement()
 
     @_command(servo.Action)
     def servo_action(self, server, ident, msg):
-        try:
-            self.adapter.set_servo(msg.port, msg.active, msg.position)
-        except HedgehogCommandError as err:
-            return ack.Acknowledgement(err.code, err.args[0])
-        else:
-            return ack.Acknowledgement()
+        self.adapter.set_servo(msg.port, msg.active, msg.position)
+        return ack.Acknowledgement()
