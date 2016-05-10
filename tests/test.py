@@ -1,7 +1,7 @@
 import unittest
 import zmq
 from hedgehog.protocol import sockets
-from hedgehog.protocol.messages import ack, analog, digital, motor, servo, process
+from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo, process
 from hedgehog.server import HedgehogServer, simulator
 from hedgehog.server.process import Process
 
@@ -26,6 +26,23 @@ class TestSimulator(unittest.TestCase):
 
         controller.close()
 
+    def test_io_state_action(self):
+        context = zmq.Context()
+
+        controller = HedgehogServer('inproc://controller', simulator.handler(), context=context)
+        controller.start()
+
+        socket = context.socket(zmq.REQ)
+        socket.connect('inproc://controller')
+        socket = sockets.ReqWrapper(socket)
+
+        socket.send(io.StateAction(0, io.ANALOG_PULLDOWN))
+        response = socket.recv()
+        self.assertEqual(response.code, ack.OK)
+        self.assertEqual(response.message, '')
+
+        controller.close()
+
     def test_analog_request(self):
         context = zmq.Context()
 
@@ -43,23 +60,6 @@ class TestSimulator(unittest.TestCase):
 
         controller.close()
 
-    def test_analog_state_action(self):
-        context = zmq.Context()
-
-        controller = HedgehogServer('inproc://controller', simulator.handler(), context=context)
-        controller.start()
-
-        socket = context.socket(zmq.REQ)
-        socket.connect('inproc://controller')
-        socket = sockets.ReqWrapper(socket)
-
-        socket.send(analog.StateAction(0, False))
-        response = socket.recv()
-        self.assertEqual(response.code, ack.OK)
-        self.assertEqual(response.message, '')
-
-        controller.close()
-
     def test_digital_request(self):
         context = zmq.Context()
 
@@ -74,40 +74,6 @@ class TestSimulator(unittest.TestCase):
         update = socket.recv()
         self.assertEqual(update.port, 0)
         self.assertEqual(update.value, False)
-
-        controller.close()
-
-    def test_digital_state_action(self):
-        context = zmq.Context()
-
-        controller = HedgehogServer('inproc://controller', simulator.handler(), context=context)
-        controller.start()
-
-        socket = context.socket(zmq.REQ)
-        socket.connect('inproc://controller')
-        socket = sockets.ReqWrapper(socket)
-
-        socket.send(digital.StateAction(0, False, False))
-        response = socket.recv()
-        self.assertEqual(response.code, ack.OK)
-        self.assertEqual(response.message, '')
-
-        controller.close()
-
-    def test_digital_action(self):
-        context = zmq.Context()
-
-        controller = HedgehogServer('inproc://controller', simulator.handler(), context=context)
-        controller.start()
-
-        socket = context.socket(zmq.REQ)
-        socket.connect('inproc://controller')
-        socket = sockets.ReqWrapper(socket)
-
-        socket.send(digital.Action(0, False))
-        response = socket.recv()
-        self.assertEqual(response.code, ack.OK)
-        self.assertEqual(response.message, '')
 
         controller.close()
 

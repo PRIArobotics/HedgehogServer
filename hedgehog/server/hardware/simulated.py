@@ -1,23 +1,15 @@
 from . import HardwareAdapter, POWER
 
 class SimulatedHardwareAdapter(HardwareAdapter):
+    def set_io_state(self, port, pullup):
+        # TODO set io state
+        pass
+
     def get_analog(self, port):
         return 0
 
-    def set_analog_state(self, port, pullup):
-        # TODO set analog pullup
-        pass
-
     def get_digital(self, port):
         return False
-
-    def set_digital_state(self, port, pullup, output):
-        # TODO set digital pullup, output
-        pass
-
-    def set_digital(self, port, level):
-        # TODO set digital pullup, output
-        pass
 
     def set_motor(self, port, state, amount=0, reached_state=POWER, relative=None, absolute=None):
         # TODO set motor action

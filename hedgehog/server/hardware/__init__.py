@@ -4,19 +4,13 @@ class HardwareAdapter:
     def __init__(self, motor_state_update_cb=None):
         self.motor_state_update_cb = motor_state_update_cb
 
+    def set_io_state(self, port, flags):
+        raise NotImplementedError
+
     def get_analog(self, port):
         raise NotImplementedError
 
-    def set_analog_state(self, port, pullup):
-        raise NotImplementedError
-
     def get_digital(self, port):
-        raise NotImplementedError
-
-    def set_digital_state(self, port, pullup, output):
-        raise NotImplementedError
-
-    def set_digital(self, port, level):
         raise NotImplementedError
 
     def set_motor(self, port, state, amount=0, reached_state=POWER, relative=None, absolute=None):
