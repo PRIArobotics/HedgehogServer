@@ -1,7 +1,8 @@
 from . import HardwareAdapter, POWER
 
+
 class SimulatedHardwareAdapter(HardwareAdapter):
-    def set_io_state(self, port, pullup):
+    def set_io_state(self, port, flags):
         # TODO set io state
         pass
 
@@ -22,11 +23,7 @@ class SimulatedHardwareAdapter(HardwareAdapter):
         # TODO set motor position
         pass
 
-    def set_servo(self, port, position):
+    def set_servo(self, port, active, position):
         # TODO set servo position
-        pass
-
-    def set_servo_state(self, port, active):
-        # TODO set servo active
         pass
 

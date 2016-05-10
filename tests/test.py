@@ -139,24 +139,7 @@ class TestSimulator(unittest.TestCase):
         socket.connect('inproc://controller')
         socket = sockets.ReqWrapper(socket)
 
-        socket.send(servo.Action(0, 0))
-        response = socket.recv()
-        self.assertEqual(response.code, ack.OK)
-        self.assertEqual(response.message, '')
-
-        controller.close()
-
-    def test_servo_state_action(self):
-        context = zmq.Context()
-
-        controller = HedgehogServer('inproc://controller', simulator.handler(), context=context)
-        controller.start()
-
-        socket = context.socket(zmq.REQ)
-        socket.connect('inproc://controller')
-        socket = sockets.ReqWrapper(socket)
-
-        socket.send(servo.StateAction(0, False))
+        socket.send(servo.Action(0, True, 0))
         response = socket.recv()
         self.assertEqual(response.code, ack.OK)
         self.assertEqual(response.message, '')

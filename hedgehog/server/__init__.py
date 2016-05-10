@@ -1,7 +1,7 @@
 import zmq
 import threading
 from hedgehog.protocol import messages, sockets, utils
-from hedgehog.protocol.errors import HedgehogCommandError, UnknownCommandError
+from hedgehog.protocol.errors import HedgehogCommandError, UnsupportedCommandError
 from hedgehog.protocol.messages import ack
 
 
@@ -49,7 +49,7 @@ class HedgehogServer(threading.Thread):
                     try:
                         handler = self.handlers[msg._command_oneof]
                     except KeyError as err:
-                        raise UnknownCommandError(msg._command_oneof)
+                        raise UnsupportedCommandError(msg._command_oneof)
                 except HedgehogCommandError as err:
                     return ack.Acknowledgement(err.code, err.args[0])
                 else:

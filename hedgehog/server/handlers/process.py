@@ -40,5 +40,4 @@ class ProcessHandler(CommandHandler):
             proc.write(msg.fileno, msg.chunk)
             return ack.Acknowledgement()
         else:
-            # TODO send a NAK instead
-            return ack.Acknowledgement()
+            return ack.Acknowledgement(ack.FAILED_COMMAND, "no process with pid {}".format(msg.pid))
