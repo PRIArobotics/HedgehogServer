@@ -1,6 +1,7 @@
 import zmq
 import threading
-from hedgehog.protocol import sockets, utils
+from hedgehog.protocol import messages, sockets, utils
+from hedgehog.protocol.errors import HedgehogCommandError, UnknownCommandError
 from hedgehog.protocol.messages import ack
 
 
@@ -41,18 +42,20 @@ class HedgehogServer(threading.Thread):
         self.socket = sockets.DealerRouterWrapper(socket)
 
         def socket_cb():
-            ident, msgs = self.socket.recv_multipart()
-            def handle(msg):
+            ident, msgs_raw = self.socket.recv_multipart_raw()
+            def handle(msg_raw):
                 try:
-                    handler = self.handlers[msg._command_oneof]
-                except KeyError:
-                    # TODO handle unknown commands
-                    print(msg._command_oneof + ': unknown command')
-                    # TODO send a NAK instead
-                    return ack.Acknowledgement()
+                    msg = messages.parse(msg_raw)
+                    try:
+                        handler = self.handlers[msg._command_oneof]
+                    except KeyError as err:
+                        raise UnknownCommandError(msg._command_oneof)
+                except HedgehogCommandError as err:
+                    return ack.Acknowledgement(err.code, err.args[0])
                 else:
                     return handler(self, ident, msg)
-            msgs = [handle(msg) for msg in msgs]
+
+            msgs = [handle(msg) for msg in msgs_raw]
             self.socket.send_multipart(ident, msgs)
         self.register(socket, socket_cb)
 
