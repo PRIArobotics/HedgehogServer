@@ -71,3 +71,10 @@ class HedgehogServer(threading.Thread):
         while len(self.sockets) > 0:
             for socket, _ in self.poller.poll():
                 self.sockets[socket]()
+
+    def __enter__(self):
+        self.start()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
