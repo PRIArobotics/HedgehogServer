@@ -19,10 +19,8 @@ class TestSimulator(unittest.TestCase):
 
         socket.send_multipart([analog.Request(0), digital.Request(0)])
         update = socket.recv_multipart()
-        self.assertEqual(update[0].port, 0)
-        self.assertEqual(update[0].value, 0)
-        self.assertEqual(update[1].port, 0)
-        self.assertEqual(update[1].value, False)
+        self.assertEqual(update[0], analog.Update(0, 0))
+        self.assertEqual(update[1], digital.Update(0, False))
 
         controller.close()
 
@@ -38,8 +36,7 @@ class TestSimulator(unittest.TestCase):
 
         socket.send(io.StateAction(0, io.ANALOG_PULLDOWN))
         response = socket.recv()
-        self.assertEqual(response.code, ack.OK)
-        self.assertEqual(response.message, '')
+        self.assertEqual(response, ack.Acknowledgement())
 
         controller.close()
 
@@ -55,8 +52,7 @@ class TestSimulator(unittest.TestCase):
 
         socket.send(analog.Request(0))
         update = socket.recv()
-        self.assertEqual(update.port, 0)
-        self.assertEqual(update.value, 0)
+        self.assertEqual(update, analog.Update(0, 0))
 
         controller.close()
 
@@ -72,8 +68,7 @@ class TestSimulator(unittest.TestCase):
 
         socket.send(digital.Request(0))
         update = socket.recv()
-        self.assertEqual(update.port, 0)
-        self.assertEqual(update.value, False)
+        self.assertEqual(update, digital.Update(0, False))
 
         controller.close()
 
@@ -89,8 +84,7 @@ class TestSimulator(unittest.TestCase):
 
         socket.send(motor.Action(0, motor.POWER))
         response = socket.recv()
-        self.assertEqual(response.code, ack.OK)
-        self.assertEqual(response.message, '')
+        self.assertEqual(response, ack.Acknowledgement())
 
         controller.close()
 
@@ -106,9 +100,7 @@ class TestSimulator(unittest.TestCase):
 
         socket.send(motor.Request(0))
         update = socket.recv()
-        self.assertEqual(update.port, 0)
-        self.assertEqual(update.velocity, 0)
-        self.assertEqual(update.position, 0)
+        self.assertEqual(update, motor.Update(0, 0, 0))
 
         controller.close()
 
@@ -124,8 +116,7 @@ class TestSimulator(unittest.TestCase):
 
         socket.send(motor.SetPositionAction(0, 0))
         response = socket.recv()
-        self.assertEqual(response.code, ack.OK)
-        self.assertEqual(response.message, '')
+        self.assertEqual(response, ack.Acknowledgement())
 
         controller.close()
 
@@ -141,8 +132,7 @@ class TestSimulator(unittest.TestCase):
 
         socket.send(servo.Action(0, True, 0))
         response = socket.recv()
-        self.assertEqual(response.code, ack.OK)
-        self.assertEqual(response.message, '')
+        self.assertEqual(response, ack.Acknowledgement())
 
         controller.close()
 
@@ -158,6 +148,7 @@ class TestSimulator(unittest.TestCase):
 
         socket.send([], process.ExecuteRequest('echo', 'asdf'))
         _, response = socket.recv()
+        self.assertEqual(type(response), process.ExecuteReply)
         pid = response.pid
 
         output = {
@@ -168,13 +159,13 @@ class TestSimulator(unittest.TestCase):
         open = 2
         while open > 0:
             _, msg = socket.recv()
+            self.assertEqual(type(msg), process.StreamUpdate)
             self.assertEqual(msg.pid, pid)
             output[msg.fileno].append(msg.chunk)
             if msg.chunk == b'':
                 open -= 1
         _, msg = socket.recv()
-        self.assertEqual(msg.pid, pid)
-        self.assertEqual(msg.exit_code, 0)
+        self.assertEqual(msg, process.ExitUpdate(pid, 0))
 
         output = {fileno: b''.join(chunks) for fileno, chunks in output.items()}
 
@@ -195,6 +186,7 @@ class TestSimulator(unittest.TestCase):
 
         socket.send([], process.ExecuteRequest('cat'))
         _, response = socket.recv()
+        self.assertEqual(type(response), process.ExecuteReply)
         pid = response.pid
 
         output = {
@@ -204,23 +196,21 @@ class TestSimulator(unittest.TestCase):
 
         socket.send([], process.StreamAction(pid, process.STDIN, b'asdf'))
         _, response = socket.recv()
-        self.assertEqual(response.code, ack.OK)
-        self.assertEqual(response.message, '')
+        self.assertEqual(response, ack.Acknowledgement())
         socket.send([], process.StreamAction(pid, process.STDIN, b''))
         _, response = socket.recv()
-        self.assertEqual(response.code, ack.OK)
-        self.assertEqual(response.message, '')
+        self.assertEqual(response, ack.Acknowledgement())
 
         open = 2
         while open > 0:
             _, msg = socket.recv()
+            self.assertEqual(type(msg), process.StreamUpdate)
             self.assertEqual(msg.pid, pid)
             output[msg.fileno].append(msg.chunk)
             if msg.chunk == b'':
                 open -= 1
         _, msg = socket.recv()
-        self.assertEqual(msg.pid, pid)
-        self.assertEqual(msg.exit_code, 0)
+        self.assertEqual(msg, process.ExitUpdate(pid, 0))
 
         output = {fileno: b''.join(chunks) for fileno, chunks in output.items()}
 
@@ -241,6 +231,7 @@ class TestSimulator(unittest.TestCase):
 
         socket.send([], process.ExecuteRequest('pwd', working_dir='/'))
         _, response = socket.recv()
+        self.assertEqual(type(response), process.ExecuteReply)
         pid = response.pid
 
         output = {
@@ -251,13 +242,13 @@ class TestSimulator(unittest.TestCase):
         open = 2
         while open > 0:
             _, msg = socket.recv()
+            self.assertEqual(type(msg), process.StreamUpdate)
             self.assertEqual(msg.pid, pid)
             output[msg.fileno].append(msg.chunk)
             if msg.chunk == b'':
                 open -= 1
         _, msg = socket.recv()
-        self.assertEqual(msg.pid, pid)
-        self.assertEqual(msg.exit_code, 0)
+        self.assertEqual(msg, process.ExitUpdate(pid, 0))
 
         output = {fileno: b''.join(chunks) for fileno, chunks in output.items()}
 
@@ -306,10 +297,7 @@ class TestProcess(unittest.TestCase):
         self.assertEqual(err, b'')
 
     def test_pwd(self):
-        import subprocess
-        proc = Process('pwd',
-                       cwd='/',
-                       )
+        proc = Process('pwd', cwd='/')
 
         proc.write(process.STDIN)
 
