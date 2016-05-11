@@ -24,6 +24,28 @@ class TestSimulator(unittest.TestCase):
 
         controller.close()
 
+    def test_unsupported(self):
+        context = zmq.Context()
+
+        from hedgehog.server import handlers
+        from hedgehog.server.handlers.hardware import HardwareHandler
+        from hedgehog.server.handlers.process import ProcessHandler
+        from hedgehog.server.hardware import HardwareAdapter
+        handlers = handlers.to_dict(HardwareHandler(HardwareAdapter()), ProcessHandler())
+        controller = HedgehogServer('inproc://controller', handlers, context=context)
+        controller.start()
+
+        socket = context.socket(zmq.REQ)
+        socket.connect('inproc://controller')
+        socket = sockets.ReqWrapper(socket)
+
+        socket.send(io.StateAction(0, io.ANALOG_PULLDOWN))
+        response = socket.recv()
+        self.assertEqual(type(response), ack.Acknowledgement)
+        self.assertEqual(response.code, ack.UNSUPPORTED_COMMAND)
+
+        controller.close()
+
     def test_io_state_action(self):
         context = zmq.Context()
 
