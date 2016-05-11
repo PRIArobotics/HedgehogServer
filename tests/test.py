@@ -38,6 +38,14 @@ class TestSimulator(unittest.TestCase):
         response = socket.recv()
         self.assertEqual(response, ack.Acknowledgement())
 
+        # send an invalid command
+        action = io.StateAction(0, 0)
+        action.flags = io.OUTPUT | io.ANALOG
+        socket.send(action)
+        response = socket.recv()
+        self.assertEqual(type(response), ack.Acknowledgement)
+        self.assertEqual(response.code, ack.INVALID_COMMAND)
+
         controller.close()
 
     def test_analog_request(self):
@@ -85,6 +93,14 @@ class TestSimulator(unittest.TestCase):
         socket.send(motor.Action(0, motor.POWER))
         response = socket.recv()
         self.assertEqual(response, ack.Acknowledgement())
+
+        # send an invalid command
+        action = motor.Action(0, motor.BRAKE)
+        action.relative = 100
+        socket.send(action)
+        response = socket.recv()
+        self.assertEqual(type(response), ack.Acknowledgement)
+        self.assertEqual(response.code, ack.INVALID_COMMAND)
 
         controller.close()
 
