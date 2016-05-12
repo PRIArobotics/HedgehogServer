@@ -1,4 +1,5 @@
 import serial
+import time
 from hedgehog.protocol.errors import FailedCommandError
 from . import HardwareAdapter, POWER
 
@@ -11,11 +12,13 @@ SERVO = 0x50
 SERIAL = 0x60
 # replies:
 OK = 0x80
-INVALID_PORT = 0x81
-INVALID_IO = 0x82
-INVALID_MODE = 0x83
-INVALID_FLAGS = 0x84
-INVALID_VALUE = 0x85
+UNKNOWN_OPCODE = 0x81
+INVALID_OPCODE = 0x82
+INVALID_PORT = 0x83
+INVALID_IO = 0x84
+INVALID_MODE = 0x85
+INVALID_FLAGS = 0x86
+INVALID_VALUE = 0x87
 ANALOG_REP = 0xA1
 DIGITAL_REP = 0xB1
 SERIAL_UPDATE = 0xE1
@@ -36,6 +39,8 @@ _replies = {
     DIGITAL_REP,
 }
 _errors = {
+    UNKNOWN_OPCODE,
+    INVALID_OPCODE,
     INVALID_PORT,
     INVALID_IO,
     INVALID_MODE,
@@ -44,6 +49,8 @@ _errors = {
 }
 _cmd_lengths = {
     OK: 1,
+    UNKNOWN_OPCODE: 1,
+    INVALID_OPCODE: 1,
     INVALID_PORT: 1,
     INVALID_IO: 1,
     INVALID_MODE: 1,
@@ -73,13 +80,13 @@ class SerialHardwareAdapter(HardwareAdapter):
     def command(self, cmd, reply_code=OK):
         def read_command():
             cmd = self.serial.read()
-            if cmd[0] == SERIAL_UPDATE:
-                cmd += self.serial.read(2)
-                cmd += self.serial.read(cmd[1])
-            else:
+            if cmd[0] in _cmd_lengths:
                 length = _cmd_lengths[cmd[0]]
                 if length > 1:
                     cmd += self.serial.read(length - 1)
+            else:
+                cmd += self.serial.read()
+                cmd += self.serial.read(cmd[1])
             return list(cmd)
 
         self.serial.write(bytes(cmd))
@@ -92,12 +99,17 @@ class SerialHardwareAdapter(HardwareAdapter):
             assert reply[0] == reply_code
             return reply
         else:
-            if reply[0] == INVALID_PORT:
+            if reply[0] == UNKNOWN_OPCODE:
+                self.serial.flushOutput()
+                time.sleep(0.02)
+                self.serial.flushInput()
+                raise FailedCommandError("opcode unknown to the HWC; connection was reset")
+            elif reply[0] == INVALID_OPCODE:
+                raise FailedCommandError("opcode not supported")
+            elif reply[0] == INVALID_PORT:
                 raise FailedCommandError("port not supported or out of range")
-            elif reply[0] == INVALID_IO and cmd[0] == ANALOG_REQ:
-                raise FailedCommandError("analog sensor request invalid for digital or output port")
-            elif reply[0] == INVALID_IO and cmd[0] == DIGITAL_REQ:
-                raise FailedCommandError("digital sensor request invalid for analog or output port")
+            elif reply[0] == INVALID_IO:
+                raise FailedCommandError("sensor request invalid for output port")
             elif reply[0] == INVALID_MODE:
                 raise FailedCommandError("unsupported motor mode")
             elif reply[0] == INVALID_FLAGS:
