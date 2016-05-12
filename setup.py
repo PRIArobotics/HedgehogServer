@@ -46,7 +46,7 @@ setup(
     # your project is installed. For an analysis of "install_requires" vs pip's
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
-    install_requires=['hedgehog-protocol'],
+    install_requires=['hedgehog-protocol', 'pyserial'],
 
     # You can install these using the following syntax, for example:
     # $ pip install -e .[dev,test]
@@ -60,6 +60,7 @@ setup(
 
     entry_points={
         'console_scripts': [
+            'hedgehog-server = hedgehog.server:main',
             'hedgehog-simulator = hedgehog.server.simulator:main',
         ],
     },
