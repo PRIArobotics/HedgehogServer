@@ -1,8 +1,9 @@
 import zmq
-import subprocess, selectors, threading
+import fcntl, os, subprocess, threading
 from hedgehog.protocol.messages.process import STDIN, STDOUT, STDERR
 
 EXIT = 0xFF
+SIGNAL = 0xFE
 
 
 class Process:
@@ -51,9 +52,9 @@ class Process:
 
         :param args: The command line arguments
         """
-        self.context = zmq.Context()
+        context = zmq.Context()
 
-        self.socket = self.context.socket(zmq.PAIR)
+        self.socket = context.socket(zmq.PAIR)
         self.socket.bind('inproc://socket')
 
         self.status = None
@@ -65,76 +66,62 @@ class Process:
             **kwargs
         )
 
-        threading.Thread(target=self._writer).start()
+        def poll():
+            socket = context.socket(zmq.PAIR)
+            socket.connect('inproc://socket')
 
-    def _writer(self):
-        out = self.context.socket(zmq.PAIR)
-        out.bind('inproc://out')
+            poller = zmq.Poller()
+            handlers = {}
 
-        threading.Thread(target=self._reader).start()
+            def register_input():
+                file = self.proc.stdin
 
-        socket = self.context.socket(zmq.PAIR)
-        socket.connect('inproc://socket')
+                def handler():
+                    [fileno], msg = socket.recv_multipart()
+                    assert fileno == STDIN
 
-        poller = zmq.Poller()
-        poller.register(socket, zmq.POLLIN)
-        poller.register(out, zmq.POLLIN)
-
-        stdin = self.proc.stdin
-        while len(poller.sockets) > 0:
-            for sock, _ in poller.poll():
-                fileno, msg = sock.recv_multipart()
-                if fileno[0] == STDIN:
-                    # write message to stdin
                     if msg != b'':
-                        stdin.write(msg)
-                        stdin.flush()
+                        file.write(msg)
+                        file.flush()
                     else:
-                        stdin.close()
-                elif fileno[0] in {STDOUT, STDERR}:
-                    # pipe message to the socket
-                    socket.send_multipart([fileno, msg])
-                elif fileno[0] == EXIT:
-                    # pipe message to the socket, break the loop
-                    socket.send_multipart([fileno, msg])
-                    poller.unregister(out)
-                    poller.unregister(socket)
-        stdin.close()
-        out.close()
-        socket.close()
+                        poller.unregister(socket)
+                        file.close()
 
-    def _reader(self):
-        out = self.context.socket(zmq.PAIR)
-        out.connect('inproc://out')
+                poller.register(socket, zmq.POLLIN)
+                handlers[socket] = handler
 
-        poller = zmq.Poller()
-        files = {}
-        def register(file, fileno):
-            poller.register(file.fileno(), zmq.POLLIN)
-            files[file.fileno()] = file, fileno
+            def register_output(file, fileno):
+                fl = fcntl.fcntl(file, fcntl.F_GETFL)
+                fcntl.fcntl(file, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 
-        register(self.proc.stdout, zmq.POLLIN)
-        register(self.proc.stderr, zmq.POLLIN)
+                real_fileno = file.fileno()
 
-        while len(poller.sockets) > 0:
-            for file, _ in poller.poll():
-                file, fileno = files[file]
-
-                data = None
-                while data != b'':
+                def handler():
                     data = file.read(4096)
-                    if data is None:
-                        break
-                    out.send_multipart([bytes([fileno]), data])
 
-                if data == b'':
-                    poller.unregister(file.fileno())
-                    file.close()
+                    socket.send_multipart([bytes([fileno]), data])
+                    if data == b'':
+                        poller.unregister(real_fileno)
+                        file.close()
 
-        self.status = self.proc.wait()
-        assert 0 <= self.status < 256
-        out.send_multipart([bytes([EXIT]), self.status.to_bytes(1, 'big')])
-        out.close()
+                poller.register(real_fileno, zmq.POLLIN)
+                handlers[real_fileno] = handler
+
+            register_input()
+            register_output(self.proc.stdout, STDOUT)
+            register_output(self.proc.stderr, STDERR)
+
+            while len(poller.sockets) > 0:
+                for sock, _ in poller.poll():
+                    handlers[sock]()
+
+            self.status = self.proc.wait()
+            code, status = (EXIT, self.status) if self.status >= 0 else (SIGNAL, -self.status)
+            assert status < 256, self.status
+            socket.send_multipart([bytes([code]), status.to_bytes(1, 'big')])
+            socket.close()
+
+        threading.Thread(target=poll).start()
 
     def write(self, fileno, msg=b''):
         """
@@ -159,9 +146,8 @@ class Process:
 
         :return: `None`, or `(fileno, msg)`
         """
-        fileno, msg = self.socket.recv_multipart()
-        fileno = fileno[0]
-        if fileno == EXIT:
+        [fileno], msg = self.socket.recv_multipart()
+        if fileno == EXIT or fileno == SIGNAL:
             return None
         else:
             return fileno, msg

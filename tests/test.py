@@ -1,5 +1,6 @@
 import unittest
 import zmq
+import time
 from hedgehog.protocol import sockets
 from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo, process
 from hedgehog.server import HedgehogServer, simulator
@@ -164,6 +165,11 @@ class TestSimulator(unittest.TestCase):
                 output[msg.fileno].append(msg.chunk)
                 if msg.chunk == b'':
                     open -= 1
+
+            socket.send([], process.StreamAction(pid, process.STDIN, b''))
+            _, response = socket.recv()
+            self.assertEqual(response, ack.Acknowledgement())
+
             _, msg = socket.recv()
             self.assertEqual(msg, process.ExitUpdate(pid, 0))
 
@@ -239,6 +245,11 @@ class TestSimulator(unittest.TestCase):
                 output[msg.fileno].append(msg.chunk)
                 if msg.chunk == b'':
                     open -= 1
+
+            socket.send([], process.StreamAction(pid, process.STDIN, b''))
+            _, response = socket.recv()
+            self.assertEqual(response, ack.Acknowledgement())
+
             _, msg = socket.recv()
             self.assertEqual(msg, process.ExitUpdate(pid, 0))
 
@@ -268,6 +279,7 @@ class TestProcess(unittest.TestCase):
         proc = Process('cat')
 
         proc.write(process.STDIN, b'as ')
+        time.sleep(0.1)
         proc.write(process.STDIN, b'df')
         proc.write(process.STDIN)
 
