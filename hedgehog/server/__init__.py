@@ -91,8 +91,8 @@ def handler():
 def main():
     context = zmq.Context.instance()
 
-    simulator = HedgehogServer('tcp://*:5555', handler(), context=context)
-    simulator.start()
+    server = HedgehogServer('tcp://*:5555', handler(), context=context)
+    server.start()
 
 
 if __name__ == '__main__':
