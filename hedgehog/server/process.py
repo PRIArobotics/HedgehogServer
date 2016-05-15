@@ -107,13 +107,18 @@ class Process:
         out = self.context.socket(zmq.PAIR)
         out.connect('inproc://out')
 
-        selector = selectors.DefaultSelector()
-        selector.register(self.proc.stdout, selectors.EVENT_READ, STDOUT)
-        selector.register(self.proc.stderr, selectors.EVENT_READ, STDERR)
+        poller = zmq.Poller()
+        files = {}
+        def register(file, fileno):
+            poller.register(file.fileno(), zmq.POLLIN)
+            files[file.fileno()] = file, fileno
 
-        while len(selector.get_map()) > 0:
-            for key, _ in selector.select():
-                fileno, file = key.data, key.fileobj
+        register(self.proc.stdout, zmq.POLLIN)
+        register(self.proc.stderr, zmq.POLLIN)
+
+        while len(poller.sockets) > 0:
+            for file, _ in poller.poll():
+                file, fileno = files[file]
 
                 data = None
                 while data != b'':
@@ -123,14 +128,13 @@ class Process:
                     out.send_multipart([bytes([fileno]), data])
 
                 if data == b'':
-                    selector.unregister(file)
+                    poller.unregister(file.fileno())
                     file.close()
 
         self.status = self.proc.wait()
         assert 0 <= self.status < 256
         out.send_multipart([bytes([EXIT]), self.status.to_bytes(1, 'big')])
         out.close()
-        selector.close()
 
     def write(self, fileno, msg=b''):
         """
