@@ -18,32 +18,18 @@ class HedgehogServer:
         socket.bind(endpoint)
         self.socket = sockets.DealerRouterWrapper(socket)
 
-        self.handlers = handlers
-        self.pipe = zmq_utils.pipe(ctx)
+        self.pipe, pipe = zmq_utils.pipe(ctx)
         self.poller = zmq.Poller()
         self.sockets = {}
 
-        threading.Thread(target=self.run).start()
-
-    def register(self, socket, cb):
-        self.poller.register(socket, zmq.POLLIN)
-        self.sockets[socket] = cb
-
-    def unregister(self, socket):
-        self.poller.unregister(socket)
-        del self.sockets[socket]
-
-    def close(self):
-        self.pipe[0].send(b'')
-
-    def run(self):
         def socket_cb():
             ident, msgs_raw = self.socket.recv_multipart_raw()
+
             def handle(msg_raw):
                 try:
                     msg = messages.parse(msg_raw)
                     try:
-                        handler = self.handlers[msg._command_oneof]
+                        handler = handlers[msg._command_oneof]
                     except KeyError as err:
                         raise UnsupportedCommandError(msg._command_oneof)
                     else:
@@ -56,12 +42,26 @@ class HedgehogServer:
         self.register(self.socket.socket, socket_cb)
 
         def killer_cb():
-            self.pipe[1].recv()
+            pipe.recv()
             for socket in list(self.sockets.keys()):
                 socket.close()
                 self.unregister(socket)
-        self.register(self.pipe[1], killer_cb)
+        self.register(pipe, killer_cb)
 
+        threading.Thread(target=self.run).start()
+
+    def register(self, socket, cb):
+        self.poller.register(socket, zmq.POLLIN)
+        self.sockets[socket] = cb
+
+    def unregister(self, socket):
+        self.poller.unregister(socket)
+        del self.sockets[socket]
+
+    def close(self):
+        self.pipe.send(b'')
+
+    def run(self):
         while len(self.sockets) > 0:
             for socket, _ in self.poller.poll():
                 self.sockets[socket]()
