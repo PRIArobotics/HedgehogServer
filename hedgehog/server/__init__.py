@@ -19,8 +19,7 @@ class HedgehogServer:
         self.socket = sockets.DealerRouterWrapper(socket)
 
         self.pipe, pipe = zmq_utils.pipe(ctx)
-        self.poller = zmq.Poller()
-        self.sockets = {}
+        self.poller = zmq_utils.Poller()
 
         def socket_cb():
             ident, msgs_raw = self.socket.recv_multipart_raw()
@@ -43,7 +42,7 @@ class HedgehogServer:
 
         def killer_cb():
             pipe.recv()
-            for socket in list(self.sockets.keys()):
+            for socket in list(self.poller.sockets):
                 socket.close()
                 self.unregister(socket)
         self.register(pipe, killer_cb)
@@ -51,20 +50,18 @@ class HedgehogServer:
         threading.Thread(target=self.run).start()
 
     def register(self, socket, cb):
-        self.poller.register(socket, zmq.POLLIN)
-        self.sockets[socket] = cb
+        self.poller.register(socket, zmq.POLLIN, cb)
 
     def unregister(self, socket):
         self.poller.unregister(socket)
-        del self.sockets[socket]
 
     def close(self):
         self.pipe.send(b'')
 
     def run(self):
-        while len(self.sockets) > 0:
-            for socket, _ in self.poller.poll():
-                self.sockets[socket]()
+        while len(self.poller.sockets) > 0:
+            for _, _, cb in self.poller.poll():
+                cb()
 
     def __enter__(self):
         return self
