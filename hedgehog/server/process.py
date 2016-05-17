@@ -1,4 +1,5 @@
 import zmq
+from hedgehog.utils import zmq as zmq_utils
 import fcntl, os, subprocess, threading
 from hedgehog.protocol.messages.process import STDIN, STDOUT, STDERR
 
@@ -54,8 +55,7 @@ class Process:
         """
         ctx = zmq.Context()
 
-        self.socket = ctx.socket(zmq.PAIR)
-        self.socket.bind('inproc://socket')
+        self.socket, socket = zmq_utils.pipe(ctx)
 
         self.status = None
         self.proc = subprocess.Popen(
@@ -67,9 +67,6 @@ class Process:
         )
 
         def poll():
-            socket = ctx.socket(zmq.PAIR)
-            socket.connect('inproc://socket')
-
             poller = zmq.Poller()
             handlers = {}
 
