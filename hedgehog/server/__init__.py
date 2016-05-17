@@ -10,10 +10,8 @@ from hedgehog.server.handlers.process import ProcessHandler
 from hedgehog.server.hardware.serial import SerialHardwareAdapter
 
 
-class HedgehogServer(threading.Thread):
+class HedgehogServer:
     def __init__(self, endpoint, handlers, ctx=None):
-        super().__init__()
-
         if ctx is None:
             ctx = zmq.Context.instance()
         socket = ctx.socket(zmq.ROUTER)
@@ -35,6 +33,9 @@ class HedgehogServer(threading.Thread):
 
     def close(self):
         self.pipe[0].send(b'')
+
+    def start(self):
+        threading.Thread(target=self.run).start()
 
     def run(self):
         def socket_cb():
