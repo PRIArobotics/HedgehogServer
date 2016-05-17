@@ -13,12 +13,16 @@ from hedgehog.server.hardware.serial import SerialHardwareAdapter
 class HedgehogServer(threading.Thread):
     def __init__(self, endpoint, handlers, ctx=None):
         super().__init__()
-        self.ctx = ctx or zmq.Context.instance()
-        self.endpoint = endpoint
+
+        if ctx is None:
+            ctx = zmq.Context.instance()
+        socket = ctx.socket(zmq.ROUTER)
+        socket.bind(endpoint)
+        self.socket = sockets.DealerRouterWrapper(socket)
+
         self.handlers = handlers
         self.pipe = zmq_utils.pipe(ctx)
         self._poller = None
-        self.socket = None
 
     @property
     def poller(self):
@@ -42,10 +46,6 @@ class HedgehogServer(threading.Thread):
     def run(self):
         self._poller = zmq.Poller(), {}
 
-        socket = self.ctx.socket(zmq.ROUTER)
-        socket.bind(self.endpoint)
-        self.socket = sockets.DealerRouterWrapper(socket)
-
         def socket_cb():
             ident, msgs_raw = self.socket.recv_multipart_raw()
             def handle(msg_raw):
@@ -62,7 +62,7 @@ class HedgehogServer(threading.Thread):
 
             msgs = [handle(msg) for msg in msgs_raw]
             self.socket.send_multipart(ident, msgs)
-        self.register(socket, socket_cb)
+        self.register(self.socket.socket, socket_cb)
 
         def killer_cb():
             self.pipe[1].recv()
