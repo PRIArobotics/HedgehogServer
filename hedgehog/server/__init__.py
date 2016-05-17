@@ -22,15 +22,8 @@ class HedgehogServer(threading.Thread):
 
         self.handlers = handlers
         self.pipe = zmq_utils.pipe(ctx)
-        self._poller = None
-
-    @property
-    def poller(self):
-        return self._poller[0]
-
-    @property
-    def sockets(self):
-        return self._poller[1]
+        self.poller = zmq.Poller()
+        self.sockets = {}
 
     def register(self, socket, cb):
         self.poller.register(socket, zmq.POLLIN)
@@ -44,8 +37,6 @@ class HedgehogServer(threading.Thread):
         self.pipe[0].send(b'')
 
     def run(self):
-        self._poller = zmq.Poller(), {}
-
         def socket_cb():
             ident, msgs_raw = self.socket.recv_multipart_raw()
             def handle(msg_raw):
