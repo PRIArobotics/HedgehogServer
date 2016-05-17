@@ -70,51 +70,48 @@ class Process:
             **kwargs
         )
 
+        poller = zmq_utils.Poller()
+
+        def register_input():
+            file = self.proc.stdin
+
+            def handler():
+                [fileno], msg = socket.recv_multipart()
+                assert fileno == STDIN
+
+                if msg != b'':
+                    file.write(msg)
+                    file.flush()
+                else:
+                    poller.unregister(socket)
+                    file.close()
+
+            poller.register(socket, zmq.POLLIN, handler)
+
+        def register_output(file, fileno):
+            fl = fcntl.fcntl(file, fcntl.F_GETFL)
+            fcntl.fcntl(file, fcntl.F_SETFL, fl | os.O_NONBLOCK)
+
+            real_fileno = file.fileno()
+
+            def handler():
+                data = file.read(4096)
+
+                socket.send_multipart([bytes([fileno]), data])
+                if data == b'':
+                    poller.unregister(real_fileno)
+                    file.close()
+
+            poller.register(real_fileno, zmq.POLLIN, handler)
+
+        register_input()
+        register_output(self.proc.stdout, STDOUT)
+        register_output(self.proc.stderr, STDERR)
+
         def poll():
-            poller = zmq.Poller()
-            handlers = {}
-
-            def register_input():
-                file = self.proc.stdin
-
-                def handler():
-                    [fileno], msg = socket.recv_multipart()
-                    assert fileno == STDIN
-
-                    if msg != b'':
-                        file.write(msg)
-                        file.flush()
-                    else:
-                        poller.unregister(socket)
-                        file.close()
-
-                poller.register(socket, zmq.POLLIN)
-                handlers[socket] = handler
-
-            def register_output(file, fileno):
-                fl = fcntl.fcntl(file, fcntl.F_GETFL)
-                fcntl.fcntl(file, fcntl.F_SETFL, fl | os.O_NONBLOCK)
-
-                real_fileno = file.fileno()
-
-                def handler():
-                    data = file.read(4096)
-
-                    socket.send_multipart([bytes([fileno]), data])
-                    if data == b'':
-                        poller.unregister(real_fileno)
-                        file.close()
-
-                poller.register(real_fileno, zmq.POLLIN)
-                handlers[real_fileno] = handler
-
-            register_input()
-            register_output(self.proc.stdout, STDOUT)
-            register_output(self.proc.stderr, STDERR)
-
             while len(poller.sockets) > 0:
-                for sock, _ in poller.poll():
-                    handlers[sock]()
+                for _, _, handler in poller.poll():
+                    handler()
 
             returncode = self.proc.wait()
             if returncode >= 0:
