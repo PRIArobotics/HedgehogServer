@@ -23,6 +23,8 @@ class HedgehogServer:
         self.poller = zmq.Poller()
         self.sockets = {}
 
+        threading.Thread(target=self.run).start()
+
     def register(self, socket, cb):
         self.poller.register(socket, zmq.POLLIN)
         self.sockets[socket] = cb
@@ -33,9 +35,6 @@ class HedgehogServer:
 
     def close(self):
         self.pipe[0].send(b'')
-
-    def start(self):
-        threading.Thread(target=self.run).start()
 
     def run(self):
         def socket_cb():
@@ -68,7 +67,6 @@ class HedgehogServer:
                 self.sockets[socket]()
 
     def __enter__(self):
-        self.start()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -83,7 +81,6 @@ def main():
     ctx = zmq.Context.instance()
 
     server = HedgehogServer('tcp://*:5555', handler(), ctx=ctx)
-    server.start()
 
 
 if __name__ == '__main__':

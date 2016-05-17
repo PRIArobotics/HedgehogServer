@@ -14,7 +14,6 @@ def main():
     ctx = zmq.Context.instance()
 
     server = HedgehogServer('tcp://*:5555', handler(), ctx=ctx)
-    server.start()
 
 
 if __name__ == '__main__':
