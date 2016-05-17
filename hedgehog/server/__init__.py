@@ -1,6 +1,7 @@
 import zmq
 import threading
-from hedgehog.protocol import messages, sockets, utils
+from hedgehog.utils import zmq as zmq_utils
+from hedgehog.protocol import messages, sockets
 from hedgehog.protocol.errors import HedgehogCommandError, UnsupportedCommandError
 
 from . import handlers
@@ -15,7 +16,7 @@ class HedgehogServer(threading.Thread):
         self.context = context or zmq.Context.instance()
         self.endpoint = endpoint
         self.handlers = handlers
-        self.killer = utils.Killer()
+        self.pipe = zmq_utils.pipe(context)
         self._poller = None
         self.socket = None
 
@@ -36,7 +37,7 @@ class HedgehogServer(threading.Thread):
         del self.sockets[socket]
 
     def close(self):
-        self.killer.kill()
+        self.pipe[0].send(b'')
 
     def run(self):
         self._poller = zmq.Poller(), {}
@@ -63,14 +64,12 @@ class HedgehogServer(threading.Thread):
             self.socket.send_multipart(ident, msgs)
         self.register(socket, socket_cb)
 
-        killer = self.killer.connect_receiver()
-
         def killer_cb():
-            killer.recv()
+            self.pipe[1].recv()
             for socket in list(self.sockets.keys()):
                 socket.close()
                 self.unregister(socket)
-        self.register(killer, killer_cb)
+        self.register(self.pipe[1], killer_cb)
 
         while len(self.sockets) > 0:
             for socket, _ in self.poller.poll():
