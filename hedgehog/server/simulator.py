@@ -11,9 +11,9 @@ def handler():
 
 
 def main():
-    context = zmq.Context.instance()
+    ctx = zmq.Context.instance()
 
-    server = HedgehogServer('tcp://*:5555', handler(), context=context)
+    server = HedgehogServer('tcp://*:5555', handler(), ctx=ctx)
     server.start()
 
 

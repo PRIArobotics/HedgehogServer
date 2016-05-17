@@ -52,9 +52,9 @@ class Process:
 
         :param args: The command line arguments
         """
-        context = zmq.Context()
+        ctx = zmq.Context()
 
-        self.socket = context.socket(zmq.PAIR)
+        self.socket = ctx.socket(zmq.PAIR)
         self.socket.bind('inproc://socket')
 
         self.status = None
@@ -67,7 +67,7 @@ class Process:
         )
 
         def poll():
-            socket = context.socket(zmq.PAIR)
+            socket = ctx.socket(zmq.PAIR)
             socket.connect('inproc://socket')
 
             poller = zmq.Poller()

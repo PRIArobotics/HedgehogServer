@@ -11,12 +11,12 @@ from hedgehog.server.hardware.serial import SerialHardwareAdapter
 
 
 class HedgehogServer(threading.Thread):
-    def __init__(self, endpoint, handlers, context=None):
+    def __init__(self, endpoint, handlers, ctx=None):
         super().__init__()
-        self.context = context or zmq.Context.instance()
+        self.ctx = ctx or zmq.Context.instance()
         self.endpoint = endpoint
         self.handlers = handlers
-        self.pipe = zmq_utils.pipe(context)
+        self.pipe = zmq_utils.pipe(ctx)
         self._poller = None
         self.socket = None
 
@@ -42,7 +42,7 @@ class HedgehogServer(threading.Thread):
     def run(self):
         self._poller = zmq.Poller(), {}
 
-        socket = self.context.socket(zmq.ROUTER)
+        socket = self.ctx.socket(zmq.ROUTER)
         socket.bind(self.endpoint)
         self.socket = sockets.DealerRouterWrapper(socket)
 
@@ -88,9 +88,9 @@ def handler():
 
 
 def main():
-    context = zmq.Context.instance()
+    ctx = zmq.Context.instance()
 
-    server = HedgehogServer('tcp://*:5555', handler(), context=context)
+    server = HedgehogServer('tcp://*:5555', handler(), ctx=ctx)
     server.start()
 
 
