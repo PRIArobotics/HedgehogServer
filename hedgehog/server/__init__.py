@@ -47,7 +47,12 @@ class HedgehogServer:
                 self.unregister(socket)
         self.register(pipe, killer_cb)
 
-        threading.Thread(target=self.run).start()
+        def poll():
+            while len(self.poller.sockets) > 0:
+                for _, _, cb in self.poller.poll():
+                    cb()
+
+        threading.Thread(target=poll).start()
 
     def register(self, socket, cb):
         self.poller.register(socket, zmq.POLLIN, cb)
@@ -57,11 +62,6 @@ class HedgehogServer:
 
     def close(self):
         self.pipe.send(b'')
-
-    def run(self):
-        while len(self.poller.sockets) > 0:
-            for _, _, cb in self.poller.poll():
-                cb()
 
     def __enter__(self):
         return self
