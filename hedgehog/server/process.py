@@ -13,10 +13,10 @@ class Process:
 
     Using the `Process` class, users can (and must) interact with a child process via a single ZMQ socket, `socket`.
     Messages are multipart, consisting of `(fileno, msg)`,
-    where `fileno` consists of one byte `STDIN`, `STDOUT`, `STDERR`, `EXIT`.
+    where `fileno` consists of one byte `STDIN`, `STDOUT`, `STDERR`, `EXIT`, `SIGNAL`.
     `STDIN` may be used to sending data to the process' `stdin` stream,
     `STDOUT` and `STDERR` for receiving data from the corresponding streams,
-    and `EXIT` indicates the process has finished.
+    and `EXIT` or `SIGNAL` indicate the process has finished normally or abruptly, respectively.
     `msg` will contain a single byte that is the exit `status` of the process (`0 <= status < 256`).
     (The `status` will also be available as a field.)
 
@@ -40,6 +40,9 @@ class Process:
     That means, sending `b''` to `sdtin` will close the underlying file,
     and receiving `b''` from stdout or stderr means that EOF for the underlying file was reached.
 
+    Even for commands that don't use `stdin` (such as `echo`), the caller MUST close the input stream (i.e. send `EOF`),
+    as process termination is only detected after all streams have been closed.
+
     :param args: The command line arguments
     :return: a tuple `(proc, stdin, stdout, stderr, exit)`
     """
@@ -58,6 +61,7 @@ class Process:
         self.socket, socket = zmq_utils.pipe(ctx)
 
         self.status = None
+        self.signal = None
         self.proc = subprocess.Popen(
             args,
             stdout=subprocess.PIPE,
@@ -112,10 +116,15 @@ class Process:
                 for sock, _ in poller.poll():
                     handlers[sock]()
 
-            self.status = self.proc.wait()
-            code, status = (EXIT, self.status) if self.status >= 0 else (SIGNAL, -self.status)
-            assert status < 256, self.status
-            socket.send_multipart([bytes([code]), status.to_bytes(1, 'big')])
+            returncode = self.proc.wait()
+            if returncode >= 0:
+                code = EXIT
+                self.status = payload = returncode
+            else:
+                code = SIGNAL
+                self.signal = payload = -returncode
+            assert 0 <= payload < 256, returncode
+            socket.send_multipart([bytes([code]), payload.to_bytes(1, 'big')])
             socket.close()
 
         threading.Thread(target=poll).start()
@@ -135,10 +144,10 @@ class Process:
         """
         Reads from the child process' streams.
 
-        If the message received from the socket is `EXIT`, `None` is returned;
+        If the message received from the socket is `EXIT` or `SIGNAL`, `None` is returned;
         otherwise, the return value is a tuple `(fileno, msg)`, where `fileno` is either `STDOUT` or `STDERR`.
 
-        Note that calling `read` after `EXIT` was received will block indefinitely,
+        Note that calling `read` after `EXIT` or `SIGNAL` was received will block indefinitely,
         and that this method will not close the underlying socket on `EXIT`.
 
         :return: `None`, or `(fileno, msg)`
