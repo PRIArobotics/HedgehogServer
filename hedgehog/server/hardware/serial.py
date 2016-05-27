@@ -1,5 +1,6 @@
 import serial
 import time
+from hedgehog.periphery import SERIAL as SERIAL_PORT
 from hedgehog.protocol.errors import FailedCommandError
 from . import HardwareAdapter, POWER
 
@@ -64,7 +65,7 @@ class SerialHardwareAdapter(HardwareAdapter):
     def __init__(self, motor_state_update_cb=None):
         super().__init__(motor_state_update_cb=motor_state_update_cb)
         self.serial = serial.Serial(
-            port='/dev/ttyS3',
+            port=SERIAL_PORT,
             baudrate=115200,
             bytesize=serial.EIGHTBITS,
             parity=serial.PARITY_EVEN,
