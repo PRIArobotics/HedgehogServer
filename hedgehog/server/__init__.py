@@ -28,9 +28,9 @@ class HedgehogServer:
                 try:
                     msg = messages.parse(msg_raw)
                     try:
-                        handler = handlers[msg.discriminator]
+                        handler = handlers[msg.meta.discriminator]
                     except KeyError as err:
-                        raise UnsupportedCommandError(msg.discriminator)
+                        raise UnsupportedCommandError(msg.meta.discriminator)
                     else:
                         return handler(self, ident, msg)
                 except HedgehogCommandError as err:

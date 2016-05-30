@@ -3,7 +3,7 @@ def command_handlers():
 
     def command(msg):
         def decorator(func):
-            _handlers[msg.discriminator] = func
+            _handlers[msg.meta.discriminator] = func
             return func
         return decorator
     return _handlers, command
