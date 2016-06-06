@@ -158,5 +158,5 @@ class SerialHardwareAdapter(HardwareAdapter):
             raise FailedCommandError("unsupported servo position")
         value = position | (0x8000 if active else 0x0000)
         value_hi, value_lo = value.to_bytes(2, 'big')
-        self.command([MOTOR, port, value_hi, value_lo])
+        self.command([SERVO, port, value_hi, value_lo])
 
