@@ -7,6 +7,7 @@ def logged(func):
         result = None
         try:
             result = getattr(self.delegate, name)(*args, **kwargs)
+            return result
         except BaseException as ex:
             result = ex
             raise
