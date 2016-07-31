@@ -11,7 +11,7 @@ from hedgehog.server.hardware.logging import LoggingHardwareAdapter
 
 def handler():
     hardware = SimulatedHardwareAdapter()
-    # hardware = LoggingHardwareAdapter(hardware)
+    hardware = LoggingHardwareAdapter(hardware)
     return handlers.to_dict(HardwareHandler(hardware), ProcessHandler())
 
 

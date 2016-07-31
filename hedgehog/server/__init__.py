@@ -75,7 +75,7 @@ class HedgehogServer:
 
 def handler():
     hardware = SerialHardwareAdapter()
-    # hardware = LoggingHardwareAdapter(hardware)
+    hardware = LoggingHardwareAdapter(hardware)
     return handlers.to_dict(HardwareHandler(hardware), ProcessHandler())
 
 
