@@ -1,6 +1,6 @@
 import serial
 import time
-from hedgehog.periphery import GPIO, NRST_PIN, SERIAL as SERIAL_PORT
+from hedgehog.platform import Controller
 from hedgehog.protocol.errors import FailedCommandError
 from . import HardwareAdapter, POWER
 
@@ -64,31 +64,9 @@ _cmd_lengths = {
 class SerialHardwareAdapter(HardwareAdapter):
     def __init__(self, motor_state_update_cb=None):
         super().__init__(motor_state_update_cb=motor_state_update_cb)
-        self.serial = serial.Serial(
-            port=SERIAL_PORT,
-            baudrate=115200,
-            bytesize=serial.EIGHTBITS,
-            parity=serial.PARITY_EVEN,
-            stopbits=serial.STOPBITS_ONE,
-            timeout=5,
-            xonxoff=False,
-            rtscts=False,
-            writeTimeout=None,
-            dsrdtr=False,
-            interCharTimeout=None,
-        )
-
-        self.reset = GPIO(NRST_PIN)
-        self.reset.setup(GPIO.OUT)
-
-        self.reset.set(False)
-        time.sleep(0.2)
-        self.reset.set(True)
-        time.sleep(0.8)
-
-        self.serial.flushInput()
-        self.serial.flushOutput()
-
+        self.controller = Controller()
+        self.serial = self.controller.serial
+        self.controller.reset(True)
 
     def command(self, cmd, reply_code=OK):
         def read_command():
