@@ -60,7 +60,7 @@ setup(
 
     entry_points={
         'console_scripts': [
-            'hedgehog-server = hedgehog.server:main',
+            'hedgehog-server = hedgehog.server.server:main',
             'hedgehog-simulator = hedgehog.server.simulator:main',
         ],
     },

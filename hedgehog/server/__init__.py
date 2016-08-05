@@ -1,5 +1,4 @@
-import logging, logging.config
-import sys
+import logging
 import zmq
 import threading
 from hedgehog.utils import zmq as zmq_utils
@@ -76,30 +75,21 @@ class HedgehogServer:
         self.close()
 
 
-def handler():
-    hardware = SerialHardwareAdapter()
-    hardware = LoggingHardwareAdapter(hardware)
-    return handlers.to_dict(HardwareHandler(hardware), ProcessHandler())
-
-
-def main():
-    logging.config.fileConfig('logging.conf', disable_existing_loggers=False)
-
-    args = sys.argv[1:]
-    port = 0 if len(args) == 0 else args[0]
-
+def start(name, hardware, port=0):
     ctx = zmq.Context.instance()
     service = 'hedgehog_server'
 
-    node = Node("Hedgehog Server", ctx)
+    # TODO retry on missing network
+    node = Node(name, ctx)
     node.start()
     node.join(service)
 
-    server = HedgehogServer('tcp://*:{}'.format(port), handler(), ctx=ctx)
+    handler = handlers.to_dict(
+        HardwareHandler(LoggingHardwareAdapter(hardware())),
+        ProcessHandler()
+    )
+
+    server = HedgehogServer('tcp://*:{}'.format(port), handler, ctx=ctx)
     node.add_service(service, server.socket.socket)
 
     logger.info("{} started on {}".format(node.name(), server.socket.socket.last_endpoint.decode('utf-8')))
-
-
-if __name__ == '__main__':
-    main()
