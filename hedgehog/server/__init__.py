@@ -7,7 +7,6 @@ from .hedgehog_server import HedgehogServer
 from .handlers.hardware import HardwareHandler
 from .handlers.process import ProcessHandler
 from .hardware.serial import SerialHardwareAdapter
-from .hardware.logging import LoggingHardwareAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +20,7 @@ def start(name, hardware, port=0):
     node.start()
     node.join(service)
 
-    handler = handlers.to_dict(
-        HardwareHandler(LoggingHardwareAdapter(hardware())),
-        ProcessHandler()
-    )
+    handler = handlers.to_dict(HardwareHandler(hardware()), ProcessHandler())
 
     server = HedgehogServer('tcp://*:{}'.format(port), handler, ctx=ctx)
     node.add_service(service, server.socket)

@@ -37,14 +37,17 @@ class HedgehogServerActor(object):
         def handle(msg_raw):
             try:
                 msg = messages.parse(msg_raw)
+                logger.debug("Receive command: %s", msg)
                 try:
                     handler = self.handlers[msg.meta.discriminator]
                 except KeyError as err:
                     raise UnsupportedCommandError(msg.meta.discriminator)
                 else:
-                    return handler(self, ident, msg)
+                    result = handler(self, ident, msg)
             except HedgehogCommandError as err:
-                return err.to_message()
+                result = err.to_message()
+            logger.debug("Send reply:      %s", result)
+            return result
 
         msgs = [handle(msg) for msg in msgs_raw]
         self.socket.send_multipart(ident, msgs)
