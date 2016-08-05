@@ -1,4 +1,8 @@
+import logging
+
 from . import HardwareAdapter, POWER
+
+logger = logging.getLogger(__name__)
 
 
 def logged(func):
@@ -20,7 +24,7 @@ def logged(func):
             else:
                 arg_str = args_str + kwargs_str
 
-            print("{}({}) = {}".format(name, arg_str, result))
+            logger.info("{}({}) = {}".format(name, arg_str, result))
     return decorated
 
 

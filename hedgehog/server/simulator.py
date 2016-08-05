@@ -1,3 +1,4 @@
+import logging, logging.config
 import sys
 import zmq
 from hedgehog.utils.discovery.node import Node
@@ -8,6 +9,8 @@ from hedgehog.server.handlers.process import ProcessHandler
 from hedgehog.server.hardware.simulated import SimulatedHardwareAdapter
 from hedgehog.server.hardware.logging import LoggingHardwareAdapter
 
+logger = logging.getLogger(__name__)
+
 
 def handler():
     hardware = SimulatedHardwareAdapter()
@@ -16,6 +19,8 @@ def handler():
 
 
 def main():
+    logging.config.fileConfig('logging.conf', disable_existing_loggers=False)
+
     args = sys.argv[1:]
     port = 0 if len(args) == 0 else args[0]
 
@@ -29,7 +34,7 @@ def main():
     server = HedgehogServer('tcp://*:{}'.format(port), handler(), ctx=ctx)
     node.add_service(service, server.socket.socket)
 
-    print("{} started on {}".format(node.name(), server.socket.socket.last_endpoint.decode('utf-8')))
+    logger.info("{} started on {}".format(node.name(), server.socket.socket.last_endpoint.decode('utf-8')))
 
 
 if __name__ == '__main__':
