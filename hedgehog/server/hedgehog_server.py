@@ -10,9 +10,6 @@ logger = logging.getLogger(__name__)
 
 class HedgehogServerActor(object):
     def __init__(self, ctx, pipe, queue, endpoint, handlers):
-        if ctx is None:
-            ctx = zmq.Context.instance()
-
         socket = ctx.socket(zmq.ROUTER)
         socket.bind(endpoint)
         self.socket = sockets.DealerRouterWrapper(socket)
