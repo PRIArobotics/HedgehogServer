@@ -1,3 +1,4 @@
+import argparse
 import logging
 import time
 import zmq
@@ -10,6 +11,17 @@ from .handlers.process import ProcessHandler
 from .hardware.serial import SerialHardwareAdapter
 
 logger = logging.getLogger(__name__)
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-n', '--name', default='Hedgehog Server',
+                        help="Node name for discovery; default: '%(default)s'")
+    parser.add_argument('-p', '--port', type=int, default=0,
+                        help="The port to use, 0 means random port; default: %(default)s")
+    parser.add_argument('--svc', '--service', dest='services', action='append', default=['hedgehog_server'],
+                        help="Additional service identifiers, may appear multiple times; %(default)s is always registered")
+    return parser.parse_args()
 
 
 def start(name, hardware, port=0, services=('hedgehog_server',)):
