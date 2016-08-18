@@ -12,9 +12,8 @@ from .hardware.serial import SerialHardwareAdapter
 logger = logging.getLogger(__name__)
 
 
-def start(name, hardware, port=0):
+def start(name, hardware, port=0, services=('hedgehog_server',)):
     ctx = zmq.Context.instance()
-    service = 'hedgehog_server'
 
     handler = handlers.to_dict(HardwareHandler(hardware()), ProcessHandler())
 
@@ -26,8 +25,9 @@ def start(name, hardware, port=0):
         logger.info("Starting Node for discovery...")
         node = Node(name, ctx)
         node.start()
-        node.join(service)
-        node.add_service(service, server.socket)
+        for service in services:
+            node.join(service)
+            node.add_service(service, server.socket)
 
         while True:
             event = node.socket().recv_multipart()
