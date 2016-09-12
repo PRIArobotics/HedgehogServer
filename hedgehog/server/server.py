@@ -1,5 +1,4 @@
 import logging.config
-import sys
 
 from hedgehog.server import parse_args, start
 from hedgehog.server.hardware.serial import SerialHardwareAdapter

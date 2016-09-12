@@ -137,4 +137,3 @@ class SerialHardwareAdapter(HardwareAdapter):
         value = position | (0x8000 if active else 0x0000)
         value_hi, value_lo = value.to_bytes(2, 'big')
         self.command([SERVO, port, value_hi, value_lo])
-

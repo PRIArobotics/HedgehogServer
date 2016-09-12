@@ -1,7 +1,9 @@
 import logging
 import zmq
-from pyre.zactor import ZActor
-from hedgehog.utils import zmq as zmq_utils
+from hedgehog.utils.zmq import Active
+from hedgehog.utils.zmq.actor import Actor, CommandRegistry
+from hedgehog.utils.zmq.poller import Poller
+from hedgehog.utils.zmq.socket import Socket
 from hedgehog.protocol import messages, sockets
 from hedgehog.protocol.errors import HedgehogCommandError, UnsupportedCommandError
 
@@ -9,35 +11,53 @@ logger = logging.getLogger(__name__)
 
 
 class HedgehogServerActor(object):
-    def __init__(self, ctx, pipe, queue, endpoint, handlers):
-        socket = ctx.socket(zmq.ROUTER)
+    def __init__(self, ctx, cmd_pipe, evt_pipe, endpoint, handlers):
+        self.ctx = ctx
+        self.cmd_pipe = cmd_pipe
+        self.evt_pipe = evt_pipe
+
+        socket = Socket(ctx, zmq.ROUTER)
         socket.bind(endpoint)
         self.socket = sockets.DealerRouterWrapper(socket)
         self.handlers = handlers
 
-        self.pipe = pipe
-        self.queue = queue
+        self.poller = Poller()
+        self.register_cmd_pipe()
+        self.register_socket()
 
-        self.poller = zmq_utils.Poller()
-        self.register(self.socket.socket, self.recv_socket)
-        self.register(self.pipe, self.recv_api)
+        self.run()
 
-        self.pipe.signal()
+    def register_cmd_pipe(self):
+        registry = CommandRegistry()
+        self.register(self.cmd_pipe, lambda: registry.handle(self.cmd_pipe.recv_multipart()))
 
-        while len(self.poller.sockets) > 0:
-            for _, _, recv in self.poller.poll():
-                recv()
+        @registry.command(b'SOCK')
+        def handle_sock():
+            self.cmd_pipe.push(self.socket.socket)
+            self.cmd_pipe.signal()
 
-    def recv_socket(self):
-        ident, msgs_raw = self.socket.recv_multipart_raw()
+        @registry.command(b'REG')
+        def handle_reg():
+            socket, cb = self.cmd_pipe.pop()
+            self.poller.register(socket, zmq.POLLIN, cb)
 
-        def handle(msg_raw):
+        @registry.command(b'UNREG')
+        def handle_unreg():
+            socket = self.cmd_pipe.pop()
+            self.poller.unregister(socket)
+
+        @registry.command(b'$TERM')
+        def handle_term():
+            self.terminate()
+
+    def register_socket(self):
+        def handle(ident, msg_raw):
             try:
                 msg = messages.parse(msg_raw)
                 logger.debug("Receive command: %s", msg)
                 try:
                     handler = self.handlers[msg.meta.discriminator]
-                except KeyError as err:
+                except KeyError:
                     raise UnsupportedCommandError(msg.meta.discriminator)
                 else:
                     result = handler(self, ident, msg)
@@ -46,28 +66,15 @@ class HedgehogServerActor(object):
             logger.debug("Send reply:      %s", result)
             return result
 
-        msgs = [handle(msg) for msg in msgs_raw]
-        self.socket.send_multipart(ident, msgs)
+        def recv_socket():
+            ident, msgs_raw = self.socket.recv_multipart_raw()
+            self.socket.send_multipart(ident, [handle(ident, msg) for msg in msgs_raw])
 
-    def recv_api(self):
-        command = self.pipe.recv_unicode()
-        if command == "SOCK":
-            self.queue.append(self.socket.socket)
-            self.pipe.signal()
-        elif command == "REG":
-            socket, cb = self.queue.pop(0)
-            self.pipe.signal()
-            self.poller.register(socket, zmq.POLLIN, cb)
-        elif command == "UNREG":
-            socket = self.queue.pop(0)
-            self.pipe.signal()
+        self.register(self.socket.socket, recv_socket)
+
+    def terminate(self):
+        for socket in list(self.poller.sockets):
             self.poller.unregister(socket)
-        elif command == "$TERM":
-            for socket in list(self.poller.sockets):
-                socket.close()
-                self.unregister(socket)
-        else:
-            logger.warning("Unkown Node API command: {0}".format(command))
 
     def register(self, socket, cb):
         self.poller.register(socket, zmq.POLLIN, cb)
@@ -75,39 +82,53 @@ class HedgehogServerActor(object):
     def unregister(self, socket):
         self.poller.unregister(socket)
 
+    def run(self):
+        # Signal actor successfully initialized
+        self.evt_pipe.signal()
 
-class HedgehogServer(object):
-    def __init__(self, endpoint, handlers, ctx=None):
-        if ctx is None:
-            ctx = zmq.Context.instance()
+        while len(self.poller.sockets) > 0:
+            for _, _, handler in self.poller.poll():
+                handler()
 
+
+class HedgehogServer(Active):
+    hedgehog_server_class = HedgehogServerActor
+
+    def __init__(self, ctx, endpoint, handlers):
+        self.ctx = ctx
+        self.actor = None
+        self.endpoint = endpoint
+        self.handlers = handlers
         self._socket = None
-        self.queue = []
-        self.actor = ZActor(ctx, HedgehogServerActor, self.queue, endpoint, handlers)
+
+    @property
+    def cmd_pipe(self):
+        return self.actor.cmd_pipe
+
+    @property
+    def evt_pipe(self):
+        return self.actor.evt_pipe
 
     @property
     def socket(self):
         if not self._socket:
-            self.actor.send_unicode("SOCK")
-            self.actor.resolve().wait()
-            self._socket = self.queue.pop(0)
+            self.cmd_pipe.send(b'SOCK')
+            self.cmd_pipe.wait()
+            self._socket = self.cmd_pipe.pop()
         return self._socket
 
     def register(self, socket, cb):
-        self.queue.append((socket, cb))
-        self.actor.send_unicode("REG")
-        self.actor.resolve().wait()
+        self.cmd_pipe.push((socket, cb))
+        self.cmd_pipe.send(b'REG')
 
     def unregister(self, socket):
-        self.queue.append(socket)
-        self.actor.send_unicode("UNREG")
-        self.actor.resolve().wait()
+        self.cmd_pipe.push(socket)
+        self.cmd_pipe.send(b'UNREG')
 
-    def close(self):
-        self.actor.destroy()
+    def start(self):
+        self.actor = Actor(self.ctx, self.hedgehog_server_class, self.endpoint, self.handlers)
 
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.close()
+    def stop(self):
+        if self.actor is not None:
+            self.actor.destroy()
+            self.actor = None

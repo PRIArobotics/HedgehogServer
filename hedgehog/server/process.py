@@ -1,5 +1,6 @@
 import zmq
-from hedgehog.utils import zmq as zmq_utils
+from hedgehog.utils.zmq.pipe import pipe
+from hedgehog.utils.zmq.poller import Poller
 import fcntl, os, subprocess, threading
 from hedgehog.protocol.messages.process import STDIN, STDOUT, STDERR
 
@@ -58,7 +59,7 @@ class Process:
         """
         ctx = zmq.Context()
 
-        self.socket, socket = zmq_utils.pipe(ctx)
+        self.socket, socket = pipe(ctx)
 
         self.status = None
         self.signal = None
@@ -70,7 +71,7 @@ class Process:
             **kwargs
         )
 
-        poller = zmq_utils.Poller()
+        poller = Poller()
 
         def register_input():
             file = self.proc.stdin
