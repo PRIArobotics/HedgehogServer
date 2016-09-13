@@ -5,9 +5,10 @@ from hedgehog.server.hardware.serial import SerialHardwareAdapter
 
 
 def main():
-    logging.config.fileConfig('logging.conf')
-
     args = parse_args()
+
+    if args.logging_conf:
+        logging.config.fileConfig(args.logging_conf)
     start(args.name, SerialHardwareAdapter, port=args.port, services=args.services)
 
 

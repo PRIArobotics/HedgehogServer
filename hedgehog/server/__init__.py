@@ -21,6 +21,8 @@ def parse_args():
                         help="The port to use, 0 means random port; default: %(default)s")
     parser.add_argument('--svc', '--service', dest='services', action='append', default=['hedgehog_server'],
                         help="Additional service identifiers, may appear multiple times; %(default)s is always registered")
+    parser.add_argument('--logging-conf', dest='logging_conf',
+                        help="If given, logging is configured from this file")
     return parser.parse_args()
 
 
@@ -30,22 +32,23 @@ def start(name, hardware, port=0, services=('hedgehog_server',)):
     handler = handlers.to_dict(HardwareHandler(hardware()), ProcessHandler())
 
     server = HedgehogServer(ctx, 'tcp://*:{}'.format(port), handler)
-    logger.info("{} started on {}".format(name, server.socket.last_endpoint.decode('utf-8')))
+    with server:
+        logger.info("{} started on {}".format(name, server.socket.last_endpoint.decode('utf-8')))
 
-    # TODO clean way to exit
-    while True:
-        logger.info("Starting Node for discovery...")
+        # TODO clean way to exit
+        while True:
+            logger.info("Starting Node for discovery...")
 
-        node = ServiceNode(ctx, name)
-        with node:
-            for service in services:
-                node.join(service)
-                node.add_service(service, server.socket)
+            node = ServiceNode(ctx, name)
+            with node:
+                for service in services:
+                    node.join(service)
+                    node.add_service(service, server.socket)
 
-            while True:
-                command, *args = node.evt_pipe.recv_multipart()
-                if command == b'$TERM':
-                    break
+                while True:
+                    command, *args = node.evt_pipe.recv_multipart()
+                    if command == b'$TERM':
+                        break
 
-        logger.info("Node terminated (network gone?). Retry in 3 seconds...")
-        time.sleep(3)
+            logger.info("Node terminated (network gone?). Retry in 3 seconds...")
+            time.sleep(3)

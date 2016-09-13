@@ -5,9 +5,10 @@ from hedgehog.server.hardware.simulated import SimulatedHardwareAdapter
 
 
 def main():
-    logging.config.fileConfig('logging.conf')
-
     args = parse_args()
+
+    if args.logging_conf:
+        logging.config.fileConfig(args.logging_conf)
     start(args.name, SimulatedHardwareAdapter, port=args.port, services=args.services)
 
 
