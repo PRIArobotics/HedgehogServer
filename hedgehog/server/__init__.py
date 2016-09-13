@@ -47,8 +47,12 @@ def start(name, hardware, port=0, services=('hedgehog_server',)):
 
                 while True:
                     command, *args = node.evt_pipe.recv_multipart()
+                    if command == b'BEACON TERM':
+                        logger.info("Beacon terminated (network gone?). Retry in 3 seconds...")
+                        time.sleep(3)
+                        node.restart_beacon()
                     if command == b'$TERM':
                         break
 
-            logger.info("Node terminated (network gone?). Retry in 3 seconds...")
+            logger.info("Node terminated. Retry in 3 seconds...")
             time.sleep(3)
