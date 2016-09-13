@@ -42,7 +42,7 @@ class TestSimulator(unittest.TestCase):
             socket.connect('inproc://controller')
             socket = sockets.ReqWrapper(socket)
 
-            socket.send(io.StateAction(0, io.ANALOG_PULLDOWN))
+            socket.send(io.StateAction(0, io.INPUT_PULLDOWN))
             response = socket.recv()
             self.assertEqual(type(response), ack.Acknowledgement)
             self.assertEqual(response.code, ack.UNSUPPORTED_COMMAND)
@@ -55,13 +55,13 @@ class TestSimulator(unittest.TestCase):
             socket.connect('inproc://controller')
             socket = sockets.ReqWrapper(socket)
 
-            socket.send(io.StateAction(0, io.ANALOG_PULLDOWN))
+            socket.send(io.StateAction(0, io.INPUT_PULLDOWN))
             response = socket.recv()
             self.assertEqual(response, ack.Acknowledgement())
 
             # send an invalid command
             action = io.StateAction(0, 0)
-            action.flags = io.OUTPUT | io.ANALOG
+            action.flags = io.OUTPUT | io.PULLDOWN
             socket.send(action)
             response = socket.recv()
             self.assertEqual(type(response), ack.Acknowledgement)
