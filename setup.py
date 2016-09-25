@@ -46,12 +46,14 @@ setup(
     # your project is installed. For an analysis of "install_requires" vs pip's
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
-    install_requires=['hedgehog-protocol', 'hedgehog-utils', 'hedgehog-platform'],
+    install_requires=['hedgehog-protocol', 'hedgehog-utils[discovery]', 'hedgehog-platform'],
 
     # You can install these using the following syntax, for example:
     # $ pip install -e .[dev,test]
     extras_require={
-        # 'dev': ['invoke'],
+        # TODO adding extras for existing requirement does not work
+        #'raspberry': ['hedgehog-platform[raspberry]'],
+        'raspberry': ['RPi.GPIO', 'pyserial'],
     },
 
     # package_data={
