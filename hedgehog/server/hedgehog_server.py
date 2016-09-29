@@ -72,6 +72,11 @@ class HedgehogServerActor(object):
 
         self.register(self.socket.socket, recv_socket)
 
+    def send_async(self, ident, *msgs):
+        for msg in msgs:
+            logger.debug("Send update:     %s", msg)
+        self.socket.send_multipart(ident, msgs)
+
     def terminate(self):
         for socket in list(self.poller.sockets):
             self.poller.unregister(socket)

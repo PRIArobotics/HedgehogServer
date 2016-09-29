@@ -21,14 +21,14 @@ class ProcessHandler(CommandHandler):
             msg = proc.read()
             if msg is None:
                 msg = process.ExitUpdate(pid, proc.status)
-                server.socket.send(ident, msg)
+                server.send_async(ident, msg)
                 server.unregister(proc.socket)
                 proc.socket.close()
                 del self._processes[pid]
             else:
                 fileno, msg = msg
                 msg = process.StreamUpdate(pid, fileno, msg)
-                server.socket.send(ident, msg)
+                server.send_async(ident, msg)
 
         server.register(proc.socket, cb)
         return process.ExecuteReply(pid)
