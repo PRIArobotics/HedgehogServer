@@ -1,8 +1,12 @@
 import zmq
+import fcntl
+import os
+import subprocess
+import threading
+
+from hedgehog.protocol.messages.process import STDIN, STDOUT, STDERR
 from hedgehog.utils.zmq.pipe import pipe
 from hedgehog.utils.zmq.poller import Poller
-import fcntl, os, subprocess, threading
-from hedgehog.protocol.messages.process import STDIN, STDOUT, STDERR
 
 EXIT = 0xFF
 SIGNAL = 0xFE
