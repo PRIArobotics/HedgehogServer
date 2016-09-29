@@ -32,7 +32,7 @@ class HardwareHandler(CommandHandler):
         if msg.relative is not None or msg.absolute is not None:
             # this action will end with a state update
             def cb(port, state):
-                server.socket.send(ident, motor.StateUpdate(port, state))
+                server.send_async(ident, motor.StateUpdate(port, state))
             self.motor_cb[msg.port] = cb
         self.adapter.set_motor(msg.port, msg.state, msg.amount, msg.reached_state, msg.relative, msg.absolute)
         return ack.Acknowledgement()
