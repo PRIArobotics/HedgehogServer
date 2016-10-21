@@ -1,5 +1,6 @@
 import argparse
 import logging
+import logging.config
 import socket
 import time
 import zmq
@@ -48,6 +49,14 @@ def get_default_name(simulator=False):
     suffix = " " + addrs[0][9:] if addrs else ""
     kind = "Hedgehog Simulator" if simulator else "Hedgehog Server"
     return kind + suffix
+
+
+def launch(hardware):
+    args = parse_args()
+
+    if args.logging_conf:
+        logging.config.fileConfig(args.logging_conf)
+    start(hardware, name=args.name, port=args.port, services=args.services)
 
 
 def start(hardware, name=None, port=0, services=('hedgehog_server',)):
