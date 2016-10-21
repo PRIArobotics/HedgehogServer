@@ -9,7 +9,7 @@ def main():
 
     if args.logging_conf:
         logging.config.fileConfig(args.logging_conf)
-    start(args.name, SimulatedHardwareAdapter, port=args.port, services=args.services)
+    start(SimulatedHardwareAdapter, name=args.name, port=args.port, services=args.services)
 
 
 if __name__ == '__main__':

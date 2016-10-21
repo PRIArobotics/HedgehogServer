@@ -1,8 +1,10 @@
 import argparse
 import logging
+import socket
 import time
 import zmq
 from hedgehog.utils.discovery.service_node import ServiceNode
+from pyre import zhelper
 
 from . import handlers
 from .hedgehog_server import HedgehogServer
@@ -15,8 +17,8 @@ logger = logging.getLogger(__name__)
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-n', '--name', default='Hedgehog Server',
-                        help="Node name for discovery; default: '%(default)s'")
+    parser.add_argument('-n', '--name', default=None,
+                        help="Node name for discovery; the default incorporates a MAC address for identification")
     parser.add_argument('-p', '--port', type=int, default=0,
                         help="The port to use, 0 means random port; default: %(default)s")
     parser.add_argument('--svc', '--service', dest='services', action='append', default=['hedgehog_server'],
@@ -26,7 +28,33 @@ def parse_args():
     return parser.parse_args()
 
 
-def start(name, hardware, port=0, services=('hedgehog_server',)):
+def get_default_name(simulator=False):
+    # get dict of interfaces
+    netinf = {iface: data
+              for netinf in zhelper.get_ifaddrs()
+              for iface, data in netinf.items()}
+
+    # consider only wired interfaces - TODO cross platform testing
+    wired = {iface: data
+             for iface, data in netinf.items()
+             if any(iface.startswith(prefix) for prefix in ('eth', 'en'))}
+
+    # get MAC addresses, predictably sorted by interface name
+    addrs = [data[socket.AF_PACKET]['addr']
+             for iface, data in sorted(netinf.items())
+             if socket.AF_PACKET in data]
+
+    # choose first interface, use last three octets in server name
+    suffix = " " + addrs[0][9:] if addrs else ""
+    kind = "Hedgehog Simulator" if simulator else "Hedgehog Server"
+    return kind + suffix
+
+
+def start(hardware, name=None, port=0, services=('hedgehog_server',)):
+    if name is None:
+        from hedgehog.server.hardware.simulated import SimulatedHardwareAdapter
+        name = get_default_name(hardware == SimulatedHardwareAdapter)
+
     ctx = zmq.Context.instance()
 
     handler = handlers.to_dict(HardwareHandler(hardware()), ProcessHandler())
