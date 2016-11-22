@@ -114,7 +114,9 @@ def launch(hardware):
     name = args.name or config.get('default', 'name', fallback='Hedgehog {mode} {mac}')
     name = name.format(**name_fmt_kwargs(hardware == SimulatedHardwareAdapter))
     port = args.port or config.getint('default', 'port', fallback=0)
-    services = {*args.services, *config.get('default', 'services', fallback='').split()}
+    services = set()
+    services.update(args.services)
+    services.update(config.get('default', 'services', fallback='').split())
 
     start(hardware, name=name, port=port, services=services)
 
