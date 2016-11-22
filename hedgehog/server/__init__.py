@@ -57,16 +57,15 @@ def launch(hardware):
 
     if args.logging_conf:
         logging.config.fileConfig(args.logging_conf)
-    start(hardware, name=args.name, port=args.port, services=args.services)
+
+    from hedgehog.server.hardware.simulated import SimulatedHardwareAdapter
+    name = args.name or 'Hedgehog {mode} {mac}'
+    name = name.format(**name_fmt_kwargs(hardware == SimulatedHardwareAdapter))
+
+    start(hardware, name=name, port=args.port, services=args.services)
 
 
 def start(hardware, name=None, port=0, services=('hedgehog_server',)):
-    if name is None:
-        name = 'Hedgehog {mode} {mac}'
-
-    from hedgehog.server.hardware.simulated import SimulatedHardwareAdapter
-    name = name.format(**name_fmt_kwargs(hardware == SimulatedHardwareAdapter))
-
     ctx = zmq.Context.instance()
 
     handler = handlers.to_dict(HardwareHandler(hardware()), ProcessHandler())
