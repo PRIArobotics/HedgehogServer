@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('-n', '--name', default=None,
-                        help="Node name for discovery; the default incorporates a MAC address for identification")
+                        help="Node name for discovery; can use {mode} and {mac} to include server/simulator and MAC address")
     parser.add_argument('-p', '--port', type=int, default=0,
                         help="The port to use, 0 means random port; default: %(default)s")
     parser.add_argument('--svc', '--service', dest='services', action='append', default=['hedgehog_server'],
@@ -29,7 +29,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def get_default_name(simulator=False):
+def name_fmt_kwargs(simulator=False):
     # get dict of interfaces
     netinf = {iface: data
               for netinf in zhelper.get_ifaddrs()
@@ -46,9 +46,10 @@ def get_default_name(simulator=False):
              if socket.AF_PACKET in data]
 
     # choose first interface, use last three octets in server name
-    suffix = " " + addrs[0][9:] if addrs else ""
-    kind = "Hedgehog Simulator" if simulator else "Hedgehog Server"
-    return kind + suffix
+    return {
+        'mode': "Simulator" if simulator else "Server",
+        'mac': addrs[0][9:] if addrs else "",
+    }
 
 
 def launch(hardware):
@@ -61,8 +62,10 @@ def launch(hardware):
 
 def start(hardware, name=None, port=0, services=('hedgehog_server',)):
     if name is None:
-        from hedgehog.server.hardware.simulated import SimulatedHardwareAdapter
-        name = get_default_name(hardware == SimulatedHardwareAdapter)
+        name = 'Hedgehog {mode} {mac}'
+
+    from hedgehog.server.hardware.simulated import SimulatedHardwareAdapter
+    name = name.format(**name_fmt_kwargs(hardware == SimulatedHardwareAdapter))
 
     ctx = zmq.Context.instance()
 
