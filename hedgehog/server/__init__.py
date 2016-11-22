@@ -4,6 +4,7 @@ import logging
 import logging.config
 import os.path
 import socket
+import subprocess
 import time
 import zmq
 from hedgehog.utils.discovery.service_node import ServiceNode
@@ -87,8 +88,8 @@ def apply_scan_config(config, scan_config):
     wifi_commands = get(scan_config, 'wifi', 'commands')
 
     if wifi_commands:
-        # TODO call wpa_cli
-        pass
+        # TODO make this less dangerous when called on a non-hedgehog machine
+        subprocess.Popen(['wpa_cli'], stdin=subprocess.PIPE).communicate(wifi_commands.encode())
 
 
 def launch(hardware):
