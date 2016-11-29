@@ -1,5 +1,6 @@
 import unittest
 import zmq
+import signal
 import time
 
 from hedgehog.protocol import sockets
@@ -266,6 +267,38 @@ class TestSimulator(unittest.TestCase):
             self.assertEqual(output[process.STDOUT], b'/\n')
             self.assertEqual(output[process.STDERR], b'')
 
+    def test_process_signal_sleep(self):
+        ctx = zmq.Context()
+
+        with HedgehogServer(ctx, 'inproc://controller', handler()):
+            socket = ctx.socket(zmq.DEALER)
+            socket.connect('inproc://controller')
+            socket = sockets.DealerRouterWrapper(socket)
+
+            socket.send([], process.ExecuteRequest('sleep', '1'))
+            _, response = socket.recv()
+            self.assertEqual(type(response), process.ExecuteReply)
+            pid = response.pid
+
+            socket.send([], process.StreamAction(pid, process.STDIN, b''))
+            _, response = socket.recv()
+            self.assertEqual(response, ack.Acknowledgement())
+
+            socket.send([], process.SignalAction(pid, signal.SIGINT))
+            _, response = socket.recv()
+            self.assertEqual(response, ack.Acknowledgement())
+
+            open = 2
+            while open > 0:
+                _, msg = socket.recv()
+                self.assertEqual(type(msg), process.StreamUpdate)
+                self.assertEqual(msg.pid, pid)
+                if msg.chunk == b'':
+                    open -= 1
+
+            _, msg = socket.recv()
+            self.assertEqual(msg, process.ExitUpdate(pid, -signal.SIGINT))
+
 
 def collect_outputs(proc):
     output = {process.STDOUT: [], process.STDERR: []}
@@ -277,7 +310,7 @@ def collect_outputs(proc):
             output[fileno].append(msg)
         msg = proc.read()
     proc.socket.close()
-    status = proc.status
+    status = proc.status if proc.status is not None else -proc.signal
 
     return status, b''.join(output[process.STDOUT]), b''.join(output[process.STDERR])
 
@@ -314,6 +347,18 @@ class TestProcess(unittest.TestCase):
         status, out, err = collect_outputs(proc)
         self.assertEqual(status, 0)
         self.assertEqual(out, b'/\n')
+        self.assertEqual(err, b'')
+
+    def test_signal_sleep(self):
+        proc = Process('sleep', '1')
+
+        proc.write(process.STDIN)
+
+        proc.send_signal(signal.SIGINT)
+
+        status, out, err = collect_outputs(proc)
+        self.assertEqual(status, -2)
+        self.assertEqual(out, b'')
         self.assertEqual(err, b'')
 
 

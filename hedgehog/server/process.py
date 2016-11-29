@@ -131,6 +131,14 @@ class Process:
 
         threading.Thread(target=poll).start()
 
+    def send_signal(self, signal):
+        """
+        Sends `signal` to the child process.
+
+        :param signal: The signal to be sent
+        """
+        self.proc.send_signal(signal)
+
     def write(self, fileno, msg=b''):
         """
         Writes `msg` to the child process' file `fileno`.

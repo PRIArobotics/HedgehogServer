@@ -20,7 +20,8 @@ class ProcessHandler(CommandHandler):
         def cb():
             msg = proc.read()
             if msg is None:
-                msg = process.ExitUpdate(pid, proc.status)
+                payload = proc.status if proc.status is not None else -proc.signal
+                msg = process.ExitUpdate(pid, payload)
                 server.send_async(ident, msg)
                 server.unregister(proc.socket)
                 proc.socket.close()
@@ -39,6 +40,16 @@ class ProcessHandler(CommandHandler):
         if msg.pid in self._processes:
             proc = self._processes[msg.pid]
             proc.write(msg.fileno, msg.chunk)
+            return ack.Acknowledgement()
+        else:
+            raise FailedCommandError("no process with pid {}".format(msg.pid))
+
+    @_command(process.SignalAction)
+    def process_signal_action(self, server, ident, msg):
+        # check whether the process has already finished
+        if msg.pid in self._processes:
+            proc = self._processes[msg.pid]
+            proc.send_signal(msg.signal)
             return ack.Acknowledgement()
         else:
             raise FailedCommandError("no process with pid {}".format(msg.pid))
