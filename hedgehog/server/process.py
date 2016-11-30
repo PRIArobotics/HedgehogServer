@@ -8,47 +8,23 @@ from hedgehog.protocol.messages.process import STDIN, STDOUT, STDERR
 from hedgehog.utils.zmq.pipe import pipe
 from hedgehog.utils.zmq.poller import Poller
 
-EXIT = 0xFF
-
 
 class Process:
     """
     `Process` provides a ZMQ-based abstraction around a `Popen` object.
 
     Using the `Process` class, users can (and must) interact with a child process via a single ZMQ socket, `socket`.
-    Messages are multipart, consisting of `(fileno, msg)`,
-    where `fileno` consists of one byte `STDIN`, `STDOUT`, `STDERR`, `EXIT`, `SIGNAL`.
-    `STDIN` may be used to sending data to the process' `stdin` stream,
-    `STDOUT` and `STDERR` for receiving data from the corresponding streams,
-    and `EXIT` or `SIGNAL` indicate the process has finished normally or abruptly, respectively.
-    `msg` will contain a single byte that is the exit `status` of the process (`0 <= status < 256`).
-    (The `status` will also be available as a field.)
+    Messages are multipart, consisting of command and payload, where valid commands are `b'READ'`. `b'WRITE'` and
+    `b'EXIT'`. For read and write, the payload consists of `fileno` (`STDIN` for writing, one of `STDOUT` or `STDERR`
+    for reading) and a `chunk`; an exit message has no payload, but the `returncode` attribute will be set.
+    In addition to these messages, signals may be sent to the process directly, e.g. to kill it.
 
     Data is sent as soon as it is available, i.e. not only after a full line or a fixed number of bytes.
     The fragmentation of stream data into ZMQ messages is arbitrary, but a limited per-message length can be assumed.
-    An empty `msg` (`b''`) denotes EOF, both for reading and writing.
-    The `EXIT` message will always be the last message received from the socket;
-    at that point, both output streams will have reached EOF
-    and the process will have finished with the indicated `status`.
+    An empty `chunk` (`b''`) denotes EOF, both for reading and writing.
 
-
-
-    Returned is the `Popen` object, three ZMQ sockets for piping `stdin`, `stdout`, and `stderr`,
-    and a socket that reports the process' exit status.
-    The `Popen` object's file objects must not be used; use the ZMQ sockets!
-
-    Data is sent as soon as it is available, i.e. not only after a full line or a fixed number of bytes.
-    The fragmentation of stream data into ZMQ messages is arbitrary, but a limited per-message length can be assumed.
-
-    To denote EOF, empty ZMQ frames are used.
-    That means, sending `b''` to `sdtin` will close the underlying file,
-    and receiving `b''` from stdout or stderr means that EOF for the underlying file was reached.
-
-    Even for commands that don't use `stdin` (such as `echo`), the caller MUST close the input stream (i.e. send `EOF`),
-    as process termination is only detected after all streams have been closed.
-
-    :param args: The command line arguments
-    :return: a tuple `(proc, stdin, stdout, stderr, exit)`
+    The `EXIT` message will always be the last message received from the socket; at that point, both output streams will
+    have reached EOF and the process will have finished with the indicated `status`.
     """
 
     def __init__(self, *args, **kwargs):
@@ -79,11 +55,13 @@ class Process:
             file = self.proc.stdin
 
             def handler():
-                [fileno], msg = socket.recv_multipart()
+                cmd, *msg = socket.recv_multipart()
+                assert cmd == b'WRITE'
+                [fileno], chunk = msg
                 assert fileno == STDIN
 
-                if msg != b'':
-                    file.write(msg)
+                if chunk != b'':
+                    file.write(chunk)
                     file.flush()
                 else:
                     poller.unregister(socket)
@@ -98,10 +76,10 @@ class Process:
             real_fileno = file.fileno()
 
             def handler():
-                data = file.read(4096)
+                chunk = file.read(4096)
 
-                socket.send_multipart([bytes([fileno]), data])
-                if data == b'':
+                socket.send_multipart([b'READ', bytes([fileno]), chunk])
+                if chunk == b'':
                     poller.unregister(real_fileno)
                     file.close()
 
@@ -115,10 +93,9 @@ class Process:
             while len(poller.sockets) > 0:
                 for _, _, handler in poller.poll():
                     handler()
-                print(poller.sockets)
 
             self.returncode = self.proc.wait()
-            socket.send(bytes([EXIT]))
+            socket.send(b'EXIT')
             socket.close()
 
         threading.Thread(target=poll).start()
@@ -131,32 +108,34 @@ class Process:
         """
         self.proc.send_signal(signal)
 
-    def write(self, fileno, msg=b''):
+    def write(self, fileno, chunk=b''):
         """
-        Writes `msg` to the child process' file `fileno`.
+        Writes `chunk` to the child process' file `fileno`.
 
-        An empty `msg` (the default) denotes EOF.
+        An empty `chunk` (the default) denotes EOF.
 
         :param fileno: Must be `STDIN`
-        :param msg: The data to write
+        :param chunk: The data to write
         """
-        self.socket.send_multipart([bytes([fileno]), msg])
+        self.socket.send_multipart([b'WRITE', bytes([fileno]), chunk])
 
     def read(self):
         """
         Reads from the child process' streams.
 
-        If the message received from the socket is `EXIT` or `SIGNAL`, `None` is returned;
-        otherwise, the return value is a tuple `(fileno, msg)`, where `fileno` is either `STDOUT` or `STDERR`.
+        If the message received from the socket is `b'EXIT'`, `None` is returned;
+        otherwise, the return value is a tuple `(fileno, chunk)`, where `fileno` is either `STDOUT` or `STDERR`.
 
-        Note that calling `read` after `EXIT` or `SIGNAL` was received will block indefinitely,
-        and that this method will not close the underlying socket on `EXIT`.
+        Note that calling `read` after `b'EXIT'` was received will block indefinitely,
+        and that this method will not close the underlying socket on `b'EXIT'`.
 
-        :return: `None`, or `(fileno, msg)`
+        :return: `None`, or `(fileno, chunk)`
         """
-        [fileno], *msg = self.socket.recv_multipart()
-        if fileno == EXIT:
+        cmd, *msg = self.socket.recv_multipart()
+        if cmd == b'READ':
+            [fileno], chunk = msg
+            return fileno, chunk
+        elif cmd == b'EXIT':
             return None
         else:
-            [chunk] = msg
-            return fileno, chunk
+            assert False
