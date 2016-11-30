@@ -9,7 +9,6 @@ from hedgehog.utils.zmq.pipe import pipe
 from hedgehog.utils.zmq.poller import Poller
 
 EXIT = 0xFF
-SIGNAL = 0xFE
 
 
 class Process:
@@ -65,8 +64,7 @@ class Process:
 
         self.socket, socket = pipe(ctx)
 
-        self.status = None
-        self.signal = None
+        self.returncode = None
         self.proc = subprocess.Popen(
             args,
             stdout=subprocess.PIPE,
@@ -117,16 +115,10 @@ class Process:
             while len(poller.sockets) > 0:
                 for _, _, handler in poller.poll():
                     handler()
+                print(poller.sockets)
 
-            returncode = self.proc.wait()
-            if returncode >= 0:
-                code = EXIT
-                self.status = payload = returncode
-            else:
-                code = SIGNAL
-                self.signal = payload = -returncode
-            assert 0 <= payload < 256, returncode
-            socket.send_multipart([bytes([code]), payload.to_bytes(1, 'big')])
+            self.returncode = self.proc.wait()
+            socket.send(bytes([EXIT]))
             socket.close()
 
         threading.Thread(target=poll).start()
@@ -162,8 +154,9 @@ class Process:
 
         :return: `None`, or `(fileno, msg)`
         """
-        [fileno], msg = self.socket.recv_multipart()
-        if fileno == EXIT or fileno == SIGNAL:
+        [fileno], *msg = self.socket.recv_multipart()
+        if fileno == EXIT:
             return None
         else:
-            return fileno, msg
+            [chunk] = msg
+            return fileno, chunk

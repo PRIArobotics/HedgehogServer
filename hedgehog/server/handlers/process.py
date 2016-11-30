@@ -20,8 +20,7 @@ class ProcessHandler(CommandHandler):
         def cb():
             msg = proc.read()
             if msg is None:
-                payload = proc.status if proc.status is not None else -proc.signal
-                msg = process.ExitUpdate(pid, payload)
+                msg = process.ExitUpdate(pid, proc.returncode)
                 server.send_async(ident, msg)
                 server.unregister(proc.socket)
                 proc.socket.close()

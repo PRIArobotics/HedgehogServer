@@ -310,9 +310,8 @@ def collect_outputs(proc):
             output[fileno].append(msg)
         msg = proc.read()
     proc.socket.close()
-    status = proc.status if proc.status is not None else -proc.signal
 
-    return status, b''.join(output[process.STDOUT]), b''.join(output[process.STDERR])
+    return proc.returncode, b''.join(output[process.STDOUT]), b''.join(output[process.STDERR])
 
 
 class TestProcess(unittest.TestCase):
