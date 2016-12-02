@@ -1,7 +1,8 @@
 from hedgehog.protocol.errors import UnsupportedCommandError
 from hedgehog.protocol.messages.motor import POWER, BRAKE, VELOCITY
 
-class HardwareAdapter:
+
+class HardwareAdapter(object):
     def __init__(self, motor_state_update_cb=None):
         self.motor_state_update_cb = motor_state_update_cb
 
