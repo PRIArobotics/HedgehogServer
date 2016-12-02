@@ -19,7 +19,7 @@ def to_dict(*handlers):
     return result
 
 
-class CommandHandler:
+class CommandHandler(object):
     _handlers = None
 
     def __init__(self):

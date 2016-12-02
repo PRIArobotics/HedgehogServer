@@ -1,5 +1,5 @@
 from hedgehog.protocol.errors import FailedCommandError
-from hedgehog.protocol.messages import ack, process
+from hedgehog.protocol.messages import ack, process, motor
 from hedgehog.server.process import Process
 from hedgehog.server.handlers import CommandHandler, command_handlers
 
@@ -7,9 +7,10 @@ from hedgehog.server.handlers import CommandHandler, command_handlers
 class ProcessHandler(CommandHandler):
     _handlers, _command = command_handlers()
 
-    def __init__(self):
+    def __init__(self, adapter):
         super().__init__()
         self._processes = {}
+        self.adapter = adapter
 
     @_command(process.ExecuteRequest)
     def process_execute_request(self, server, ident, msg):
@@ -20,8 +21,15 @@ class ProcessHandler(CommandHandler):
         def cb():
             msg = proc.read()
             if msg is None:
-                msg = process.ExitUpdate(pid, proc.status)
+                msg = process.ExitUpdate(pid, proc.returncode)
                 server.send_async(ident, msg)
+
+                # turn off all actuators
+                for port in range(4):
+                    self.adapter.set_motor(port, motor.POWER, 0)
+                for port in range(4):
+                    self.adapter.set_servo(port, False, 0)
+
                 server.unregister(proc.socket)
                 proc.socket.close()
                 del self._processes[pid]
@@ -39,6 +47,16 @@ class ProcessHandler(CommandHandler):
         if msg.pid in self._processes:
             proc = self._processes[msg.pid]
             proc.write(msg.fileno, msg.chunk)
+            return ack.Acknowledgement()
+        else:
+            raise FailedCommandError("no process with pid {}".format(msg.pid))
+
+    @_command(process.SignalAction)
+    def process_signal_action(self, server, ident, msg):
+        # check whether the process has already finished
+        if msg.pid in self._processes:
+            proc = self._processes[msg.pid]
+            proc.send_signal(msg.signal)
             return ack.Acknowledgement()
         else:
             raise FailedCommandError("no process with pid {}".format(msg.pid))
