@@ -124,7 +124,8 @@ def launch(hardware):
 def start(hardware, name=None, port=0, services={'hedgehog_server'}):
     ctx = zmq.Context.instance()
 
-    handler = handlers.to_dict(HardwareHandler(hardware()), ProcessHandler())
+    adapter = hardware()
+    handler = handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
 
     server = HedgehogServer(ctx, 'tcp://*:{}'.format(port), handler)
     with server:
