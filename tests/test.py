@@ -13,7 +13,8 @@ from hedgehog.server.hardware.simulated import SimulatedHardwareAdapter
 
 
 def handler():
-    return handlers.to_dict(HardwareHandler(SimulatedHardwareAdapter()), ProcessHandler())
+    adapter = SimulatedHardwareAdapter()
+    return handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
 
 
 class TestSimulator(unittest.TestCase):
@@ -37,7 +38,8 @@ class TestSimulator(unittest.TestCase):
         from hedgehog.server.handlers.hardware import HardwareHandler
         from hedgehog.server.handlers.process import ProcessHandler
         from hedgehog.server.hardware import HardwareAdapter
-        handlers = handlers.to_dict(HardwareHandler(HardwareAdapter()), ProcessHandler())
+        adapter = HardwareAdapter()
+        handlers = handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
         with HedgehogServer(ctx, 'inproc://controller', handlers):
             socket = ctx.socket(zmq.REQ)
             socket.connect('inproc://controller')
