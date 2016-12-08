@@ -3,8 +3,8 @@ import zmq
 from hedgehog.utils.zmq import Active
 from hedgehog.utils.zmq.actor import Actor, CommandRegistry
 from hedgehog.utils.zmq.poller import Poller
-from hedgehog.utils.zmq.socket import Socket
-from hedgehog.protocol import messages, sockets
+from hedgehog.protocol.messages import parse, serialize
+from hedgehog.protocol.sockets import DealerRouterSocket
 from hedgehog.protocol.errors import HedgehogCommandError, UnsupportedCommandError
 
 logger = logging.getLogger(__name__)
@@ -16,9 +16,8 @@ class HedgehogServerActor(object):
         self.cmd_pipe = cmd_pipe
         self.evt_pipe = evt_pipe
 
-        socket = Socket(ctx, zmq.ROUTER)
-        socket.bind(endpoint)
-        self.socket = sockets.DealerRouterWrapper(socket)
+        self.socket = DealerRouterSocket(ctx, zmq.ROUTER)
+        self.socket.bind(endpoint)
         self.handlers = handlers
 
         self.poller = Poller()
@@ -33,7 +32,7 @@ class HedgehogServerActor(object):
 
         @registry.command(b'SOCK')
         def handle_sock():
-            self.cmd_pipe.push(self.socket.socket)
+            self.cmd_pipe.push(self.socket)
             self.cmd_pipe.signal()
 
         @registry.command(b'REG')
@@ -53,7 +52,7 @@ class HedgehogServerActor(object):
     def register_socket(self):
         def handle(ident, msg_raw):
             try:
-                msg = messages.parse(msg_raw)
+                msg = parse(msg_raw)
                 logger.debug("Receive command: %s", msg)
                 try:
                     handler = self.handlers[msg.meta.discriminator]
@@ -64,18 +63,18 @@ class HedgehogServerActor(object):
             except HedgehogCommandError as err:
                 result = err.to_message()
             logger.debug("Send reply:      %s", result)
-            return result
+            return serialize(result)
 
         def recv_socket():
-            ident, msgs_raw = self.socket.recv_multipart_raw()
-            self.socket.send_multipart(ident, [handle(ident, msg) for msg in msgs_raw])
+            ident, msgs_raw = self.socket.recv_msgs_raw()
+            self.socket.send_msgs_raw(ident, [handle(ident, msg) for msg in msgs_raw])
 
-        self.register(self.socket.socket, recv_socket)
+        self.register(self.socket, recv_socket)
 
     def send_async(self, ident, *msgs):
         for msg in msgs:
             logger.debug("Send update:     %s", msg)
-        self.socket.send_multipart(ident, msgs)
+        self.socket.send_msgs(ident, msgs)
 
     def terminate(self):
         for socket in list(self.poller.sockets):
