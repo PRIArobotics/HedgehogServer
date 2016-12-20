@@ -7,9 +7,10 @@ import socket
 import subprocess
 import time
 import zmq
-from hedgehog.utils.discovery.service_node import ServiceNode
+from contextlib import suppress
 from pyre import zhelper
 
+from hedgehog.utils.discovery.service_node import ServiceNode
 from . import handlers
 from .hedgehog_server import HedgehogServer
 from .handlers.hardware import HardwareHandler
@@ -118,7 +119,8 @@ def launch(hardware):
     services.update(args.services)
     services.update(config.get('default', 'services', fallback='').split())
 
-    start(hardware, name=name, port=port, services=services)
+    with suppress(KeyboardInterrupt):
+        start(hardware, name=name, port=port, services=services)
 
 
 def start(hardware, name=None, port=0, services={'hedgehog_server'}):
