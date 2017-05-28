@@ -19,6 +19,14 @@ def handler():
 
 
 class TestSimulator(unittest.TestCase):
+    def assertMsgEqual(self, msg, msg_class, **kwargs):
+        self.assertEqual(type(msg), msg_class)
+        for field, value in kwargs.items():
+            self.assertEqual(getattr(msg, field), value)
+
+    def assertNack(self, msg, code):
+        self.assertMsgEqual(msg, ack.Acknowledgement, code=code)
+
     def test_multipart(self):
         ctx = zmq.Context()
 
@@ -46,8 +54,7 @@ class TestSimulator(unittest.TestCase):
 
             socket.send_msg(io.StateAction(0, io.INPUT_PULLDOWN))
             response = socket.recv_msg()
-            self.assertEqual(type(response), ack.Acknowledgement)
-            self.assertEqual(response.code, ack.UNSUPPORTED_COMMAND)
+            self.assertNack(response, ack.UNSUPPORTED_COMMAND)
 
     def test_io_state_action(self):
         ctx = zmq.Context()
@@ -65,8 +72,7 @@ class TestSimulator(unittest.TestCase):
             action.flags = io.OUTPUT | io.PULLDOWN
             socket.send_msg(action)
             response = socket.recv_msg()
-            self.assertEqual(type(response), ack.Acknowledgement)
-            self.assertEqual(response.code, ack.INVALID_COMMAND)
+            self.assertNack(response, ack.INVALID_COMMAND)
 
     def test_analog_request(self):
         ctx = zmq.Context()
@@ -106,8 +112,7 @@ class TestSimulator(unittest.TestCase):
             action.relative = 100
             socket.send_msg(action)
             response = socket.recv_msg()
-            self.assertEqual(type(response), ack.Acknowledgement)
-            self.assertEqual(response.code, ack.INVALID_COMMAND)
+            self.assertNack(response, ack.INVALID_COMMAND)
 
     def test_motor_request(self):
         ctx = zmq.Context()
@@ -151,7 +156,7 @@ class TestSimulator(unittest.TestCase):
 
             socket.send_msgs([], [process.ExecuteAction('echo', 'asdf')])
             _, response = socket.recv_msg()
-            self.assertEqual(type(response), process.ExecuteReply)
+            self.assertMsgEqual(response, process.ExecuteReply)
             pid = response.pid
 
             output = {
@@ -162,8 +167,7 @@ class TestSimulator(unittest.TestCase):
             open = 2
             while open > 0:
                 _, msg = socket.recv_msg()
-                self.assertEqual(type(msg), process.StreamUpdate)
-                self.assertEqual(msg.pid, pid)
+                self.assertMsgEqual(msg, process.StreamUpdate, pid=pid)
                 output[msg.fileno].append(msg.chunk)
                 if msg.chunk == b'':
                     open -= 1
@@ -189,7 +193,7 @@ class TestSimulator(unittest.TestCase):
 
             socket.send_msg([], process.ExecuteAction('cat'))
             _, response = socket.recv_msg()
-            self.assertEqual(type(response), process.ExecuteReply)
+            self.assertMsgEqual(response, process.ExecuteReply)
             pid = response.pid
 
             output = {
@@ -207,8 +211,7 @@ class TestSimulator(unittest.TestCase):
             open = 2
             while open > 0:
                 _, msg = socket.recv_msg()
-                self.assertEqual(type(msg), process.StreamUpdate)
-                self.assertEqual(msg.pid, pid)
+                self.assertMsgEqual(msg, process.StreamUpdate, pid=pid)
                 output[msg.fileno].append(msg.chunk)
                 if msg.chunk == b'':
                     open -= 1
@@ -229,7 +232,7 @@ class TestSimulator(unittest.TestCase):
 
             socket.send_msg([], process.ExecuteAction('pwd', working_dir='/'))
             _, response = socket.recv_msg()
-            self.assertEqual(type(response), process.ExecuteReply)
+            self.assertMsgEqual(response, process.ExecuteReply)
             pid = response.pid
 
             output = {
@@ -240,8 +243,7 @@ class TestSimulator(unittest.TestCase):
             open = 2
             while open > 0:
                 _, msg = socket.recv_msg()
-                self.assertEqual(type(msg), process.StreamUpdate)
-                self.assertEqual(msg.pid, pid)
+                self.assertMsgEqual(msg, process.StreamUpdate, pid=pid)
                 output[msg.fileno].append(msg.chunk)
                 if msg.chunk == b'':
                     open -= 1
@@ -267,7 +269,7 @@ class TestSimulator(unittest.TestCase):
 
             socket.send_msg([], process.ExecuteAction('sleep', '1'))
             _, response = socket.recv_msg()
-            self.assertEqual(type(response), process.ExecuteReply)
+            self.assertMsgEqual(response, process.ExecuteReply)
             pid = response.pid
 
             socket.send_msg([], process.StreamAction(pid, process.STDIN, b''))
@@ -281,8 +283,7 @@ class TestSimulator(unittest.TestCase):
             open = 2
             while open > 0:
                 _, msg = socket.recv_msg()
-                self.assertEqual(type(msg), process.StreamUpdate)
-                self.assertEqual(msg.pid, pid)
+                self.assertMsgEqual(msg, process.StreamUpdate, pid=pid)
                 if msg.chunk == b'':
                     open -= 1
 
