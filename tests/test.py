@@ -155,7 +155,7 @@ class TestSimulator(unittest.TestCase):
             socket.connect('inproc://controller')
 
             socket.send_msgs([], [process.ExecuteAction('echo', 'asdf')])
-            _, response = socket.recv_msg()
+            _, response = socket.recv_msg()  # type: process.ExecuteReply
             self.assertMsgEqual(response, process.ExecuteReply)
             pid = response.pid
 
@@ -166,7 +166,7 @@ class TestSimulator(unittest.TestCase):
 
             open = 2
             while open > 0:
-                _, msg = socket.recv_msg()
+                _, msg = socket.recv_msg()  # type: process.StreamUpdate
                 self.assertMsgEqual(msg, process.StreamUpdate, pid=pid)
                 output[msg.fileno].append(msg.chunk)
                 if msg.chunk == b'':
@@ -192,7 +192,7 @@ class TestSimulator(unittest.TestCase):
             socket.connect('inproc://controller')
 
             socket.send_msg([], process.ExecuteAction('cat'))
-            _, response = socket.recv_msg()
+            _, response = socket.recv_msg()  # type: process.ExecuteReply
             self.assertMsgEqual(response, process.ExecuteReply)
             pid = response.pid
 
@@ -210,7 +210,7 @@ class TestSimulator(unittest.TestCase):
 
             open = 2
             while open > 0:
-                _, msg = socket.recv_msg()
+                _, msg = socket.recv_msg()  # type: process.StreamUpdate
                 self.assertMsgEqual(msg, process.StreamUpdate, pid=pid)
                 output[msg.fileno].append(msg.chunk)
                 if msg.chunk == b'':
@@ -231,7 +231,7 @@ class TestSimulator(unittest.TestCase):
             socket.connect('inproc://controller')
 
             socket.send_msg([], process.ExecuteAction('pwd', working_dir='/'))
-            _, response = socket.recv_msg()
+            _, response = socket.recv_msg()  # type: process.ExecuteReply
             self.assertMsgEqual(response, process.ExecuteReply)
             pid = response.pid
 
@@ -242,7 +242,7 @@ class TestSimulator(unittest.TestCase):
 
             open = 2
             while open > 0:
-                _, msg = socket.recv_msg()
+                _, msg = socket.recv_msg()  # type: process.StreamUpdate
                 self.assertMsgEqual(msg, process.StreamUpdate, pid=pid)
                 output[msg.fileno].append(msg.chunk)
                 if msg.chunk == b'':
@@ -268,7 +268,7 @@ class TestSimulator(unittest.TestCase):
             socket.connect('inproc://controller')
 
             socket.send_msg([], process.ExecuteAction('sleep', '1'))
-            _, response = socket.recv_msg()
+            _, response = socket.recv_msg()  # type: process.ExecuteReply
             self.assertMsgEqual(response, process.ExecuteReply)
             pid = response.pid
 
@@ -282,7 +282,7 @@ class TestSimulator(unittest.TestCase):
 
             open = 2
             while open > 0:
-                _, msg = socket.recv_msg()
+                _, msg = socket.recv_msg()  # type: process.StreamUpdate
                 self.assertMsgEqual(msg, process.StreamUpdate, pid=pid)
                 if msg.chunk == b'':
                     open -= 1
