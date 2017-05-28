@@ -3,7 +3,7 @@ import zmq
 from hedgehog.utils.zmq import Active
 from hedgehog.utils.zmq.actor import Actor, CommandRegistry
 from hedgehog.utils.zmq.poller import Poller
-from hedgehog.protocol.messages import parse, serialize
+from hedgehog.protocol import ServerSide
 from hedgehog.protocol.sockets import DealerRouterSocket
 from hedgehog.protocol.errors import HedgehogCommandError, UnsupportedCommandError
 
@@ -16,7 +16,7 @@ class HedgehogServerActor(object):
         self.cmd_pipe = cmd_pipe
         self.evt_pipe = evt_pipe
 
-        self.socket = DealerRouterSocket(ctx, zmq.ROUTER)
+        self.socket = DealerRouterSocket(ctx, zmq.ROUTER, side=ServerSide)
         self.socket.bind(endpoint)
         self.handlers = handlers
 
@@ -52,7 +52,7 @@ class HedgehogServerActor(object):
     def register_socket(self):
         def handle(ident, msg_raw):
             try:
-                msg = parse(msg_raw)
+                msg = ServerSide.parse(msg_raw)
                 logger.debug("Receive command: %s", msg)
                 try:
                     handler = self.handlers[msg.meta.discriminator]
@@ -63,7 +63,7 @@ class HedgehogServerActor(object):
             except HedgehogCommandError as err:
                 result = err.to_message()
             logger.debug("Send reply:      %s", result)
-            return serialize(result)
+            return ServerSide.serialize(result)
 
         def recv_socket():
             ident, msgs_raw = self.socket.recv_msgs_raw()

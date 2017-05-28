@@ -10,42 +10,50 @@ class HardwareHandler(CommandHandler):
         super().__init__()
         self.motor_cb = {}
         self.adapter = adapter
-        self.adapter.motor_state_update_cb = self.motor_state_update
+        # self.adapter.motor_state_update_cb = self.motor_state_update
 
     @_command(io.StateAction)
     def analog_state_action(self, server, ident, msg):
         self.adapter.set_io_state(msg.port, msg.flags)
         return ack.Acknowledgement()
 
+    # @_command(io.StateRequest)
+    # def io_state_request(self, server, ident, msg):
+    #     return io.StateReply(msg.port, flags)
+
     @_command(analog.Request)
     def analog_request(self, server, ident, msg):
         value = self.adapter.get_analog(msg.port)
-        return analog.Update(msg.port, value)
+        return analog.Reply(msg.port, value)
 
     @_command(digital.Request)
     def digital_request(self, server, ident, msg):
         value = self.adapter.get_digital(msg.port)
-        return digital.Update(msg.port, value)
+        return digital.Reply(msg.port, value)
 
     @_command(motor.Action)
     def motor_action(self, server, ident, msg):
-        if msg.relative is not None or msg.absolute is not None:
-            # this action will end with a state update
-            def cb(port, state):
-                server.send_async(ident, motor.StateUpdate(port, state))
-            self.motor_cb[msg.port] = cb
+        # if msg.relative is not None or msg.absolute is not None:
+        #     # this action will end with a state update
+        #     def cb(port, state):
+        #         server.send_async(ident, motor.StateUpdate(port, state))
+        #     self.motor_cb[msg.port] = cb
         self.adapter.set_motor(msg.port, msg.state, msg.amount, msg.reached_state, msg.relative, msg.absolute)
         return ack.Acknowledgement()
 
-    @_command(motor.Request)
-    def motor_request(self, server, ident, msg):
-        velocity, position = self.adapter.get_motor(msg.port)
-        return motor.Update(msg.port, velocity, position)
+    # @_command(motor.CommandRequest)
+    # def motor_command_request(self, server, ident, msg):
+    #     return motor.CommandReply(msg.port, state, amount)
 
-    def motor_state_update(self, port, state):
-        if port in self.motor_cb:
-            self.motor_cb[port](port, state)
-            del self.motor_cb[port]
+    @_command(motor.StateRequest)
+    def motor_state_request(self, server, ident, msg):
+        velocity, position = self.adapter.get_motor(msg.port)
+        return motor.StateReply(msg.port, velocity, position)
+
+    # def motor_state_update(self, port, state):
+    #     if port in self.motor_cb:
+    #         self.motor_cb[port](port, state)
+    #         del self.motor_cb[port]
 
     @_command(motor.SetPositionAction)
     def motor_set_position_action(self, server, ident, msg):
@@ -56,3 +64,7 @@ class HardwareHandler(CommandHandler):
     def servo_action(self, server, ident, msg):
         self.adapter.set_servo(msg.port, msg.active, msg.position)
         return ack.Acknowledgement()
+
+    # @_command(servo.CommandRequest)
+    # def servo_command_request(self, server, ident, msg):
+    #     return servo.CommandReply(msg.port, active, position)

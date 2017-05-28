@@ -19,7 +19,7 @@ class HardwareAdapter(object):
         raise UnsupportedCommandError('motor_action')
 
     def get_motor(self, port):
-        raise UnsupportedCommandError('motor_request')
+        raise UnsupportedCommandError('motor_state_request')
 
     def motor_state_update(self, port, state):
         if self.motor_state_update_cb is not None:
