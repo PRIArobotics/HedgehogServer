@@ -104,7 +104,7 @@ class TestSimulator(unittest.TestCase):
         _handlers = handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
 
         with connectSimulatorReq(_handlers) as socket:
-            self.assertReplyReq(socket, io.StateAction(0, io.INPUT_PULLDOWN), ack.UNSUPPORTED_COMMAND)
+            self.assertReplyReq(socket, io.Action(0, io.INPUT_PULLDOWN), ack.UNSUPPORTED_COMMAND)
             self.assertReplyReq(socket, analog.Request(0), ack.UNSUPPORTED_COMMAND)
             self.assertReplyReq(socket, digital.Request(0), ack.UNSUPPORTED_COMMAND)
             self.assertReplyReq(socket, motor.Action(0, motor.POWER), ack.UNSUPPORTED_COMMAND)
@@ -116,16 +116,16 @@ class TestSimulator(unittest.TestCase):
         with connectSimulatorReq() as socket:
             # ### io.StateAction
 
-            self.assertReplyReq(socket, io.StateAction(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
+            self.assertReplyReq(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
 
             # send an invalid command
-            action = io.StateAction(0, 0)
+            action = io.Action(0, 0)
             action.flags = io.OUTPUT | io.PULLDOWN
             self.assertReplyReq(socket, action, ack.INVALID_COMMAND)
 
             # ### io.StateRequest
 
-            self.assertReplyReq(socket, io.StateRequest(0), io.StateReply(0, io.INPUT_PULLDOWN))
+            self.assertReplyReq(socket, io.CommandRequest(0), io.CommandReply(0, io.INPUT_PULLDOWN))
 
     def test_analog(self):
         with connectSimulatorReq() as socket:

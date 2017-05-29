@@ -10,7 +10,7 @@ class HardwareAdapter(object):
         self.motor_state_update_cb = motor_state_update_cb
 
     def set_io_state(self, port: int, flags: int) -> None:
-        raise UnsupportedCommandError.from_msg_class(messages.io.StateAction)
+        raise UnsupportedCommandError.from_msg_class(messages.io.Action)
 
     def get_analog(self, port: int) -> int:
         raise UnsupportedCommandError.from_msg_class(messages.analog.Request)

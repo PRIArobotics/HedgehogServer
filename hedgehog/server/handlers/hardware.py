@@ -12,14 +12,14 @@ class HardwareHandler(CommandHandler):
         self.adapter = adapter
         # self.adapter.motor_state_update_cb = self.motor_state_update
 
-    @_command(io.StateAction)
+    @_command(io.Action)
     def analog_state_action(self, server, ident, msg):
         self.adapter.set_io_state(msg.port, msg.flags)
         return ack.Acknowledgement()
 
-    # @_command(io.StateRequest)
-    # def io_state_request(self, server, ident, msg):
-    #     return io.StateReply(msg.port, flags)
+    # @_command(io.CommandRequest)
+    # def io_command_request(self, server, ident, msg):
+    #     return io.CommandReply(msg.port, flags)
 
     @_command(analog.Request)
     def analog_request(self, server, ident, msg):
