@@ -106,8 +106,10 @@ class TestSimulator(unittest.TestCase):
         with connectSimulatorReq(_handlers) as socket:
             self.assertReplyReq(socket, io.StateAction(0, io.INPUT_PULLDOWN), ack.UNSUPPORTED_COMMAND)
 
-    def test_io_state_action(self):
+    def test_io(self):
         with connectSimulatorReq() as socket:
+            # ### io.StateAction
+
             self.assertReplyReq(socket, io.StateAction(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
 
             # send an invalid command
@@ -115,16 +117,26 @@ class TestSimulator(unittest.TestCase):
             action.flags = io.OUTPUT | io.PULLDOWN
             self.assertReplyReq(socket, action, ack.INVALID_COMMAND)
 
-    def test_analog_request(self):
+            # ### io.StateRequest
+
+            self.assertReplyReq(socket, io.StateRequest(0), io.StateReply(0, io.INPUT_PULLDOWN))
+
+    def test_analog(self):
         with connectSimulatorReq() as socket:
+            # ### analog.Request
+
             self.assertReplyReq(socket, analog.Request(0), analog.Reply(0, 0))
 
-    def test_digital_request(self):
+    def test_digital(self):
         with connectSimulatorReq() as socket:
+            # ### digital.Request
+
             self.assertReplyReq(socket, digital.Request(0), digital.Reply(0, False))
 
-    def test_motor_action(self):
+    def test_motor(self):
         with connectSimulatorReq() as socket:
+            # ### motor.Action
+
             self.assertReplyReq(socket, motor.Action(0, motor.POWER), ack.Acknowledgement())
 
             # send an invalid command
@@ -132,17 +144,27 @@ class TestSimulator(unittest.TestCase):
             action.relative = 100
             self.assertReplyReq(socket, action, ack.INVALID_COMMAND)
 
-    def test_motor_request(self):
-        with connectSimulatorReq() as socket:
+            # ### motor.CommandRequest
+
+            self.assertReplyReq(socket, motor.CommandRequest(0), motor.CommandReply(0, motor.POWER, 0))
+
+            # ### motor.StateRequest
+
             self.assertReplyReq(socket, motor.StateRequest(0), motor.StateReply(0, 0, 0))
 
-    def test_motor_set_position_action(self):
-        with connectSimulatorReq() as socket:
+            # ### motor.SetPositionAction
+
             self.assertReplyReq(socket, motor.SetPositionAction(0, 0), ack.Acknowledgement())
 
-    def test_servo_action(self):
+    def test_servo(self):
         with connectSimulatorReq() as socket:
+            # ### servo.Action
+
             self.assertReplyReq(socket, servo.Action(0, True, 0), ack.Acknowledgement())
+
+            # ### servo.CommandRequest
+
+            self.assertReplyReq(socket, servo.CommandRequest(0), servo.CommandReply(0, True, 0))
 
     def handle_streams(self) -> Callable[[process.StreamUpdate], Dict[int, bytes]]:
         def handler():
@@ -172,7 +194,7 @@ class TestSimulator(unittest.TestCase):
 
         return send
 
-    def test_process_execute_request_echo(self):
+    def test_process_echo(self):
         with connectSimulatorDealer() as socket:
             response = self.assertReplyDealer(socket, process.ExecuteAction('echo', 'asdf'),
                                               process.ExecuteReply)  # type: process.ExecuteReply
@@ -193,7 +215,7 @@ class TestSimulator(unittest.TestCase):
             self.assertEqual(output[process.STDOUT], b'asdf\n')
             self.assertEqual(output[process.STDERR], b'')
 
-    def test_process_execute_request_cat(self):
+    def test_process_cat(self):
         with connectSimulatorDealer() as socket:
             response = self.assertReplyDealer(socket, process.ExecuteAction('cat'),
                                               process.ExecuteReply)  # type: process.ExecuteReply
@@ -215,7 +237,7 @@ class TestSimulator(unittest.TestCase):
             self.assertEqual(output[process.STDOUT], b'asdf')
             self.assertEqual(output[process.STDERR], b'')
 
-    def test_process_execute_request_pwd(self):
+    def test_process_pwd(self):
         with connectSimulatorDealer() as socket:
             response = self.assertReplyDealer(socket, process.ExecuteAction('pwd', working_dir='/'),
                                               process.ExecuteReply)  # type: process.ExecuteReply
@@ -236,7 +258,7 @@ class TestSimulator(unittest.TestCase):
             self.assertEqual(output[process.STDOUT], b'/\n')
             self.assertEqual(output[process.STDERR], b'')
 
-    def test_process_signal_sleep(self):
+    def test_process_sleep(self):
         with connectSimulatorDealer() as socket:
             response = self.assertReplyDealer(socket, process.ExecuteAction('sleep', '1'),
                                               process.ExecuteReply)  # type: process.ExecuteReply
