@@ -92,9 +92,9 @@ class TestSimulator(unittest.TestCase):
         from hedgehog.server.handlers.process import ProcessHandler
         from hedgehog.server.hardware import HardwareAdapter
         adapter = HardwareAdapter()
-        handlers = handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
+        _handlers = handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
 
-        with connectSimulatorReq(handlers) as socket:
+        with connectSimulatorReq(_handlers) as socket:
             self.assertReplyReq(socket, io.StateAction(0, io.INPUT_PULLDOWN), ack.UNSUPPORTED_COMMAND)
 
     def test_io_state_action(self):
@@ -137,7 +137,7 @@ class TestSimulator(unittest.TestCase):
 
     def test_process_execute_request_echo(self):
         with connectSimulatorDealer() as socket:
-            socket.send_msgs([], [process.ExecuteAction('echo', 'asdf')])
+            socket.send_msg([], process.ExecuteAction('echo', 'asdf'))
             _, response = socket.recv_msg()  # type: process.ExecuteReply
             self.assertMsgEqual(response, process.ExecuteReply)
             pid = response.pid
