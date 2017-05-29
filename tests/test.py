@@ -105,6 +105,12 @@ class TestSimulator(unittest.TestCase):
 
         with connectSimulatorReq(_handlers) as socket:
             self.assertReplyReq(socket, io.StateAction(0, io.INPUT_PULLDOWN), ack.UNSUPPORTED_COMMAND)
+            self.assertReplyReq(socket, analog.Request(0), ack.UNSUPPORTED_COMMAND)
+            self.assertReplyReq(socket, digital.Request(0), ack.UNSUPPORTED_COMMAND)
+            self.assertReplyReq(socket, motor.Action(0, motor.POWER), ack.UNSUPPORTED_COMMAND)
+            self.assertReplyReq(socket, motor.StateRequest(0), ack.UNSUPPORTED_COMMAND)
+            self.assertReplyReq(socket, motor.SetPositionAction(0, 0), ack.UNSUPPORTED_COMMAND)
+            self.assertReplyReq(socket, servo.Action(0, True, 0), ack.UNSUPPORTED_COMMAND)
 
     def test_io(self):
         with connectSimulatorReq() as socket:
