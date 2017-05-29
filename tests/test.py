@@ -1,4 +1,4 @@
-from typing import Type
+from typing import Callable, Type, Union
 
 import unittest
 import zmq
@@ -56,6 +56,29 @@ class TestSimulator(unittest.TestCase):
     def assertNack(self, msg: Message, code: int, **kwargs) -> None:
         self.assertMsgEqual(msg, ack.Acknowledgement, code=code, **kwargs)
 
+    def _check(self, expect: Union[int, type, Message, Callable[[Message], None]], **kwargs) -> Callable[[Message], None]:
+        if isinstance(expect, int):
+            code = expect  # type: int
+            return lambda msg: self.assertNack(msg, code, **kwargs)
+        elif isinstance(expect, type) and issubclass(expect, Message):
+            msg_class = expect  # type: Type[Message]
+            return lambda msg: self.assertMsgEqual(msg, msg_class, **kwargs)
+        elif isinstance(expect, Message):
+            rep = expect  # type: Message
+            return lambda msg: self.assertEqual(msg, rep)
+        else:
+            check = expect  # type: Callable[[Message], None]
+            return check
+
+    def assertReplyReq(self, socket, req: Message,
+                       rep: Union[int, type, Message, Callable[[Message], None]], **kwargs) -> Message:
+        check = self._check(rep, **kwargs)
+
+        socket.send_msg(req)
+        response = socket.recv_msg()
+        check(response)
+        return response
+
     def test_multipart(self):
         with connectSimulatorReq() as socket:
             socket.send_msgs([analog.Request(0), digital.Request(0)])
@@ -72,65 +95,45 @@ class TestSimulator(unittest.TestCase):
         handlers = handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
 
         with connectSimulatorReq(handlers) as socket:
-            socket.send_msg(io.StateAction(0, io.INPUT_PULLDOWN))
-            response = socket.recv_msg()
-            self.assertNack(response, ack.UNSUPPORTED_COMMAND)
+            self.assertReplyReq(socket, io.StateAction(0, io.INPUT_PULLDOWN), ack.UNSUPPORTED_COMMAND)
 
     def test_io_state_action(self):
         with connectSimulatorReq() as socket:
-            socket.send_msg(io.StateAction(0, io.INPUT_PULLDOWN))
-            response = socket.recv_msg()
-            self.assertEqual(response, ack.Acknowledgement())
+            self.assertReplyReq(socket, io.StateAction(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
 
             # send an invalid command
             action = io.StateAction(0, 0)
             action.flags = io.OUTPUT | io.PULLDOWN
-            socket.send_msg(action)
-            response = socket.recv_msg()
-            self.assertNack(response, ack.INVALID_COMMAND)
+            self.assertReplyReq(socket, action, ack.INVALID_COMMAND)
 
     def test_analog_request(self):
         with connectSimulatorReq() as socket:
-            socket.send_msg(analog.Request(0))
-            update = socket.recv_msg()
-            self.assertEqual(update, analog.Reply(0, 0))
+            self.assertReplyReq(socket, analog.Request(0), analog.Reply(0, 0))
 
     def test_digital_request(self):
         with connectSimulatorReq() as socket:
-            socket.send_msg(digital.Request(0))
-            update = socket.recv_msg()
-            self.assertEqual(update, digital.Reply(0, False))
+            self.assertReplyReq(socket, digital.Request(0), digital.Reply(0, False))
 
     def test_motor_action(self):
         with connectSimulatorReq() as socket:
-            socket.send_msg(motor.Action(0, motor.POWER))
-            response = socket.recv_msg()
-            self.assertEqual(response, ack.Acknowledgement())
+            self.assertReplyReq(socket, motor.Action(0, motor.POWER), ack.Acknowledgement())
 
             # send an invalid command
             action = motor.Action(0, motor.BRAKE)
             action.relative = 100
-            socket.send_msg(action)
-            response = socket.recv_msg()
-            self.assertNack(response, ack.INVALID_COMMAND)
+            self.assertReplyReq(socket, action, ack.INVALID_COMMAND)
 
     def test_motor_request(self):
         with connectSimulatorReq() as socket:
-            socket.send_msg(motor.StateRequest(0))
-            update = socket.recv_msg()
-            self.assertEqual(update, motor.StateReply(0, 0, 0))
+            self.assertReplyReq(socket, motor.StateRequest(0), motor.StateReply(0, 0, 0))
 
     def test_motor_set_position_action(self):
         with connectSimulatorReq() as socket:
-            socket.send_msg(motor.SetPositionAction(0, 0))
-            response = socket.recv_msg()
-            self.assertEqual(response, ack.Acknowledgement())
+            self.assertReplyReq(socket, motor.SetPositionAction(0, 0), ack.Acknowledgement())
 
     def test_servo_action(self):
         with connectSimulatorReq() as socket:
-            socket.send_msg(servo.Action(0, True, 0))
-            response = socket.recv_msg()
-            self.assertEqual(response, ack.Acknowledgement())
+            self.assertReplyReq(socket, servo.Action(0, True, 0), ack.Acknowledgement())
 
     def test_process_execute_request_echo(self):
         with connectSimulatorDealer() as socket:
