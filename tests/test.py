@@ -144,31 +144,51 @@ class TestSimulator(unittest.TestCase):
         with connectSimulatorReq() as socket:
             self.assertReplyReq(socket, servo.Action(0, True, 0), ack.Acknowledgement())
 
+    def handle_streams(self) -> Callable[[process.StreamUpdate], Dict[int, bytes]]:
+        def handler():
+            outputs = {
+                process.STDOUT: [],
+                process.STDERR: [],
+            }  # type: Dict[int, List[bytes]]
+
+            open = len(outputs)
+            while open > 0:
+                msg = yield
+                outputs[msg.fileno].append(msg.chunk)
+                if msg.chunk == b'':
+                    open -= 1
+
+            return {fileno: b''.join(chunks) for fileno, chunks in outputs.items()}
+
+        gen = handler()
+        gen.send(None)
+
+        def send(msg: process.StreamUpdate) -> Dict[int, bytes]:
+            try:
+                gen.send(msg)
+                return None
+            except StopIteration as stop:
+                return stop.value
+
+        return send
+
     def test_process_execute_request_echo(self):
         with connectSimulatorDealer() as socket:
             response = self.assertReplyDealer(socket, process.ExecuteAction('echo', 'asdf'),
                                               process.ExecuteReply)  # type: process.ExecuteReply
             pid = response.pid
 
-            outputs = {
-                process.STDOUT: [],
-                process.STDERR: [],
-            }  # type: Dict[int, List[bytes]]
-
-            open = 2
-            while open > 0:
+            stream_handler = self.handle_streams()
+            output = None
+            while output is None:
                 _, msg = socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
                 self.assertMsgEqual(msg, process.StreamUpdate, pid=pid)
-                outputs[msg.fileno].append(msg.chunk)
-                if msg.chunk == b'':
-                    open -= 1
+                output = stream_handler(msg)
 
             self.assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b''), ack.Acknowledgement())
 
             _, msg = socket.recv_msg()
             self.assertEqual(msg, process.ExitUpdate(pid, 0))
-
-            output = {fileno: b''.join(chunks) for fileno, chunks in outputs.items()}
 
             self.assertEqual(output[process.STDOUT], b'asdf\n')
             self.assertEqual(output[process.STDERR], b'')
@@ -179,25 +199,18 @@ class TestSimulator(unittest.TestCase):
                                               process.ExecuteReply)  # type: process.ExecuteReply
             pid = response.pid
 
-            outputs = {
-                process.STDOUT: [],
-                process.STDERR: [],
-            }  # type: Dict[int, List[bytes]]
-
             self.assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b'asdf'), ack.Acknowledgement())
             self.assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b''), ack.Acknowledgement())
 
-            open = 2
-            while open > 0:
+            stream_handler = self.handle_streams()
+            output = None
+            while output is None:
                 _, msg = socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
                 self.assertMsgEqual(msg, process.StreamUpdate, pid=pid)
-                outputs[msg.fileno].append(msg.chunk)
-                if msg.chunk == b'':
-                    open -= 1
+                output = stream_handler(msg)
+
             _, msg = socket.recv_msg()
             self.assertEqual(msg, process.ExitUpdate(pid, 0))
-
-            output = {fileno: b''.join(chunks) for fileno, chunks in outputs.items()}
 
             self.assertEqual(output[process.STDOUT], b'asdf')
             self.assertEqual(output[process.STDERR], b'')
@@ -208,25 +221,17 @@ class TestSimulator(unittest.TestCase):
                                               process.ExecuteReply)  # type: process.ExecuteReply
             pid = response.pid
 
-            outputs = {
-                process.STDOUT: [],
-                process.STDERR: [],
-            }  # type: Dict[int, List[bytes]]
-
-            open = 2
-            while open > 0:
+            stream_handler = self.handle_streams()
+            output = None
+            while output is None:
                 _, msg = socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
                 self.assertMsgEqual(msg, process.StreamUpdate, pid=pid)
-                outputs[msg.fileno].append(msg.chunk)
-                if msg.chunk == b'':
-                    open -= 1
+                output = stream_handler(msg)
 
             self.assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b''), ack.Acknowledgement())
 
             _, msg = socket.recv_msg()
             self.assertEqual(msg, process.ExitUpdate(pid, 0))
-
-            output = {fileno: b''.join(chunks) for fileno, chunks in outputs.items()}
 
             self.assertEqual(output[process.STDOUT], b'/\n')
             self.assertEqual(output[process.STDERR], b'')
@@ -240,12 +245,12 @@ class TestSimulator(unittest.TestCase):
             self.assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b''), ack.Acknowledgement())
             self.assertReplyDealer(socket, process.SignalAction(pid, signal.SIGINT), ack.Acknowledgement())
 
-            open = 2
-            while open > 0:
+            stream_handler = self.handle_streams()
+            output = None
+            while output is None:
                 _, msg = socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
                 self.assertMsgEqual(msg, process.StreamUpdate, pid=pid)
-                if msg.chunk == b'':
-                    open -= 1
+                output = stream_handler(msg)
 
             _, msg = socket.recv_msg()
             self.assertEqual(msg, process.ExitUpdate(pid, -signal.SIGINT))
