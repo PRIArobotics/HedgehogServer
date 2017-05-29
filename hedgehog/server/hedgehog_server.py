@@ -58,7 +58,7 @@ class HedgehogServerActor(object):
                 try:
                     handler = self.handlers[msg.meta.discriminator]
                 except KeyError:
-                    raise UnsupportedCommandError.from_msg_class(msg.__class__)
+                    raise UnsupportedCommandError(msg.__class__.msg_name())
                 else:
                     result = handler(self, ident, msg)
             except HedgehogCommandError as err:
