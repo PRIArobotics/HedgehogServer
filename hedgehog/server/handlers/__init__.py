@@ -5,6 +5,7 @@ from hedgehog.protocol.messages import Message
 
 HandlerFunction = Callable[[Any, Any, Any, Any], Message]
 HandlerCallback = Callable[[Any, Any, Any], Message]
+HandlerCallbackDict = Dict[str, HandlerCallback]
 HandlerDecorator = Callable[[Type[Message]], Callable[[HandlerFunction], HandlerFunction]]
 
 
@@ -30,7 +31,7 @@ class CommandHandler(object):
 
 
 def to_dict(*handlers: CommandHandler) -> Dict[str, HandlerCallback]:
-    result = {}  # type: Dict[str, HandlerCallback]
+    result = {}  # type: HandlerCallbackDict
     for handler in handlers:
         dups = result.keys() & handler.handlers.keys()
         if len(dups) > 0:

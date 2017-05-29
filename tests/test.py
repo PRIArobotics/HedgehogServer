@@ -1,10 +1,13 @@
+from typing import Type
+
 import unittest
 import zmq
 import signal
 import time
+from contextlib import contextmanager
 
 from hedgehog.protocol import ClientSide
-from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo, process
+from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, process
 from hedgehog.protocol.sockets import ReqSocket, DealerRouterSocket
 from hedgehog.server import handlers, HedgehogServer
 from hedgehog.server.process import Process
@@ -13,56 +16,68 @@ from hedgehog.server.handlers.process import ProcessHandler
 from hedgehog.server.hardware.simulated import SimulatedHardwareAdapter
 
 
-def handler():
+def handler() -> handlers.HandlerCallbackDict:
     adapter = SimulatedHardwareAdapter()
     return handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
 
 
+@contextmanager
+def connectSimulatorReq(handlers: handlers.HandlerCallbackDict=None):
+    if handlers is None:
+        handlers = handler()
+
+    ctx = zmq.Context()
+    with HedgehogServer(ctx, 'inproc://controller', handlers):
+        socket = ReqSocket(ctx, zmq.REQ, side=ClientSide)
+        socket.connect('inproc://controller')
+
+        yield socket
+
+
+@contextmanager
+def connectSimulatorDealer(handlers: handlers.HandlerCallbackDict=None):
+    if handlers is None:
+        handlers = handler()
+
+    ctx = zmq.Context()
+    with HedgehogServer(ctx, 'inproc://controller', handlers):
+        socket = DealerRouterSocket(ctx, zmq.DEALER, side=ClientSide)
+        socket.connect('inproc://controller')
+
+        yield socket
+
+
 class TestSimulator(unittest.TestCase):
-    def assertMsgEqual(self, msg, msg_class, **kwargs):
+    def assertMsgEqual(self, msg: Message, msg_class: Type[Message], **kwargs) -> None:
         self.assertEqual(type(msg), msg_class)
         for field, value in kwargs.items():
             self.assertEqual(getattr(msg, field), value)
 
-    def assertNack(self, msg, code):
-        self.assertMsgEqual(msg, ack.Acknowledgement, code=code)
+    def assertNack(self, msg: Message, code: int, **kwargs) -> None:
+        self.assertMsgEqual(msg, ack.Acknowledgement, code=code, **kwargs)
 
     def test_multipart(self):
-        ctx = zmq.Context()
-
-        with HedgehogServer(ctx, 'inproc://controller', handler()):
-            socket = ReqSocket(ctx, zmq.REQ, side=ClientSide)
-            socket.connect('inproc://controller')
-
+        with connectSimulatorReq() as socket:
             socket.send_msgs([analog.Request(0), digital.Request(0)])
             update = socket.recv_msgs()
             self.assertEqual(update[0], analog.Reply(0, 0))
             self.assertEqual(update[1], digital.Reply(0, False))
 
     def test_unsupported(self):
-        ctx = zmq.Context()
-
         from hedgehog.server import handlers
         from hedgehog.server.handlers.hardware import HardwareHandler
         from hedgehog.server.handlers.process import ProcessHandler
         from hedgehog.server.hardware import HardwareAdapter
         adapter = HardwareAdapter()
         handlers = handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
-        with HedgehogServer(ctx, 'inproc://controller', handlers):
-            socket = ReqSocket(ctx, zmq.REQ, side=ClientSide)
-            socket.connect('inproc://controller')
 
+        with connectSimulatorReq(handlers) as socket:
             socket.send_msg(io.StateAction(0, io.INPUT_PULLDOWN))
             response = socket.recv_msg()
             self.assertNack(response, ack.UNSUPPORTED_COMMAND)
 
     def test_io_state_action(self):
-        ctx = zmq.Context()
-
-        with HedgehogServer(ctx, 'inproc://controller', handler()):
-            socket = ReqSocket(ctx, zmq.REQ, side=ClientSide)
-            socket.connect('inproc://controller')
-
+        with connectSimulatorReq() as socket:
             socket.send_msg(io.StateAction(0, io.INPUT_PULLDOWN))
             response = socket.recv_msg()
             self.assertEqual(response, ack.Acknowledgement())
@@ -75,34 +90,19 @@ class TestSimulator(unittest.TestCase):
             self.assertNack(response, ack.INVALID_COMMAND)
 
     def test_analog_request(self):
-        ctx = zmq.Context()
-
-        with HedgehogServer(ctx, 'inproc://controller', handler()):
-            socket = ReqSocket(ctx, zmq.REQ, side=ClientSide)
-            socket.connect('inproc://controller')
-
+        with connectSimulatorReq() as socket:
             socket.send_msg(analog.Request(0))
             update = socket.recv_msg()
             self.assertEqual(update, analog.Reply(0, 0))
 
     def test_digital_request(self):
-        ctx = zmq.Context()
-
-        with HedgehogServer(ctx, 'inproc://controller', handler()):
-            socket = ReqSocket(ctx, zmq.REQ, side=ClientSide)
-            socket.connect('inproc://controller')
-
+        with connectSimulatorReq() as socket:
             socket.send_msg(digital.Request(0))
             update = socket.recv_msg()
             self.assertEqual(update, digital.Reply(0, False))
 
     def test_motor_action(self):
-        ctx = zmq.Context()
-
-        with HedgehogServer(ctx, 'inproc://controller', handler()):
-            socket = ReqSocket(ctx, zmq.REQ, side=ClientSide)
-            socket.connect('inproc://controller')
-
+        with connectSimulatorReq() as socket:
             socket.send_msg(motor.Action(0, motor.POWER))
             response = socket.recv_msg()
             self.assertEqual(response, ack.Acknowledgement())
@@ -115,45 +115,25 @@ class TestSimulator(unittest.TestCase):
             self.assertNack(response, ack.INVALID_COMMAND)
 
     def test_motor_request(self):
-        ctx = zmq.Context()
-
-        with HedgehogServer(ctx, 'inproc://controller', handler()):
-            socket = ReqSocket(ctx, zmq.REQ, side=ClientSide)
-            socket.connect('inproc://controller')
-
+        with connectSimulatorReq() as socket:
             socket.send_msg(motor.StateRequest(0))
             update = socket.recv_msg()
             self.assertEqual(update, motor.StateReply(0, 0, 0))
 
     def test_motor_set_position_action(self):
-        ctx = zmq.Context()
-
-        with HedgehogServer(ctx, 'inproc://controller', handler()):
-            socket = ReqSocket(ctx, zmq.REQ, side=ClientSide)
-            socket.connect('inproc://controller')
-
+        with connectSimulatorReq() as socket:
             socket.send_msg(motor.SetPositionAction(0, 0))
             response = socket.recv_msg()
             self.assertEqual(response, ack.Acknowledgement())
 
     def test_servo_action(self):
-        ctx = zmq.Context()
-
-        with HedgehogServer(ctx, 'inproc://controller', handler()):
-            socket = ReqSocket(ctx, zmq.REQ, side=ClientSide)
-            socket.connect('inproc://controller')
-
+        with connectSimulatorReq() as socket:
             socket.send_msg(servo.Action(0, True, 0))
             response = socket.recv_msg()
             self.assertEqual(response, ack.Acknowledgement())
 
     def test_process_execute_request_echo(self):
-        ctx = zmq.Context()
-
-        with HedgehogServer(ctx, 'inproc://controller', handler()):
-            socket = DealerRouterSocket(ctx, zmq.DEALER, side=ClientSide)
-            socket.connect('inproc://controller')
-
+        with connectSimulatorDealer() as socket:
             socket.send_msgs([], [process.ExecuteAction('echo', 'asdf')])
             _, response = socket.recv_msg()  # type: process.ExecuteReply
             self.assertMsgEqual(response, process.ExecuteReply)
@@ -185,12 +165,7 @@ class TestSimulator(unittest.TestCase):
             self.assertEqual(output[process.STDERR], b'')
 
     def test_process_execute_request_cat(self):
-        ctx = zmq.Context()
-
-        with HedgehogServer(ctx, 'inproc://controller', handler()):
-            socket = DealerRouterSocket(ctx, zmq.DEALER, side=ClientSide)
-            socket.connect('inproc://controller')
-
+        with connectSimulatorDealer() as socket:
             socket.send_msg([], process.ExecuteAction('cat'))
             _, response = socket.recv_msg()  # type: process.ExecuteReply
             self.assertMsgEqual(response, process.ExecuteReply)
@@ -224,12 +199,7 @@ class TestSimulator(unittest.TestCase):
             self.assertEqual(output[process.STDERR], b'')
 
     def test_process_execute_request_pwd(self):
-        ctx = zmq.Context()
-
-        with HedgehogServer(ctx, 'inproc://controller', handler()):
-            socket = DealerRouterSocket(ctx, zmq.DEALER, side=ClientSide)
-            socket.connect('inproc://controller')
-
+        with connectSimulatorDealer() as socket:
             socket.send_msg([], process.ExecuteAction('pwd', working_dir='/'))
             _, response = socket.recv_msg()  # type: process.ExecuteReply
             self.assertMsgEqual(response, process.ExecuteReply)
@@ -261,12 +231,7 @@ class TestSimulator(unittest.TestCase):
             self.assertEqual(output[process.STDERR], b'')
 
     def test_process_signal_sleep(self):
-        ctx = zmq.Context()
-
-        with HedgehogServer(ctx, 'inproc://controller', handler()):
-            socket = DealerRouterSocket(ctx, zmq.DEALER, side=ClientSide)
-            socket.connect('inproc://controller')
-
+        with connectSimulatorDealer() as socket:
             socket.send_msg([], process.ExecuteAction('sleep', '1'))
             _, response = socket.recv_msg()  # type: process.ExecuteReply
             self.assertMsgEqual(response, process.ExecuteReply)
