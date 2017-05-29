@@ -1,4 +1,4 @@
-from typing import Callable, Type, Union
+from typing import Any, Callable, Dict, List, Tuple, Type, Union
 
 import unittest
 import zmq
@@ -79,6 +79,15 @@ class TestSimulator(unittest.TestCase):
         check(response)
         return response
 
+    def assertReplyDealer(self, socket, req: Message,
+                       rep: Union[int, type, Message, Callable[[Message], None]], **kwargs) -> Message:
+        check = self._check(rep, **kwargs)
+
+        socket.send_msg([], req)
+        _, response = socket.recv_msg()
+        check(response)
+        return response
+
     def test_multipart(self):
         with connectSimulatorReq() as socket:
             socket.send_msgs([analog.Request(0), digital.Request(0)])
@@ -137,120 +146,103 @@ class TestSimulator(unittest.TestCase):
 
     def test_process_execute_request_echo(self):
         with connectSimulatorDealer() as socket:
-            socket.send_msg([], process.ExecuteAction('echo', 'asdf'))
-            _, response = socket.recv_msg()  # type: process.ExecuteReply
-            self.assertMsgEqual(response, process.ExecuteReply)
+            response = self.assertReplyDealer(socket, process.ExecuteAction('echo', 'asdf'),
+                                              process.ExecuteReply)  # type: process.ExecuteReply
             pid = response.pid
 
-            output = {
+            outputs = {
                 process.STDOUT: [],
                 process.STDERR: [],
-            }
+            }  # type: Dict[int, List[bytes]]
 
             open = 2
             while open > 0:
-                _, msg = socket.recv_msg()  # type: process.StreamUpdate
+                _, msg = socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
                 self.assertMsgEqual(msg, process.StreamUpdate, pid=pid)
-                output[msg.fileno].append(msg.chunk)
+                outputs[msg.fileno].append(msg.chunk)
                 if msg.chunk == b'':
                     open -= 1
 
-            socket.send_msg([], process.StreamAction(pid, process.STDIN, b''))
-            _, response = socket.recv_msg()
-            self.assertEqual(response, ack.Acknowledgement())
+            self.assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b''), ack.Acknowledgement())
 
             _, msg = socket.recv_msg()
             self.assertEqual(msg, process.ExitUpdate(pid, 0))
 
-            output = {fileno: b''.join(chunks) for fileno, chunks in output.items()}
+            output = {fileno: b''.join(chunks) for fileno, chunks in outputs.items()}
 
             self.assertEqual(output[process.STDOUT], b'asdf\n')
             self.assertEqual(output[process.STDERR], b'')
 
     def test_process_execute_request_cat(self):
         with connectSimulatorDealer() as socket:
-            socket.send_msg([], process.ExecuteAction('cat'))
-            _, response = socket.recv_msg()  # type: process.ExecuteReply
-            self.assertMsgEqual(response, process.ExecuteReply)
+            response = self.assertReplyDealer(socket, process.ExecuteAction('cat'),
+                                              process.ExecuteReply)  # type: process.ExecuteReply
             pid = response.pid
 
-            output = {
+            outputs = {
                 process.STDOUT: [],
                 process.STDERR: [],
-            }
+            }  # type: Dict[int, List[bytes]]
 
-            socket.send_msg([], process.StreamAction(pid, process.STDIN, b'asdf'))
-            _, response = socket.recv_msg()
-            self.assertEqual(response, ack.Acknowledgement())
-            socket.send_msg([], process.StreamAction(pid, process.STDIN, b''))
-            _, response = socket.recv_msg()
-            self.assertEqual(response, ack.Acknowledgement())
+            self.assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b'asdf'), ack.Acknowledgement())
+            self.assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b''), ack.Acknowledgement())
 
             open = 2
             while open > 0:
-                _, msg = socket.recv_msg()  # type: process.StreamUpdate
+                _, msg = socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
                 self.assertMsgEqual(msg, process.StreamUpdate, pid=pid)
-                output[msg.fileno].append(msg.chunk)
+                outputs[msg.fileno].append(msg.chunk)
                 if msg.chunk == b'':
                     open -= 1
             _, msg = socket.recv_msg()
             self.assertEqual(msg, process.ExitUpdate(pid, 0))
 
-            output = {fileno: b''.join(chunks) for fileno, chunks in output.items()}
+            output = {fileno: b''.join(chunks) for fileno, chunks in outputs.items()}
 
             self.assertEqual(output[process.STDOUT], b'asdf')
             self.assertEqual(output[process.STDERR], b'')
 
     def test_process_execute_request_pwd(self):
         with connectSimulatorDealer() as socket:
-            socket.send_msg([], process.ExecuteAction('pwd', working_dir='/'))
-            _, response = socket.recv_msg()  # type: process.ExecuteReply
-            self.assertMsgEqual(response, process.ExecuteReply)
+            response = self.assertReplyDealer(socket, process.ExecuteAction('pwd', working_dir='/'),
+                                              process.ExecuteReply)  # type: process.ExecuteReply
             pid = response.pid
 
-            output = {
+            outputs = {
                 process.STDOUT: [],
                 process.STDERR: [],
-            }
+            }  # type: Dict[int, List[bytes]]
 
             open = 2
             while open > 0:
-                _, msg = socket.recv_msg()  # type: process.StreamUpdate
+                _, msg = socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
                 self.assertMsgEqual(msg, process.StreamUpdate, pid=pid)
-                output[msg.fileno].append(msg.chunk)
+                outputs[msg.fileno].append(msg.chunk)
                 if msg.chunk == b'':
                     open -= 1
 
-            socket.send_msg([], process.StreamAction(pid, process.STDIN, b''))
-            _, response = socket.recv_msg()
-            self.assertEqual(response, ack.Acknowledgement())
+            self.assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b''), ack.Acknowledgement())
 
             _, msg = socket.recv_msg()
             self.assertEqual(msg, process.ExitUpdate(pid, 0))
 
-            output = {fileno: b''.join(chunks) for fileno, chunks in output.items()}
+            output = {fileno: b''.join(chunks) for fileno, chunks in outputs.items()}
 
             self.assertEqual(output[process.STDOUT], b'/\n')
             self.assertEqual(output[process.STDERR], b'')
 
     def test_process_signal_sleep(self):
         with connectSimulatorDealer() as socket:
-            socket.send_msg([], process.ExecuteAction('sleep', '1'))
-            _, response = socket.recv_msg()  # type: process.ExecuteReply
-            self.assertMsgEqual(response, process.ExecuteReply)
+            response = self.assertReplyDealer(socket, process.ExecuteAction('sleep', '1'),
+                                              process.ExecuteReply)  # type: process.ExecuteReply
             pid = response.pid
 
-            socket.send_msg([], process.StreamAction(pid, process.STDIN, b''))
-            _, response = socket.recv_msg()
-            self.assertEqual(response, ack.Acknowledgement())
-
-            socket.send_msg([], process.SignalAction(pid, signal.SIGINT))
-            _, response = socket.recv_msg()
-            self.assertEqual(response, ack.Acknowledgement())
+            self.assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b''), ack.Acknowledgement())
+            self.assertReplyDealer(socket, process.SignalAction(pid, signal.SIGINT), ack.Acknowledgement())
 
             open = 2
             while open > 0:
-                _, msg = socket.recv_msg()  # type: process.StreamUpdate
+                _, msg = socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
                 self.assertMsgEqual(msg, process.StreamUpdate, pid=pid)
                 if msg.chunk == b'':
                     open -= 1
