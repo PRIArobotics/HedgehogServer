@@ -1,4 +1,5 @@
 import logging
+import sys
 import zmq
 from hedgehog.utils.zmq import Active
 from hedgehog.utils.zmq.actor import Actor, CommandRegistry
@@ -57,7 +58,10 @@ class HedgehogServerActor(object):
                 try:
                     handler = self.handlers[msg.meta.discriminator]
                 except KeyError:
-                    raise UnsupportedCommandError(msg.meta.discriminator)
+                    module = msg.__class__.__module__
+                    module = module[module.rindex('.') + 1:]
+                    name = msg.__class__.__name__
+                    raise UnsupportedCommandError(module + '.' + name)
                 else:
                     result = handler(self, ident, msg)
             except HedgehogCommandError as err:
