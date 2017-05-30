@@ -2,6 +2,7 @@ from typing import Tuple
 
 from hedgehog.protocol.errors import UnsupportedCommandError
 from hedgehog.protocol import messages
+from hedgehog.protocol.messages import io, analog, digital, servo
 from hedgehog.protocol.messages.motor import POWER
 
 

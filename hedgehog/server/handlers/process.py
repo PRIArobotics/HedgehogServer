@@ -1,3 +1,5 @@
+from typing import Dict
+
 from hedgehog.protocol.errors import FailedCommandError
 from hedgehog.protocol.messages import ack, process, motor
 from hedgehog.server.process import Process
@@ -9,7 +11,7 @@ class ProcessHandler(CommandHandler):
 
     def __init__(self, adapter):
         super().__init__()
-        self._processes = {}
+        self._processes = {}  # type: Dict[int, Process]
         self.adapter = adapter
 
     @_command(process.ExecuteAction)

@@ -285,7 +285,7 @@ class TestSimulator(unittest.TestCase):
 
 
 def collect_outputs(proc):
-    output = {process.STDOUT: [], process.STDERR: []}
+    output = {process.STDOUT: [], process.STDERR: []}  # type: Dict[int, List[bytes]]
 
     msg = proc.read()
     while msg is not None:
