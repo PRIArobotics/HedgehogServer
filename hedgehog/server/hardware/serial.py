@@ -61,6 +61,7 @@ _cmd_lengths = {
     DIGITAL_REP: 3,
 }
 
+
 class SerialHardwareAdapter(HardwareAdapter):
     def __init__(self, motor_state_update_cb=None):
         super().__init__(motor_state_update_cb=motor_state_update_cb)
