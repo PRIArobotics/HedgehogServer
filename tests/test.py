@@ -1,9 +1,13 @@
+from typing import Any, Callable, Dict, List, Tuple, Type, Union
+
 import unittest
 import zmq
 import signal
 import time
+from contextlib import contextmanager
 
-from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo, process
+from hedgehog.protocol import ClientSide
+from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, process
 from hedgehog.protocol.sockets import ReqSocket, DealerRouterSocket
 from hedgehog.server import handlers, HedgehogServer
 from hedgehog.server.process import Process
@@ -12,285 +16,276 @@ from hedgehog.server.handlers.process import ProcessHandler
 from hedgehog.server.hardware.simulated import SimulatedHardwareAdapter
 
 
-def handler():
+def handler() -> handlers.HandlerCallbackDict:
     adapter = SimulatedHardwareAdapter()
     return handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
 
 
+@contextmanager
+def connectSimulatorReq(handlers: handlers.HandlerCallbackDict=None):
+    if handlers is None:
+        handlers = handler()
+
+    ctx = zmq.Context()
+    with HedgehogServer(ctx, 'inproc://controller', handlers):
+        socket = ReqSocket(ctx, zmq.REQ, side=ClientSide)
+        socket.connect('inproc://controller')
+
+        yield socket
+
+
+@contextmanager
+def connectSimulatorDealer(handlers: handlers.HandlerCallbackDict=None):
+    if handlers is None:
+        handlers = handler()
+
+    ctx = zmq.Context()
+    with HedgehogServer(ctx, 'inproc://controller', handlers):
+        socket = DealerRouterSocket(ctx, zmq.DEALER, side=ClientSide)
+        socket.connect('inproc://controller')
+
+        yield socket
+
+
 class TestSimulator(unittest.TestCase):
+    def assertMsgEqual(self, msg: Message, msg_class: Type[Message], **kwargs) -> None:
+        self.assertEqual(type(msg), msg_class)
+        for field, value in kwargs.items():
+            self.assertEqual(getattr(msg, field), value)
+
+    def assertNack(self, msg: Message, code: int, **kwargs) -> None:
+        self.assertMsgEqual(msg, ack.Acknowledgement, code=code, **kwargs)
+
+    def _check(self, expect: Union[int, type, Message, Callable[[Message], None]], **kwargs) -> Callable[[Message], None]:
+        if isinstance(expect, int):
+            code = expect  # type: int
+            return lambda msg: self.assertNack(msg, code, **kwargs)
+        elif isinstance(expect, type) and issubclass(expect, Message):
+            msg_class = expect  # type: Type[Message]
+            return lambda msg: self.assertMsgEqual(msg, msg_class, **kwargs)
+        elif isinstance(expect, Message):
+            rep = expect  # type: Message
+            return lambda msg: self.assertEqual(msg, rep)
+        else:
+            check = expect  # type: Callable[[Message], None]
+            return check
+
+    def assertReplyReq(self, socket, req: Message,
+                       rep: Union[int, type, Message, Callable[[Message], None]], **kwargs) -> Message:
+        check = self._check(rep, **kwargs)
+
+        socket.send_msg(req)
+        response = socket.recv_msg()
+        check(response)
+        return response
+
+    def assertReplyDealer(self, socket, req: Message,
+                       rep: Union[int, type, Message, Callable[[Message], None]], **kwargs) -> Message:
+        check = self._check(rep, **kwargs)
+
+        socket.send_msg([], req)
+        _, response = socket.recv_msg()
+        check(response)
+        return response
+
     def test_multipart(self):
-        ctx = zmq.Context()
-
-        with HedgehogServer(ctx, 'inproc://controller', handler()):
-            socket = ReqSocket(ctx, zmq.REQ)
-            socket.connect('inproc://controller')
-
+        with connectSimulatorReq() as socket:
             socket.send_msgs([analog.Request(0), digital.Request(0)])
             update = socket.recv_msgs()
-            self.assertEqual(update[0], analog.Update(0, 0))
-            self.assertEqual(update[1], digital.Update(0, False))
+            self.assertEqual(update[0], analog.Reply(0, 0))
+            self.assertEqual(update[1], digital.Reply(0, False))
 
     def test_unsupported(self):
-        ctx = zmq.Context()
-
         from hedgehog.server import handlers
         from hedgehog.server.handlers.hardware import HardwareHandler
         from hedgehog.server.handlers.process import ProcessHandler
         from hedgehog.server.hardware import HardwareAdapter
         adapter = HardwareAdapter()
-        handlers = handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
-        with HedgehogServer(ctx, 'inproc://controller', handlers):
-            socket = ReqSocket(ctx, zmq.REQ)
-            socket.connect('inproc://controller')
+        _handlers = handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
 
-            socket.send_msg(io.StateAction(0, io.INPUT_PULLDOWN))
-            response = socket.recv_msg()
-            self.assertEqual(type(response), ack.Acknowledgement)
-            self.assertEqual(response.code, ack.UNSUPPORTED_COMMAND)
+        with connectSimulatorReq(_handlers) as socket:
+            self.assertReplyReq(socket, io.Action(0, io.INPUT_PULLDOWN), ack.UNSUPPORTED_COMMAND)
+            self.assertReplyReq(socket, analog.Request(0), ack.UNSUPPORTED_COMMAND)
+            self.assertReplyReq(socket, digital.Request(0), ack.UNSUPPORTED_COMMAND)
+            self.assertReplyReq(socket, motor.Action(0, motor.POWER), ack.UNSUPPORTED_COMMAND)
+            self.assertReplyReq(socket, motor.StateRequest(0), ack.UNSUPPORTED_COMMAND)
+            self.assertReplyReq(socket, motor.SetPositionAction(0, 0), ack.UNSUPPORTED_COMMAND)
+            self.assertReplyReq(socket, servo.Action(0, True, 0), ack.UNSUPPORTED_COMMAND)
 
-    def test_io_state_action(self):
-        ctx = zmq.Context()
+    def test_io(self):
+        with connectSimulatorReq() as socket:
+            # ### io.Action
 
-        with HedgehogServer(ctx, 'inproc://controller', handler()):
-            socket = ReqSocket(ctx, zmq.REQ)
-            socket.connect('inproc://controller')
-
-            socket.send_msg(io.StateAction(0, io.INPUT_PULLDOWN))
-            response = socket.recv_msg()
-            self.assertEqual(response, ack.Acknowledgement())
+            self.assertReplyReq(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
 
             # send an invalid command
-            action = io.StateAction(0, 0)
+            action = io.Action(0, 0)
             action.flags = io.OUTPUT | io.PULLDOWN
-            socket.send_msg(action)
-            response = socket.recv_msg()
-            self.assertEqual(type(response), ack.Acknowledgement)
-            self.assertEqual(response.code, ack.INVALID_COMMAND)
+            self.assertReplyReq(socket, action, ack.INVALID_COMMAND)
 
-    def test_analog_request(self):
-        ctx = zmq.Context()
+            # ### io.CommandRequest
 
-        with HedgehogServer(ctx, 'inproc://controller', handler()):
-            socket = ReqSocket(ctx, zmq.REQ)
-            socket.connect('inproc://controller')
+            self.assertReplyReq(socket, io.CommandRequest(0), io.CommandReply(0, io.INPUT_PULLDOWN))
 
-            socket.send_msg(analog.Request(0))
-            update = socket.recv_msg()
-            self.assertEqual(update, analog.Update(0, 0))
+    def test_analog(self):
+        with connectSimulatorReq() as socket:
+            # ### analog.Request
 
-    def test_digital_request(self):
-        ctx = zmq.Context()
+            self.assertReplyReq(socket, analog.Request(0), analog.Reply(0, 0))
 
-        with HedgehogServer(ctx, 'inproc://controller', handler()):
-            socket = ReqSocket(ctx, zmq.REQ)
-            socket.connect('inproc://controller')
+    def test_digital(self):
+        with connectSimulatorReq() as socket:
+            # ### digital.Request
 
-            socket.send_msg(digital.Request(0))
-            update = socket.recv_msg()
-            self.assertEqual(update, digital.Update(0, False))
+            self.assertReplyReq(socket, digital.Request(0), digital.Reply(0, False))
 
-    def test_motor_action(self):
-        ctx = zmq.Context()
+    def test_motor(self):
+        with connectSimulatorReq() as socket:
+            # ### motor.Action
 
-        with HedgehogServer(ctx, 'inproc://controller', handler()):
-            socket = ReqSocket(ctx, zmq.REQ)
-            socket.connect('inproc://controller')
-
-            socket.send_msg(motor.Action(0, motor.POWER))
-            response = socket.recv_msg()
-            self.assertEqual(response, ack.Acknowledgement())
+            self.assertReplyReq(socket, motor.Action(0, motor.POWER), ack.Acknowledgement())
 
             # send an invalid command
             action = motor.Action(0, motor.BRAKE)
             action.relative = 100
-            socket.send_msg(action)
-            response = socket.recv_msg()
-            self.assertEqual(type(response), ack.Acknowledgement)
-            self.assertEqual(response.code, ack.INVALID_COMMAND)
+            self.assertReplyReq(socket, action, ack.INVALID_COMMAND)
 
-    def test_motor_request(self):
-        ctx = zmq.Context()
+            # ### motor.CommandRequest
 
-        with HedgehogServer(ctx, 'inproc://controller', handler()):
-            socket = ReqSocket(ctx, zmq.REQ)
-            socket.connect('inproc://controller')
+            self.assertReplyReq(socket, motor.CommandRequest(0), motor.CommandReply(0, motor.POWER, 0))
 
-            socket.send_msg(motor.Request(0))
-            update = socket.recv_msg()
-            self.assertEqual(update, motor.Update(0, 0, 0))
+            # ### motor.StateRequest
 
-    def test_motor_set_position_action(self):
-        ctx = zmq.Context()
+            self.assertReplyReq(socket, motor.StateRequest(0), motor.StateReply(0, 0, 0))
 
-        with HedgehogServer(ctx, 'inproc://controller', handler()):
-            socket = ReqSocket(ctx, zmq.REQ)
-            socket.connect('inproc://controller')
+            # ### motor.SetPositionAction
 
-            socket.send_msg(motor.SetPositionAction(0, 0))
-            response = socket.recv_msg()
-            self.assertEqual(response, ack.Acknowledgement())
+            self.assertReplyReq(socket, motor.SetPositionAction(0, 0), ack.Acknowledgement())
 
-    def test_servo_action(self):
-        ctx = zmq.Context()
+    def test_servo(self):
+        with connectSimulatorReq() as socket:
+            # ### servo.Action
 
-        with HedgehogServer(ctx, 'inproc://controller', handler()):
-            socket = ReqSocket(ctx, zmq.REQ)
-            socket.connect('inproc://controller')
+            self.assertReplyReq(socket, servo.Action(0, True, 0), ack.Acknowledgement())
 
-            socket.send_msg(servo.Action(0, True, 0))
-            response = socket.recv_msg()
-            self.assertEqual(response, ack.Acknowledgement())
+            # ### servo.CommandRequest
 
-    def test_process_execute_request_echo(self):
-        ctx = zmq.Context()
+            self.assertReplyReq(socket, servo.CommandRequest(0), servo.CommandReply(0, True, 0))
 
-        with HedgehogServer(ctx, 'inproc://controller', handler()):
-            socket = DealerRouterSocket(ctx, zmq.DEALER)
-            socket.connect('inproc://controller')
-
-            socket.send_msgs([], [process.ExecuteRequest('echo', 'asdf')])
-            _, response = socket.recv_msg()
-            self.assertEqual(type(response), process.ExecuteReply)
-            pid = response.pid
-
-            output = {
+    def handle_streams(self) -> Callable[[process.StreamUpdate], Dict[int, bytes]]:
+        def handler():
+            outputs = {
                 process.STDOUT: [],
                 process.STDERR: [],
-            }
+            }  # type: Dict[int, List[bytes]]
 
-            open = 2
+            open = len(outputs)
             while open > 0:
-                _, msg = socket.recv_msg()
-                self.assertEqual(type(msg), process.StreamUpdate)
-                self.assertEqual(msg.pid, pid)
-                output[msg.fileno].append(msg.chunk)
+                msg = yield
+                outputs[msg.fileno].append(msg.chunk)
                 if msg.chunk == b'':
                     open -= 1
 
-            socket.send_msg([], process.StreamAction(pid, process.STDIN, b''))
-            _, response = socket.recv_msg()
-            self.assertEqual(response, ack.Acknowledgement())
+            return {fileno: b''.join(chunks) for fileno, chunks in outputs.items()}
+
+        gen = handler()
+        gen.send(None)
+
+        def send(msg: process.StreamUpdate) -> Dict[int, bytes]:
+            try:
+                gen.send(msg)
+                return None
+            except StopIteration as stop:
+                return stop.value
+
+        return send
+
+    def test_process_echo(self):
+        with connectSimulatorDealer() as socket:
+            response = self.assertReplyDealer(socket, process.ExecuteAction('echo', 'asdf'),
+                                              process.ExecuteReply)  # type: process.ExecuteReply
+            pid = response.pid
+
+            stream_handler = self.handle_streams()
+            output = None
+            while output is None:
+                _, msg = socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
+                self.assertMsgEqual(msg, process.StreamUpdate, pid=pid)
+                output = stream_handler(msg)
+
+            self.assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b''), ack.Acknowledgement())
 
             _, msg = socket.recv_msg()
             self.assertEqual(msg, process.ExitUpdate(pid, 0))
-
-            output = {fileno: b''.join(chunks) for fileno, chunks in output.items()}
 
             self.assertEqual(output[process.STDOUT], b'asdf\n')
             self.assertEqual(output[process.STDERR], b'')
 
-    def test_process_execute_request_cat(self):
-        ctx = zmq.Context()
-
-        with HedgehogServer(ctx, 'inproc://controller', handler()):
-            socket = DealerRouterSocket(ctx, zmq.DEALER)
-            socket.connect('inproc://controller')
-
-            socket.send_msg([], process.ExecuteRequest('cat'))
-            _, response = socket.recv_msg()
-            self.assertEqual(type(response), process.ExecuteReply)
+    def test_process_cat(self):
+        with connectSimulatorDealer() as socket:
+            response = self.assertReplyDealer(socket, process.ExecuteAction('cat'),
+                                              process.ExecuteReply)  # type: process.ExecuteReply
             pid = response.pid
 
-            output = {
-                process.STDOUT: [],
-                process.STDERR: [],
-            }
+            self.assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b'asdf'), ack.Acknowledgement())
+            self.assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b''), ack.Acknowledgement())
 
-            socket.send_msg([], process.StreamAction(pid, process.STDIN, b'asdf'))
-            _, response = socket.recv_msg()
-            self.assertEqual(response, ack.Acknowledgement())
-            socket.send_msg([], process.StreamAction(pid, process.STDIN, b''))
-            _, response = socket.recv_msg()
-            self.assertEqual(response, ack.Acknowledgement())
+            stream_handler = self.handle_streams()
+            output = None
+            while output is None:
+                _, msg = socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
+                self.assertMsgEqual(msg, process.StreamUpdate, pid=pid)
+                output = stream_handler(msg)
 
-            open = 2
-            while open > 0:
-                _, msg = socket.recv_msg()
-                self.assertEqual(type(msg), process.StreamUpdate)
-                self.assertEqual(msg.pid, pid)
-                output[msg.fileno].append(msg.chunk)
-                if msg.chunk == b'':
-                    open -= 1
             _, msg = socket.recv_msg()
             self.assertEqual(msg, process.ExitUpdate(pid, 0))
-
-            output = {fileno: b''.join(chunks) for fileno, chunks in output.items()}
 
             self.assertEqual(output[process.STDOUT], b'asdf')
             self.assertEqual(output[process.STDERR], b'')
 
-    def test_process_execute_request_pwd(self):
-        ctx = zmq.Context()
-
-        with HedgehogServer(ctx, 'inproc://controller', handler()):
-            socket = DealerRouterSocket(ctx, zmq.DEALER)
-            socket.connect('inproc://controller')
-
-            socket.send_msg([], process.ExecuteRequest('pwd', working_dir='/'))
-            _, response = socket.recv_msg()
-            self.assertEqual(type(response), process.ExecuteReply)
+    def test_process_pwd(self):
+        with connectSimulatorDealer() as socket:
+            response = self.assertReplyDealer(socket, process.ExecuteAction('pwd', working_dir='/'),
+                                              process.ExecuteReply)  # type: process.ExecuteReply
             pid = response.pid
 
-            output = {
-                process.STDOUT: [],
-                process.STDERR: [],
-            }
+            stream_handler = self.handle_streams()
+            output = None
+            while output is None:
+                _, msg = socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
+                self.assertMsgEqual(msg, process.StreamUpdate, pid=pid)
+                output = stream_handler(msg)
 
-            open = 2
-            while open > 0:
-                _, msg = socket.recv_msg()
-                self.assertEqual(type(msg), process.StreamUpdate)
-                self.assertEqual(msg.pid, pid)
-                output[msg.fileno].append(msg.chunk)
-                if msg.chunk == b'':
-                    open -= 1
-
-            socket.send_msg([], process.StreamAction(pid, process.STDIN, b''))
-            _, response = socket.recv_msg()
-            self.assertEqual(response, ack.Acknowledgement())
+            self.assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b''), ack.Acknowledgement())
 
             _, msg = socket.recv_msg()
             self.assertEqual(msg, process.ExitUpdate(pid, 0))
 
-            output = {fileno: b''.join(chunks) for fileno, chunks in output.items()}
-
             self.assertEqual(output[process.STDOUT], b'/\n')
             self.assertEqual(output[process.STDERR], b'')
 
-    def test_process_signal_sleep(self):
-        ctx = zmq.Context()
-
-        with HedgehogServer(ctx, 'inproc://controller', handler()):
-            socket = DealerRouterSocket(ctx, zmq.DEALER)
-            socket.connect('inproc://controller')
-
-            socket.send_msg([], process.ExecuteRequest('sleep', '1'))
-            _, response = socket.recv_msg()
-            self.assertEqual(type(response), process.ExecuteReply)
+    def test_process_sleep(self):
+        with connectSimulatorDealer() as socket:
+            response = self.assertReplyDealer(socket, process.ExecuteAction('sleep', '1'),
+                                              process.ExecuteReply)  # type: process.ExecuteReply
             pid = response.pid
 
-            socket.send_msg([], process.StreamAction(pid, process.STDIN, b''))
-            _, response = socket.recv_msg()
-            self.assertEqual(response, ack.Acknowledgement())
+            self.assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b''), ack.Acknowledgement())
+            self.assertReplyDealer(socket, process.SignalAction(pid, signal.SIGINT), ack.Acknowledgement())
 
-            socket.send_msg([], process.SignalAction(pid, signal.SIGINT))
-            _, response = socket.recv_msg()
-            self.assertEqual(response, ack.Acknowledgement())
-
-            open = 2
-            while open > 0:
-                _, msg = socket.recv_msg()
-                self.assertEqual(type(msg), process.StreamUpdate)
-                self.assertEqual(msg.pid, pid)
-                if msg.chunk == b'':
-                    open -= 1
+            stream_handler = self.handle_streams()
+            output = None
+            while output is None:
+                _, msg = socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
+                self.assertMsgEqual(msg, process.StreamUpdate, pid=pid)
+                output = stream_handler(msg)
 
             _, msg = socket.recv_msg()
             self.assertEqual(msg, process.ExitUpdate(pid, -signal.SIGINT))
 
 
 def collect_outputs(proc):
-    output = {process.STDOUT: [], process.STDERR: []}
+    output = {process.STDOUT: [], process.STDERR: []}  # type: Dict[int, List[bytes]]
 
     msg = proc.read()
     while msg is not None:
