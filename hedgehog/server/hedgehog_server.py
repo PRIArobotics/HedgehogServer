@@ -1,18 +1,24 @@
+from typing import Callable, Dict
+
 import logging
 import sys
 import zmq
 from hedgehog.utils.zmq import Active
 from hedgehog.utils.zmq.actor import Actor, CommandRegistry
 from hedgehog.utils.zmq.poller import Poller
-from hedgehog.protocol import ServerSide
+from hedgehog.protocol import ServerSide, Header, RawMessage, Message
 from hedgehog.protocol.sockets import DealerRouterSocket
 from hedgehog.protocol.errors import HedgehogCommandError, UnsupportedCommandError
+
+
+# TODO importing this from .handlers does not work...
+HandlerCallback = Callable[['HedgehogServerActor', Header, Message], Message]
 
 logger = logging.getLogger(__name__)
 
 
 class HedgehogServerActor(object):
-    def __init__(self, ctx, cmd_pipe, evt_pipe, endpoint, handlers):
+    def __init__(self, ctx: zmq.Context, cmd_pipe, evt_pipe, endpoint: str, handlers: Dict[str, HandlerCallback]) -> None:
         self.ctx = ctx
         self.cmd_pipe = cmd_pipe
         self.evt_pipe = evt_pipe
@@ -27,7 +33,7 @@ class HedgehogServerActor(object):
 
         self.run()
 
-    def register_cmd_pipe(self):
+    def register_cmd_pipe(self) -> None:
         registry = CommandRegistry()
         self.register(self.cmd_pipe, lambda: registry.handle(self.cmd_pipe.recv_multipart()))
 
@@ -50,8 +56,8 @@ class HedgehogServerActor(object):
         def handle_term():
             self.terminate()
 
-    def register_socket(self):
-        def handle(ident, msg_raw):
+    def register_socket(self) -> None:
+        def handle(ident: Header, msg_raw: RawMessage):
             try:
                 msg = ServerSide.parse(msg_raw)
                 logger.debug("Receive command: %s", msg)
@@ -99,12 +105,12 @@ class HedgehogServerActor(object):
 class HedgehogServer(Active):
     hedgehog_server_class = HedgehogServerActor
 
-    def __init__(self, ctx, endpoint, handlers):
+    def __init__(self, ctx: zmq.Context, endpoint: str, handlers: Dict[str, HandlerCallback]) -> None:
         self.ctx = ctx
-        self.actor = None
+        self.actor = None  # type: HedgehogServerActor
         self.endpoint = endpoint
         self.handlers = handlers
-        self._socket = None
+        self._socket = None  # type: DealerRouterSocket
 
     @property
     def cmd_pipe(self):
@@ -115,7 +121,7 @@ class HedgehogServer(Active):
         return self.actor.evt_pipe
 
     @property
-    def socket(self):
+    def socket(self) -> DealerRouterSocket:
         if not self._socket:
             self.cmd_pipe.send(b'SOCK')
             self.cmd_pipe.wait()

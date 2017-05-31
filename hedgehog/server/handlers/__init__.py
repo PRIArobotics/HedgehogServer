@@ -1,10 +1,11 @@
 from typing import Any, Callable, Dict, Tuple, Type
 
-from hedgehog.protocol.messages import Message
+from hedgehog.protocol import Header, Message
+from ..hedgehog_server import HedgehogServerActor
 
 
-HandlerFunction = Callable[[Any, Any, Any, Any], Message]
-HandlerCallback = Callable[[Any, Any, Any], Message]
+HandlerFunction = Callable[['CommandHandler', HedgehogServerActor, Header, Message], Message]
+HandlerCallback = Callable[[HedgehogServerActor, Header, Message], Message]
 HandlerCallbackDict = Dict[str, HandlerCallback]
 HandlerDecorator = Callable[[Type[Message]], Callable[[HandlerFunction], HandlerFunction]]
 
