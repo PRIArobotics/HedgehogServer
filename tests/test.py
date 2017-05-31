@@ -114,7 +114,7 @@ class TestSimulator(unittest.TestCase):
 
     def test_io(self):
         with connectSimulatorReq() as socket:
-            # ### io.StateAction
+            # ### io.Action
 
             self.assertReplyReq(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
 
@@ -123,7 +123,7 @@ class TestSimulator(unittest.TestCase):
             action.flags = io.OUTPUT | io.PULLDOWN
             self.assertReplyReq(socket, action, ack.INVALID_COMMAND)
 
-            # ### io.StateRequest
+            # ### io.CommandRequest
 
             self.assertReplyReq(socket, io.CommandRequest(0), io.CommandReply(0, io.INPUT_PULLDOWN))
 
