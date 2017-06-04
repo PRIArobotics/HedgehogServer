@@ -6,6 +6,7 @@ import zmq
 from hedgehog.utils.zmq import Active
 from hedgehog.utils.zmq.actor import Actor, CommandRegistry
 from hedgehog.utils.zmq.poller import Poller
+from hedgehog.utils.zmq.socket import SocketLike
 from hedgehog.protocol import ServerSide, Header, RawMessage, Message
 from hedgehog.protocol.sockets import DealerRouterSocket
 from hedgehog.protocol.errors import HedgehogCommandError, UnsupportedCommandError
@@ -57,7 +58,7 @@ class HedgehogServerActor(object):
             self.terminate()
 
     def register_socket(self) -> None:
-        def handle(ident: Header, msg_raw: RawMessage):
+        def handle(ident: Header, msg_raw: RawMessage) -> RawMessage:
             try:
                 msg = ServerSide.parse(msg_raw)
                 logger.debug("Receive command: %s", msg)
@@ -72,28 +73,28 @@ class HedgehogServerActor(object):
             logger.debug("Send reply:      %s", result)
             return ServerSide.serialize(result)
 
-        def recv_socket():
+        def recv_socket() -> None:
             ident, msgs_raw = self.socket.recv_msgs_raw()
             self.socket.send_msgs_raw(ident, [handle(ident, msg) for msg in msgs_raw])
 
         self.register(self.socket, recv_socket)
 
-    def send_async(self, ident, *msgs):
+    def send_async(self, ident: Header, *msgs: Message) -> None:
         for msg in msgs:
             logger.debug("Send update:     %s", msg)
         self.socket.send_msgs(ident, msgs)
 
-    def terminate(self):
+    def terminate(self) -> None:
         for socket in list(self.poller.sockets):
             self.poller.unregister(socket)
 
-    def register(self, socket, cb):
+    def register(self, socket: SocketLike, cb: Callable[[], None]) -> None:
         self.poller.register(socket, zmq.POLLIN, cb)
 
-    def unregister(self, socket):
+    def unregister(self, socket: SocketLike) -> None:
         self.poller.unregister(socket)
 
-    def run(self):
+    def run(self) -> None:
         # Signal actor successfully initialized
         self.evt_pipe.signal()
 
@@ -128,11 +129,11 @@ class HedgehogServer(Active):
             self._socket = self.cmd_pipe.pop()
         return self._socket
 
-    def register(self, socket, cb):
+    def register(self, socket: SocketLike, cb: Callable[[], None]) -> None:
         self.cmd_pipe.push((socket, cb))
         self.cmd_pipe.send(b'REG')
 
-    def unregister(self, socket):
+    def unregister(self, socket: SocketLike) -> None:
         self.cmd_pipe.push(socket)
         self.cmd_pipe.send(b'UNREG')
 
