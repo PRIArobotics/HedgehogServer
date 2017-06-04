@@ -1,4 +1,4 @@
-from typing import Callable, Dict
+from typing import Callable, Dict, Type
 
 import logging
 import sys
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class HedgehogServerActor(object):
-    def __init__(self, ctx: zmq.Context, cmd_pipe, evt_pipe, endpoint: str, handlers: Dict[str, HandlerCallback]) -> None:
+    def __init__(self, ctx: zmq.Context, cmd_pipe, evt_pipe, endpoint: str, handlers: Dict[Type[Message], HandlerCallback]) -> None:
         self.ctx = ctx
         self.cmd_pipe = cmd_pipe
         self.evt_pipe = evt_pipe
@@ -63,7 +63,7 @@ class HedgehogServerActor(object):
                 msg = ServerSide.parse(msg_raw)
                 logger.debug("Receive command: %s", msg)
                 try:
-                    handler = self.handlers[msg.meta.discriminator]
+                    handler = self.handlers[msg.__class__]
                 except KeyError:
                     raise UnsupportedCommandError(msg.__class__.msg_name())
                 try:
@@ -110,7 +110,7 @@ class HedgehogServerActor(object):
 class HedgehogServer(Active):
     hedgehog_server_class = HedgehogServerActor
 
-    def __init__(self, ctx: zmq.Context, endpoint: str, handlers: Dict[str, HandlerCallback]) -> None:
+    def __init__(self, ctx: zmq.Context, endpoint: str, handlers: Dict[Type[Message], HandlerCallback]) -> None:
         self.ctx = ctx
         self.actor = None  # type: HedgehogServerActor
         self.endpoint = endpoint
