@@ -88,6 +88,10 @@ class HardwareHandler(CommandHandler):
         else:
             return io.CommandReply(msg.port, flags)
 
+    @_command(io.CommandSubscribe)
+    def io_command_subscribe(self, server, ident, msg):
+        return ack.Acknowledgement()
+
     @_command(analog.Request)
     def analog_request(self, server, ident, msg):
         value = self.ios[msg.port].analog_value
