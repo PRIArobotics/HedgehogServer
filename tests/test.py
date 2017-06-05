@@ -118,43 +118,58 @@ class TestSimulator(unittest.TestCase):
         with connectSimulatorReq():
             pass
 
-        with connectSimulatorReq() as socket:
+        with connectSimulatorDealer() as socket:
             # ### io.CommandRequest
 
-            self.assertReplyReq(socket, io.CommandRequest(0), ack.FAILED_COMMAND)
+            self.assertReplyDealer(socket, io.CommandRequest(0), ack.FAILED_COMMAND)
 
             # ### io.Action
 
-            self.assertReplyReq(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
+            self.assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
 
             # send an invalid command
             action = io.Action(0, 0)
             action.flags = io.OUTPUT | io.PULLDOWN
-            self.assertReplyReq(socket, action, ack.INVALID_COMMAND)
+            self.assertReplyDealer(socket, action, ack.INVALID_COMMAND)
 
             # ### io.CommandRequest
 
-            self.assertReplyReq(socket, io.CommandRequest(0), io.CommandReply(0, io.INPUT_PULLDOWN))
+            self.assertReplyDealer(socket, io.CommandRequest(0), io.CommandReply(0, io.INPUT_PULLDOWN))
 
             # ### io.CommandSubscribe
 
             sub = Subscription()
             sub.subscribe = False
-            sub.timeout = 100
-            self.assertReplyReq(socket, io.CommandSubscribe(0, sub), ack.FAILED_COMMAND)
+            sub.timeout = 10
+            self.assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.FAILED_COMMAND)
 
             sub = Subscription()
             sub.subscribe = True
-            sub.timeout = 100
-            self.assertReplyReq(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
+            sub.timeout = 10
+            self.assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
 
-            # make sure the update arrives before cancelling the subscription, so that the REQ socket drops it silently
-            time.sleep(0.01)
+            # check immediate update
+            _, response = socket.recv_msg()
+            self.assertEqual(response, io.CommandUpdate(0, io.INPUT_PULLDOWN, sub))
+
+            # sleep for 20ms, more than the timeout
+            time.sleep(0.02)
+
+            # send another command that does not actually change the value
+            self.assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
+
+            # change command value
+            self.assertReplyDealer(socket, io.Action(0, io.INPUT_PULLUP), ack.Acknowledgement())
+
+            # check that the next update carries this value, i.e. waiting and not-changing the command did not trigger
+            # an update repeating the old value
+            _, response = socket.recv_msg()
+            self.assertEqual(response, io.CommandUpdate(0, io.INPUT_PULLUP, sub))
 
             sub = Subscription()
             sub.subscribe = False
-            sub.timeout = 100
-            self.assertReplyReq(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
+            sub.timeout = 10
+            self.assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
 
     def test_analog(self):
         with connectSimulatorReq() as socket:

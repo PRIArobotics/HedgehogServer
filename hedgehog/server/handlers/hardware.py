@@ -40,7 +40,7 @@ class SubscriptionInfo(object):
     def should_send(self, value: Any) -> bool:
         if value == self.last_value:
             return False
-        if self.subscription.timeout is not None and self.last_time is not None and time.time() < self.last_time + self.subscription.timeout:
+        if self.subscription.timeout is not None and self.last_time is not None and time.time() < self.last_time + self.subscription.timeout / 1000:
             return False
         return True
 
