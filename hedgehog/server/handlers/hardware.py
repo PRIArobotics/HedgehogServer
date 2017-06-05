@@ -13,8 +13,7 @@ from ..hedgehog_server import HedgehogServerActor
 
 
 class SubscriptionInfo(object):
-    def __init__(self, server: HedgehogServerActor, ident: Header, subscription: Subscription,
-                 handler: Callable[['SubscriptionInfo'], None]) -> None:
+    def __init__(self, server: HedgehogServerActor, ident: Header, subscription: Subscription) -> None:
         self.server = server
         self.ident = ident
         self.subscription = subscription
@@ -23,7 +22,7 @@ class SubscriptionInfo(object):
         self._last_time = None  # type: float
         self._last_value = None  # type: Any
 
-        self.timer = server.timer.register(subscription.timeout / 1000, lambda: handler(self))
+        self.extra = None  # type: Any
 
     @property
     def last_time(self) -> float:
@@ -48,24 +47,20 @@ class SubscriptionInfo(object):
     def send_async(self, *msgs: Message) -> None:
         self.server.send_async(self.ident, *msgs)
 
-    def unregister(self) -> None:
-        self.server.timer.unregister(self.timer)
 
+class SubscriptionManager(object):
+    def __init__(self) -> None:
+        self.subscriptions = {}  # type: Dict[Tuple[Header, int], SubscriptionInfo]
 
-class _HWHandler(object):
-    def __init__(self, adapter: HardwareAdapter) -> None:
-        self.adapter = adapter
-        self.subscriptions = {}  # type: Dict[Tuple[Header, Type[Message], int], SubscriptionInfo]
-        self.update_handlers = {}  # type: Dict[Type[Message], Callable[[SubscriptionInfo], None]]
-
-    def subscribe(self, server: HedgehogServerActor, ident: Header, msg: Type[Message], subscription: Subscription) -> None:
+    def subscribe(self, server: HedgehogServerActor, ident: Header, subscription: Subscription) -> None:
         # TODO incomplete
-        key = (ident, msg, subscription.timeout)
+        key = (ident, subscription.timeout)
 
         if subscription.subscribe:
             if key not in self.subscriptions:
-                info = SubscriptionInfo(server, ident, subscription, self.update_handlers[msg])
+                info = SubscriptionInfo(server, ident, subscription)
                 self.subscriptions[key] = info
+                self.handle_subscribe(info)
             else:
                 info = self.subscriptions[key]
             info.counter += 1
@@ -77,17 +72,57 @@ class _HWHandler(object):
             else:
                 info.counter -= 1
                 if info.counter == 0:
-                    info.unregister()
+                    self.handle_unsubscribe(info)
                     del self.subscriptions[key]
+
+    def handle_subscribe(self, info: SubscriptionInfo) -> None:
+        pass
+
+    def handle_unsubscribe(self, info: SubscriptionInfo) -> None:
+        pass
+
+
+class _HWHandler(object):
+    def __init__(self, adapter: HardwareAdapter) -> None:
+        self.adapter = adapter
+        self.subscription_handlers = {}  # type: Dict[Type[Message], SubscriptionManager]
+
+    def subscribe(self, server: HedgehogServerActor, ident: Header, msg: Type[Message], subscription: Subscription) -> None:
+        self.subscription_handlers[msg].subscribe(server, ident, subscription)
 
 
 class _IOHandler(_HWHandler):
+    def __command_subscription_manager(self) -> SubscriptionManager:
+        outer_self = self
+
+        class Extra(object):
+            timer = None  # type: TimerDefinition
+
+        class Mgr(SubscriptionManager):
+            def __init__(self) -> None:
+                super(Mgr, self).__init__()
+
+            def handle_subscribe(self, info: SubscriptionInfo) -> None:
+                info.extra = Extra()
+                info.extra.timer = info.server.timer.register(info.subscription.timeout / 1000, lambda: self.handle_update(info))
+
+            def handle_unsubscribe(self, info: SubscriptionInfo) -> None:
+                info.server.timer.unregister(info.extra.timer)
+
+            def handle_update(self, info: SubscriptionInfo) -> None:
+                flags, = outer_self.command
+                if info.should_send(flags):
+                    info.last_value = flags
+                    info.send_async(io.CommandUpdate(outer_self.port, flags, info.subscription))
+
+        return Mgr()
+
     def __init__(self, adapter: HardwareAdapter, port: int) -> None:
         super(_IOHandler, self).__init__(adapter)
         self.port = port
         self.command = None  # type: Tuple[int]
 
-        self.update_handlers[io.CommandSubscribe] = self._command_update
+        self.subscription_handlers[io.CommandSubscribe] = self.__command_subscription_manager()
 
     def action(self, flags: int) -> None:
         self.adapter.set_io_state(self.port, flags)
@@ -100,12 +135,6 @@ class _IOHandler(_HWHandler):
     @property
     def digital_value(self) -> bool:
         return self.adapter.get_digital(self.port)
-
-    def _command_update(self, info: SubscriptionInfo) -> None:
-        flags, = self.command
-        if info.should_send(flags):
-            info.last_value = flags
-            info.send_async(io.CommandUpdate(self.port, flags, info.subscription))
 
 
 class _MotorHandler(_HWHandler):
