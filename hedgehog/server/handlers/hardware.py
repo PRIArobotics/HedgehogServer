@@ -1,6 +1,7 @@
 from typing import List, Tuple
 
 from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo
+from hedgehog.protocol.errors import FailedCommandError
 
 from . import CommandHandler, command_handlers
 from ..hardware import HardwareAdapter
@@ -79,8 +80,13 @@ class HardwareHandler(CommandHandler):
 
     @_command(io.CommandRequest)
     def io_command_request(self, server, ident, msg):
-        flags, = self.ios[msg.port].command
-        return io.CommandReply(msg.port, flags)
+        command = self.ios[msg.port].command
+        try:
+            flags, = command
+        except TypeError:
+            raise FailedCommandError("no command executed yet")
+        else:
+            return io.CommandReply(msg.port, flags)
 
     @_command(analog.Request)
     def analog_request(self, server, ident, msg):
@@ -104,8 +110,13 @@ class HardwareHandler(CommandHandler):
 
     @_command(motor.CommandRequest)
     def motor_command_request(self, server, ident, msg):
-        state, amount = self.motors[msg.port].command
-        return motor.CommandReply(msg.port, state, amount)
+        command = self.motors[msg.port].command
+        try:
+            state, amount = command
+        except TypeError:
+            raise FailedCommandError("no command executed yet")
+        else:
+            return motor.CommandReply(msg.port, state, amount)
 
     @_command(motor.StateRequest)
     def motor_state_request(self, server, ident, msg):
@@ -129,5 +140,10 @@ class HardwareHandler(CommandHandler):
 
     @_command(servo.CommandRequest)
     def servo_command_request(self, server, ident, msg):
-        active, position = self.servos[msg.port].command
-        return servo.CommandReply(msg.port, active, position)
+        command = self.servos[msg.port].command
+        try:
+            active, position = command
+        except TypeError:
+            raise FailedCommandError("no command executed yet")
+        else:
+            return servo.CommandReply(msg.port, active, position)

@@ -114,6 +114,10 @@ class TestSimulator(unittest.TestCase):
 
     def test_io(self):
         with connectSimulatorReq() as socket:
+            # ### io.CommandRequest
+
+            self.assertReplyReq(socket, io.CommandRequest(0), ack.FAILED_COMMAND)
+
             # ### io.Action
 
             self.assertReplyReq(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
@@ -141,6 +145,10 @@ class TestSimulator(unittest.TestCase):
 
     def test_motor(self):
         with connectSimulatorReq() as socket:
+            # ### motor.CommandRequest
+
+            self.assertReplyReq(socket, motor.CommandRequest(0), ack.FAILED_COMMAND)
+
             # ### motor.Action
 
             self.assertReplyReq(socket, motor.Action(0, motor.POWER), ack.Acknowledgement())
@@ -164,6 +172,10 @@ class TestSimulator(unittest.TestCase):
 
     def test_servo(self):
         with connectSimulatorReq() as socket:
+            # ### servo.CommandRequest
+
+            self.assertReplyReq(socket, servo.CommandRequest(0), ack.FAILED_COMMAND)
+
             # ### servo.Action
 
             self.assertReplyReq(socket, servo.Action(0, True, 0), ack.Acknowledgement())
