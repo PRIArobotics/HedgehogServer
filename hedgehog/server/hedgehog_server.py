@@ -9,7 +9,7 @@ from hedgehog.utils.zmq.poller import Poller
 from hedgehog.utils.zmq.socket import SocketLike
 from hedgehog.protocol import ServerSide, Header, RawMessage, Message
 from hedgehog.protocol.sockets import DealerRouterSocket
-from hedgehog.protocol.errors import HedgehogCommandError, UnsupportedCommandError
+from hedgehog.protocol.errors import HedgehogCommandError, UnsupportedCommandError, FailedCommandError
 
 
 # TODO importing this from .handlers does not work...
@@ -66,8 +66,12 @@ class HedgehogServerActor(object):
                     handler = self.handlers[msg.meta.discriminator]
                 except KeyError:
                     raise UnsupportedCommandError(msg.__class__.msg_name())
-                else:
+                try:
                     result = handler(self, ident, msg)
+                except HedgehogCommandError:
+                    raise
+                except Exception as err:
+                    raise FailedCommandError("uncaught exception: {}".format(repr(err))) from err
             except HedgehogCommandError as err:
                 result = err.to_message()
             logger.debug("Send reply:      %s", result)
