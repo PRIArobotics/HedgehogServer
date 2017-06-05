@@ -1,15 +1,59 @@
-from typing import List, Tuple
+from typing import Any, Callable, Dict, Tuple, Type
 
+from hedgehog.protocol import Header, Message
+from hedgehog.protocol.errors import UnsupportedCommandError, FailedCommandError
 from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo
-from hedgehog.protocol.errors import FailedCommandError
+from hedgehog.protocol.proto.subscription_pb2 import Subscription
+from hedgehog.utils.zmq.timer import TimerDefinition
 
 from . import CommandHandler, command_handlers
 from ..hardware import HardwareAdapter
+from ..hedgehog_server import HedgehogServerActor
+
+
+class SubscriptionInfo(object):
+    def __init__(self, server: HedgehogServerActor, ident: Header, subscription: Subscription,
+                 handler: Callable[['SubscriptionInfo'], None]) -> None:
+        self.server = server
+        self.ident = ident
+        self.subscription = subscription
+        self.timer = server.timer.register(subscription.timeout / 1000, lambda: handler(self))
+        self.counter = 0
+
+    def send_async(self, *msgs: Message) -> None:
+        self.server.send_async(self.ident, *msgs)
+
+    def unregister(self) -> None:
+        self.server.timer.unregister(self.timer)
 
 
 class _HWHandler(object):
     def __init__(self, adapter: HardwareAdapter) -> None:
         self.adapter = adapter
+        self.subscriptions = {}  # type: Dict[Tuple[Header, Type[Message], int], SubscriptionInfo]
+        self.update_handlers = {}  # type: Dict[Type[Message], Callable[[SubscriptionInfo], None]]
+
+    def subscribe(self, server: HedgehogServerActor, ident: Header, msg: Type[Message], subscription: Subscription) -> None:
+        # TODO incomplete
+        key = (ident, msg, subscription.timeout)
+
+        if subscription.subscribe:
+            if key not in self.subscriptions:
+                info = SubscriptionInfo(server, ident, subscription, self.update_handlers[msg])
+                self.subscriptions[key] = info
+            else:
+                info = self.subscriptions[key]
+            info.counter += 1
+        else:
+            try:
+                info = self.subscriptions[key]
+            except KeyError:
+                raise FailedCommandError("can't cancel nonexistent subscription")
+            else:
+                info.counter -= 1
+                if info.counter == 0:
+                    info.unregister()
+                    del self.subscriptions[key]
 
 
 class _IOHandler(_HWHandler):
@@ -17,6 +61,8 @@ class _IOHandler(_HWHandler):
         super(_IOHandler, self).__init__(adapter)
         self.port = port
         self.command = None  # type: Tuple[int]
+
+        self.update_handlers[io.CommandSubscribe] = self._command_update
 
     def action(self, flags: int) -> None:
         self.adapter.set_io_state(self.port, flags)
@@ -29,6 +75,10 @@ class _IOHandler(_HWHandler):
     @property
     def digital_value(self) -> bool:
         return self.adapter.get_digital(self.port)
+
+    def _command_update(self, info: SubscriptionInfo) -> None:
+        flags, = self.command
+        info.send_async(io.CommandUpdate(self.port, flags, info.subscription))
 
 
 class _MotorHandler(_HWHandler):
@@ -90,6 +140,7 @@ class HardwareHandler(CommandHandler):
 
     @_command(io.CommandSubscribe)
     def io_command_subscribe(self, server, ident, msg):
+        self.ios[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
         return ack.Acknowledgement()
 
     @_command(analog.Request)

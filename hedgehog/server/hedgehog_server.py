@@ -7,6 +7,7 @@ from hedgehog.utils.zmq import Active
 from hedgehog.utils.zmq.actor import Actor, CommandRegistry
 from hedgehog.utils.zmq.poller import Poller
 from hedgehog.utils.zmq.socket import SocketLike
+from hedgehog.utils.zmq.timer import Timer
 from hedgehog.protocol import ServerSide, Header, RawMessage, Message
 from hedgehog.protocol.sockets import DealerRouterSocket
 from hedgehog.protocol.errors import HedgehogCommandError, UnsupportedCommandError, FailedCommandError
@@ -27,6 +28,7 @@ class HedgehogServerActor(object):
         self.socket = DealerRouterSocket(ctx, zmq.ROUTER, side=ServerSide)
         self.socket.bind(endpoint)
         self.handlers = handlers
+        self.timer = Timer(ctx)
 
         self.poller = Poller()
         self.register_cmd_pipe()
@@ -102,9 +104,17 @@ class HedgehogServerActor(object):
         # Signal actor successfully initialized
         self.evt_pipe.signal()
 
-        while len(self.poller.sockets) > 0:
-            for _, _, handler in self.poller.poll():
-                handler()
+        with self.timer:
+            def recv_timer() -> None:
+                self.timer.evt_pipe.recv_expect(b'TIMER')
+                then, t = self.timer.evt_pipe.pop()
+                t.aux()
+
+            self.register(self.timer.evt_pipe, recv_timer)
+
+            while len(self.poller.sockets) > 0:
+                for _, _, handler in self.poller.poll():
+                    handler()
 
 
 class HedgehogServer(Active):

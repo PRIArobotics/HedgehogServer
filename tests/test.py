@@ -8,6 +8,7 @@ from contextlib import contextmanager
 
 from hedgehog.protocol import ClientSide
 from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, process
+from hedgehog.protocol.proto.subscription_pb2 import Subscription
 from hedgehog.protocol.sockets import ReqSocket, DealerRouterSocket
 from hedgehog.server import handlers, HedgehogServer
 from hedgehog.server.process import Process
@@ -113,6 +114,10 @@ class TestSimulator(unittest.TestCase):
             self.assertReplyReq(socket, servo.Action(0, True, 0), ack.UNSUPPORTED_COMMAND)
 
     def test_io(self):
+        # TODO I have no idea why, but this is necessary for the tests to run through
+        with connectSimulatorReq():
+            pass
+
         with connectSimulatorReq() as socket:
             # ### io.CommandRequest
 
@@ -130,6 +135,26 @@ class TestSimulator(unittest.TestCase):
             # ### io.CommandRequest
 
             self.assertReplyReq(socket, io.CommandRequest(0), io.CommandReply(0, io.INPUT_PULLDOWN))
+
+            # ### io.CommandSubscribe
+
+            sub = Subscription()
+            sub.subscribe = False
+            sub.timeout = 100
+            self.assertReplyReq(socket, io.CommandSubscribe(0, sub), ack.FAILED_COMMAND)
+
+            sub = Subscription()
+            sub.subscribe = True
+            sub.timeout = 100
+            self.assertReplyReq(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
+
+            # make sure the update arrives before cancelling the subscription, so that the REQ socket drops it silently
+            time.sleep(0.01)
+
+            sub = Subscription()
+            sub.subscribe = False
+            sub.timeout = 100
+            self.assertReplyReq(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
 
     def test_analog(self):
         with connectSimulatorReq() as socket:
