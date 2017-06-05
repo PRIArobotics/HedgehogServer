@@ -1,5 +1,6 @@
 from typing import Any, Callable, Dict, Tuple, Type
 
+import time
 from hedgehog.protocol import Header, Message
 from hedgehog.protocol.errors import UnsupportedCommandError, FailedCommandError
 from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo
@@ -17,8 +18,32 @@ class SubscriptionInfo(object):
         self.server = server
         self.ident = ident
         self.subscription = subscription
-        self.timer = server.timer.register(subscription.timeout / 1000, lambda: handler(self))
         self.counter = 0
+
+        self._last_time = None  # type: float
+        self._last_value = None  # type: Any
+
+        self.timer = server.timer.register(subscription.timeout / 1000, lambda: handler(self))
+
+    @property
+    def last_time(self) -> float:
+        return self._last_time
+
+    @property
+    def last_value(self) -> Any:
+        return self._last_value
+
+    @last_value.setter
+    def last_value(self, value: Any) -> None:
+        self._last_time = time.time()
+        self._last_value = value
+
+    def should_send(self, value: Any) -> bool:
+        if value == self.last_value:
+            return False
+        if self.subscription.timeout is not None and self.last_time is not None and time.time() < self.last_time + self.subscription.timeout:
+            return False
+        return True
 
     def send_async(self, *msgs: Message) -> None:
         self.server.send_async(self.ident, *msgs)
@@ -78,7 +103,9 @@ class _IOHandler(_HWHandler):
 
     def _command_update(self, info: SubscriptionInfo) -> None:
         flags, = self.command
-        info.send_async(io.CommandUpdate(self.port, flags, info.subscription))
+        if info.should_send(flags):
+            info.last_value = flags
+            info.send_async(io.CommandUpdate(self.port, flags, info.subscription))
 
 
 class _MotorHandler(_HWHandler):
