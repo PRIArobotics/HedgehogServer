@@ -34,6 +34,9 @@ def connectSimulatorReq(handlers: handlers.HandlerCallbackDict=None):
 
         yield socket
 
+        socket.close()
+    ctx.term()
+
 
 @contextmanager
 def connectSimulatorDealer(handlers: handlers.HandlerCallbackDict=None):
@@ -46,6 +49,9 @@ def connectSimulatorDealer(handlers: handlers.HandlerCallbackDict=None):
         socket.connect('inproc://controller')
 
         yield socket
+
+        socket.close()
+    ctx.term()
 
 
 class TestSimulator(unittest.TestCase):
