@@ -2,6 +2,7 @@ from typing import Callable, Dict, Type
 
 import logging
 import sys
+import traceback
 import zmq
 from hedgehog.utils.zmq import Active
 from hedgehog.utils.zmq.actor import Actor, CommandRegistry
@@ -73,6 +74,7 @@ class HedgehogServerActor(object):
                 except HedgehogCommandError:
                     raise
                 except Exception as err:
+                    traceback.print_exc()
                     raise FailedCommandError("uncaught exception: {}".format(repr(err))) from err
             except HedgehogCommandError as err:
                 result = err.to_message()
