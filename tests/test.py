@@ -345,7 +345,6 @@ def collect_outputs(proc):
         if msg != b'':
             output[fileno].append(msg)
         msg = proc.read()
-    proc.socket.close()
 
     return proc.returncode, b''.join(output[process.STDOUT]), b''.join(output[process.STDERR])
 
