@@ -1,4 +1,3 @@
-import serial
 import time
 from hedgehog.platform import Controller
 from hedgehog.protocol.errors import FailedCommandError
