@@ -168,24 +168,21 @@ class TestSimulator(unittest.TestCase):
             self.assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
 
             # check there is no further message
-            self.assertEqual(socket.poll(10), 0)
+            self.assertEqual(socket.poll(15), 0)
 
+            # send a first command to get an update
             self.assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
 
             # check immediate update
-            # TODO should be almost immediately, not after a 10ms timeout
-            self.assertEqual(socket.poll(10), zmq.POLLIN)
+            self.assertEqual(socket.poll(1), zmq.POLLIN)
             _, response = socket.recv_msg()
             self.assertEqual(response, io.CommandUpdate(0, io.INPUT_PULLDOWN, sub))
-
-            # sleep for 20ms, more than the timeout
-            time.sleep(0.02)
 
             # send another command that does not actually change the value
             self.assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
 
-            # check there is no further message
-            self.assertEqual(socket.poll(10), 0)
+            # check there is no update, even after a time
+            self.assertEqual(socket.poll(15), 0)
 
             # change command value
             self.assertReplyDealer(socket, io.Action(0, io.INPUT_PULLUP), ack.Acknowledgement())
@@ -193,6 +190,14 @@ class TestSimulator(unittest.TestCase):
             # check that the next update carries this value
             _, response = socket.recv_msg()
             self.assertEqual(response, io.CommandUpdate(0, io.INPUT_PULLUP, sub))
+
+            # change command value
+            self.assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
+
+            # check for update, but not immediately
+            self.assertEqual(socket.poll(1), 0)
+            _, response = socket.recv_msg()
+            self.assertEqual(response, io.CommandUpdate(0, io.INPUT_PULLDOWN, sub))
 
             sub = Subscription()
             sub.subscribe = False

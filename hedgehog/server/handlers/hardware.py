@@ -98,26 +98,45 @@ class _IOHandler(_HWHandler):
                 self.timer = None  # type: TimerDefinition
 
             def handle_subscribe(self) -> None:
-                if self.counter == 0:
-                    self.timer = self.server.timer.register(self.subscription.timeout / 1000, self.handle_update)
+                self.schedule_update()
 
                 super(Info, self).handle_subscribe()
 
             def handle_unsubscribe(self) -> None:
                 super(Info, self).handle_unsubscribe()
 
-                if self.counter == 0:
+                if self.counter == 0 and self.timer is not None:
                     self.server.timer.unregister(self.timer)
 
-            def handle_update(self) -> None:
+            def schedule_update(self) -> None:
                 try:
                     flags, = outer_self.command
                 except TypeError:
-                    pass
-                else:
-                    if self.should_send(flags):
-                        self.last_value = flags
-                        self.send_async(io.CommandUpdate(outer_self.port, flags, self.subscription))
+                    return
+
+                if self.last_value == flags and self.timer is not None:
+                    # there is a timer that should be cancelled, because the value is no longer different
+                    self.server.timer.unregister(self.timer)
+                    self.timer = None
+                elif self.last_value != flags and self.timer is None:
+                    # add a timer for the update, either immediately, or at the earliest possible time
+                    now = time.time()
+                    earliest = now if self.last_time is None else self.last_time + self.subscription.timeout/1000
+                    timeout = 0 if earliest <= now else earliest - now
+
+                    self.timer = self.server.timer.register(timeout, self.handle_update, repeat=False)
+
+            def handle_update(self) -> None:
+                self.timer = None
+
+                try:
+                    flags, = outer_self.command
+                except TypeError:
+                    return
+
+                if self.last_value != flags:
+                    self.last_value = flags
+                    self.send_async(io.CommandUpdate(outer_self.port, flags, self.subscription))
 
         return SubscriptionManager(Info)
 
@@ -160,6 +179,8 @@ class _IOHandler(_HWHandler):
     def action(self, flags: int) -> None:
         self.adapter.set_io_state(self.port, flags)
         self.command = flags,
+        for info in self.subscription_handlers[io.CommandSubscribe].subscriptions.values():
+            info.schedule_update()
 
     @property
     def analog_value(self) -> int:
