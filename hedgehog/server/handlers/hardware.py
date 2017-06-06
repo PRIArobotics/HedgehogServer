@@ -1,5 +1,6 @@
 from typing import Any, Callable, Dict, Tuple, Type
 
+import math
 import time
 from hedgehog.protocol import Header, Message
 from hedgehog.protocol.errors import UnsupportedCommandError, FailedCommandError
@@ -36,13 +37,6 @@ class SubscriptionInfo(object):
         if value is not None:
             self._last_time = time.time()
         self._last_value = value
-
-    def should_send(self, value: Any) -> bool:
-        if value == self.last_value:
-            return False
-        if self.subscription.timeout is not None and self.last_time is not None and time.time() < self.last_time + self.subscription.timeout / 1000:
-            return False
-        return True
 
     def send_async(self, *msgs: Message) -> None:
         self.server.send_async(self.ident, *msgs)
@@ -152,8 +146,11 @@ class _IOHandler(_HWHandler):
                 self.timer = None  # type: TimerDefinition
 
             def handle_subscribe(self) -> None:
+                self.last_value = None
                 if self.counter == 0:
-                    self.timer = self.server.timer.register(self.subscription.timeout / 1000, self.handle_update)
+                    # oversample 3 times, round delay up in milliseconds so we're not barely below the actual timeout
+                    timeout = math.ceil(self.subscription.timeout / 3)
+                    self.timer = self.server.timer.register(timeout / 1000, self.handle_update)
 
                 super(Info, self).handle_subscribe()
 
@@ -165,7 +162,11 @@ class _IOHandler(_HWHandler):
 
             def handle_update(self) -> None:
                 value = outer_self.analog_value
-                if self.should_send(value):
+
+                now = time.time()
+                earliest = now if self.last_time is None else self.last_time + self.subscription.timeout / 1000
+
+                if value != self.last_value and now >= earliest:
                     self.last_value = value
                     self.send_async(analog.Update(outer_self.port, value, self.subscription))
 

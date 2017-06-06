@@ -258,11 +258,15 @@ class TestSimulator(unittest.TestCase):
 
     def test_sensor_subscription(self):
         with connectSimulatorDealer() as socket:
-            # ### analog.Subscribe
-
             sub = Subscription()
             sub.subscribe = True
             sub.timeout = 10
+
+            unsub = Subscription()
+            unsub.subscribe = False
+            unsub.timeout = 10
+
+            # original subscription
             self.assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
 
             # check immediate update
@@ -270,16 +274,23 @@ class TestSimulator(unittest.TestCase):
             _, response = socket.recv_msg()
             self.assertEqual(response, analog.Update(0, 0, sub))
 
-            # sleep for 20ms, more than the timeout
-            time.sleep(0.02)
+            # check there is no update, even after a time
+            self.assertEqual(socket.poll(12), 0)
 
-            # check there is no further message
-            self.assertEqual(socket.poll(10), 0)
-
-            sub = Subscription()
-            sub.subscribe = False
-            sub.timeout = 10
+            # add extra subscription
             self.assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
+
+            # check immediate update
+            # TODO update is not quite immediately with current implementation
+            self.assertEqual(socket.poll(4), zmq.POLLIN)
+            _, response = socket.recv_msg()
+            self.assertEqual(response, analog.Update(0, 0, sub))
+
+            # cancel extra subscription
+            self.assertReplyDealer(socket, analog.Subscribe(0, unsub), ack.Acknowledgement())
+
+            # cancel original subscription
+            self.assertReplyDealer(socket, analog.Subscribe(0, unsub), ack.Acknowledgement())
 
     def test_digital(self):
         with connectSimulatorReq() as socket:
