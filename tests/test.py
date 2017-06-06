@@ -165,9 +165,15 @@ class TestSimulator(unittest.TestCase):
             sub = Subscription()
             sub.subscribe = True
             sub.timeout = 10
+
+            unsub = Subscription()
+            unsub.subscribe = False
+            unsub.timeout = 10
+
+            # original subscription
             self.assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
 
-            # check there is no further message
+            # check there is no update, even after a time
             self.assertEqual(socket.poll(15), 0)
 
             # send a first command to get an update
@@ -187,22 +193,40 @@ class TestSimulator(unittest.TestCase):
             # change command value
             self.assertReplyDealer(socket, io.Action(0, io.INPUT_PULLUP), ack.Acknowledgement())
 
-            # check that the next update carries this value
+            # check immediate update (as time has passed)
+            self.assertEqual(socket.poll(1), zmq.POLLIN)
             _, response = socket.recv_msg()
             self.assertEqual(response, io.CommandUpdate(0, io.INPUT_PULLUP, sub))
 
             # change command value
             self.assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
 
-            # check for update, but not immediately
+            # check update is not immediately
             self.assertEqual(socket.poll(1), 0)
             _, response = socket.recv_msg()
             self.assertEqual(response, io.CommandUpdate(0, io.INPUT_PULLDOWN, sub))
 
-            sub = Subscription()
-            sub.subscribe = False
-            sub.timeout = 10
+            # add extra subscription
             self.assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
+
+            # check update is not immediately
+            self.assertEqual(socket.poll(1), 0)
+            _, response = socket.recv_msg()
+            self.assertEqual(response, io.CommandUpdate(0, io.INPUT_PULLDOWN, sub))
+
+            # cancel extra subscription
+            self.assertReplyDealer(socket, io.CommandSubscribe(0, unsub), ack.Acknowledgement())
+
+            # change command value
+            self.assertReplyDealer(socket, io.Action(0, io.INPUT_PULLUP), ack.Acknowledgement())
+
+            # check update is not immediately
+            self.assertEqual(socket.poll(1), 0)
+            _, response = socket.recv_msg()
+            self.assertEqual(response, io.CommandUpdate(0, io.INPUT_PULLUP, sub))
+
+            # cancel original subscription
+            self.assertReplyDealer(socket, io.CommandSubscribe(0, unsub), ack.Acknowledgement())
 
     def test_analog(self):
         with connectSimulatorDealer() as socket:

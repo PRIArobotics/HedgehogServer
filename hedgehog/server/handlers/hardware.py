@@ -32,7 +32,9 @@ class SubscriptionInfo(object):
 
     @last_value.setter
     def last_value(self, value: Any) -> None:
-        self._last_time = time.time()
+        # setting the value to none is to force an update at the next possible point, not to delay it further
+        if value is not None:
+            self._last_time = time.time()
         self._last_value = value
 
     def should_send(self, value: Any) -> bool:
@@ -98,6 +100,7 @@ class _IOHandler(_HWHandler):
                 self.timer = None  # type: TimerDefinition
 
             def handle_subscribe(self) -> None:
+                self.last_value = None
                 self.schedule_update()
 
                 super(Info, self).handle_subscribe()
