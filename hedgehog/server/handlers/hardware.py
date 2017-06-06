@@ -1,9 +1,9 @@
-from typing import Any, Callable, Dict, Tuple, Type
+from typing import cast, Any, Dict, Tuple, Type
 
 import math
 import time
 from hedgehog.protocol import Header, Message
-from hedgehog.protocol.errors import UnsupportedCommandError, FailedCommandError
+from hedgehog.protocol.errors import FailedCommandError
 from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo
 from hedgehog.protocol.proto.subscription_pb2 import Subscription
 from hedgehog.utils.zmq.timer import TimerDefinition
@@ -217,7 +217,7 @@ class _IOHandler(_HWHandler):
         self.adapter.set_io_state(self.port, flags)
         self.command = flags,
         for info in self.subscription_handlers[io.CommandSubscribe].subscriptions.values():
-            info.schedule_update()
+            cast(CommandSubscriptionInfo, info).schedule_update()
 
     @property
     def analog_value(self) -> int:
