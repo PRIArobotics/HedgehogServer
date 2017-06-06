@@ -110,10 +110,14 @@ class _IOHandler(_HWHandler):
                 info.server.timer.unregister(info.extra.timer)
 
             def handle_update(self, info: SubscriptionInfo) -> None:
-                flags, = outer_self.command
-                if info.should_send(flags):
-                    info.last_value = flags
-                    info.send_async(io.CommandUpdate(outer_self.port, flags, info.subscription))
+                try:
+                    flags, = outer_self.command
+                except TypeError:
+                    pass
+                else:
+                    if info.should_send(flags):
+                        info.last_value = flags
+                        info.send_async(io.CommandUpdate(outer_self.port, flags, info.subscription))
 
         return Mgr()
 
