@@ -117,12 +117,38 @@ class _IOHandler(_HWHandler):
 
         return Mgr()
 
+    def __analog_subscription_manager(self) -> SubscriptionManager:
+        outer_self = self
+
+        class Extra(object):
+            timer = None  # type: TimerDefinition
+
+        class Mgr(SubscriptionManager):
+            def __init__(self) -> None:
+                super(Mgr, self).__init__()
+
+            def handle_subscribe(self, info: SubscriptionInfo) -> None:
+                info.extra = Extra()
+                info.extra.timer = info.server.timer.register(info.subscription.timeout / 1000, lambda: self.handle_update(info))
+
+            def handle_unsubscribe(self, info: SubscriptionInfo) -> None:
+                info.server.timer.unregister(info.extra.timer)
+
+            def handle_update(self, info: SubscriptionInfo) -> None:
+                value = outer_self.analog_value
+                if info.should_send(value):
+                    info.last_value = value
+                    info.send_async(analog.Update(outer_self.port, value, info.subscription))
+
+        return Mgr()
+
     def __init__(self, adapter: HardwareAdapter, port: int) -> None:
         super(_IOHandler, self).__init__(adapter)
         self.port = port
         self.command = None  # type: Tuple[int]
 
         self.subscription_handlers[io.CommandSubscribe] = self.__command_subscription_manager()
+        self.subscription_handlers[analog.Subscribe] = self.__analog_subscription_manager()
 
     def action(self, flags: int) -> None:
         self.adapter.set_io_state(self.port, flags)
@@ -203,6 +229,11 @@ class HardwareHandler(CommandHandler):
     def analog_request(self, server, ident, msg):
         value = self.ios[msg.port].analog_value
         return analog.Reply(msg.port, value)
+
+    @_command(analog.Subscribe)
+    def analog_command_subscribe(self, server, ident, msg):
+        self.ios[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
+        return ack.Acknowledgement()
 
     @_command(digital.Request)
     def digital_request(self, server, ident, msg):

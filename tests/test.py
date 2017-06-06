@@ -174,10 +174,34 @@ class TestSimulator(unittest.TestCase):
             self.assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
 
     def test_analog(self):
-        with connectSimulatorReq() as socket:
+        with connectSimulatorDealer() as socket:
             # ### analog.Request
 
-            self.assertReplyReq(socket, analog.Request(0), analog.Reply(0, 0))
+            self.assertReplyDealer(socket, analog.Request(0), analog.Reply(0, 0))
+
+            # ### analog.Subscribe
+
+            sub = Subscription()
+            sub.subscribe = False
+            sub.timeout = 10
+            self.assertReplyDealer(socket, analog.Subscribe(0, sub), ack.FAILED_COMMAND)
+
+            sub = Subscription()
+            sub.subscribe = True
+            sub.timeout = 10
+            self.assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
+
+            # check immediate update
+            _, response = socket.recv_msg()
+            self.assertEqual(response, analog.Update(0, 0, sub))
+
+            # sleep for 20ms, more than the timeout
+            time.sleep(0.02)
+
+            sub = Subscription()
+            sub.subscribe = False
+            sub.timeout = 10
+            self.assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
 
     def test_digital(self):
         with connectSimulatorReq() as socket:
