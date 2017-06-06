@@ -151,6 +151,30 @@ class TestSimulator(unittest.TestCase):
             self.assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
 
             # check immediate update
+            self.assertEqual(socket.poll(1), zmq.POLLIN)
+            _, response = socket.recv_msg()
+            self.assertEqual(response, io.CommandUpdate(0, io.INPUT_PULLDOWN, sub))
+
+            sub = Subscription()
+            sub.subscribe = False
+            sub.timeout = 10
+            self.assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
+
+    def test_command_subscription(self):
+        with connectSimulatorDealer() as socket:
+            sub = Subscription()
+            sub.subscribe = True
+            sub.timeout = 10
+            self.assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
+
+            # check there is no further message
+            self.assertEqual(socket.poll(10), 0)
+
+            self.assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
+
+            # check immediate update
+            # TODO should be almost immediately, not after a 10ms timeout
+            self.assertEqual(socket.poll(10), zmq.POLLIN)
             _, response = socket.recv_msg()
             self.assertEqual(response, io.CommandUpdate(0, io.INPUT_PULLDOWN, sub))
 
@@ -160,11 +184,13 @@ class TestSimulator(unittest.TestCase):
             # send another command that does not actually change the value
             self.assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
 
+            # check there is no further message
+            self.assertEqual(socket.poll(10), 0)
+
             # change command value
             self.assertReplyDealer(socket, io.Action(0, io.INPUT_PULLUP), ack.Acknowledgement())
 
-            # check that the next update carries this value, i.e. waiting and not-changing the command did not trigger
-            # an update repeating the old value
+            # check that the next update carries this value
             _, response = socket.recv_msg()
             self.assertEqual(response, io.CommandUpdate(0, io.INPUT_PULLUP, sub))
 
@@ -192,11 +218,34 @@ class TestSimulator(unittest.TestCase):
             self.assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
 
             # check immediate update
+            self.assertEqual(socket.poll(1), zmq.POLLIN)
+            _, response = socket.recv_msg()
+            self.assertEqual(response, analog.Update(0, 0, sub))
+
+            sub = Subscription()
+            sub.subscribe = False
+            sub.timeout = 10
+            self.assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
+
+    def test_sensor_subscription(self):
+        with connectSimulatorDealer() as socket:
+            # ### analog.Subscribe
+
+            sub = Subscription()
+            sub.subscribe = True
+            sub.timeout = 10
+            self.assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
+
+            # check immediate update
+            self.assertEqual(socket.poll(1), zmq.POLLIN)
             _, response = socket.recv_msg()
             self.assertEqual(response, analog.Update(0, 0, sub))
 
             # sleep for 20ms, more than the timeout
             time.sleep(0.02)
+
+            # check there is no further message
+            self.assertEqual(socket.poll(10), 0)
 
             sub = Subscription()
             sub.subscribe = False
