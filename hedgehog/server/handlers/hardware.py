@@ -48,6 +48,99 @@ class SubscriptionInfo(object):
         self.counter -= 1
 
 
+class CommandSubscriptionInfo(SubscriptionInfo):
+    def __init__(self, *args, **kwargs) -> None:
+        super(CommandSubscriptionInfo, self).__init__(*args, **kwargs)
+        self.timer = None  # type: TimerDefinition
+
+    def handle_subscribe(self) -> None:
+        self.last_value = None
+        self.schedule_update()
+
+        super(CommandSubscriptionInfo, self).handle_subscribe()
+
+    def handle_unsubscribe(self) -> None:
+        super(CommandSubscriptionInfo, self).handle_unsubscribe()
+
+        if self.counter == 0 and self.timer is not None:
+            self.server.timer.unregister(self.timer)
+
+    def schedule_update(self) -> None:
+        command = self.command
+        if command is None:
+            return
+
+        if self.last_value == command and self.timer is not None:
+            # there is a timer that should be cancelled, because the value is no longer different
+            self.server.timer.unregister(self.timer)
+            self.timer = None
+        elif self.last_value != command and self.timer is None:
+            # add a timer for the update, either immediately, or at the earliest possible time
+            now = time.time()
+            earliest = now if self.last_time is None else self.last_time + self.subscription.timeout / 1000
+            timeout = 0 if earliest <= now else earliest - now
+
+            self.timer = self.server.timer.register(timeout, self.handle_update, repeat=False)
+
+    def handle_update(self) -> None:
+        self.timer = None
+
+        command = self.command
+        if command is None:
+            return
+
+        if self.last_value != command:
+            self.last_value = command
+            self.send_update(command)
+
+    @property
+    def command(self):
+        raise NotImplementedError()
+
+    def send_update(self, command):
+        raise NotImplementedError()
+
+
+class SensorSubscriptionInfo(SubscriptionInfo):
+    def __init__(self, *args, **kwargs) -> None:
+        super(SensorSubscriptionInfo, self).__init__(*args, **kwargs)
+        self.timer = None  # type: TimerDefinition
+
+    def handle_subscribe(self) -> None:
+        self.last_value = None
+        if self.counter == 0:
+            # oversample 3 times, round delay up in milliseconds so we're not barely below the actual timeout
+            timeout = math.ceil(self.subscription.timeout / 3)
+            self.timer = self.server.timer.register(timeout / 1000, self.handle_update)
+
+        super(SensorSubscriptionInfo, self).handle_subscribe()
+
+    def handle_unsubscribe(self) -> None:
+        super(SensorSubscriptionInfo, self).handle_unsubscribe()
+
+        if self.counter == 0:
+            self.server.timer.unregister(self.timer)
+
+    def handle_update(self) -> None:
+        value = self.value
+        if value is None:
+            return
+
+        now = time.time()
+        earliest = now if self.last_time is None else self.last_time + self.subscription.timeout / 1000
+
+        if value != self.last_value and now >= earliest:
+            self.last_value = value
+            self.send_update(value)
+
+    @property
+    def value(self):
+        raise NotImplementedError()
+
+    def send_update(self, value):
+        raise NotImplementedError()
+
+
 class SubscriptionManager(object):
     def __init__(self, SubscriptionType: Type[SubscriptionInfo]) -> None:
         self.SubscriptionType = SubscriptionType
@@ -88,87 +181,27 @@ class _IOHandler(_HWHandler):
     def __command_subscription_manager(self) -> SubscriptionManager:
         outer_self = self
 
-        class Info(SubscriptionInfo):
-            def __init__(self, *args, **kwargs) -> None:
-                super(Info, self).__init__(*args, **kwargs)
-                self.timer = None  # type: TimerDefinition
+        class Info(CommandSubscriptionInfo):
+            @property
+            def command(self):
+                return outer_self.command
 
-            def handle_subscribe(self) -> None:
-                self.last_value = None
-                self.schedule_update()
-
-                super(Info, self).handle_subscribe()
-
-            def handle_unsubscribe(self) -> None:
-                super(Info, self).handle_unsubscribe()
-
-                if self.counter == 0 and self.timer is not None:
-                    self.server.timer.unregister(self.timer)
-
-            def schedule_update(self) -> None:
-                try:
-                    flags, = outer_self.command
-                except TypeError:
-                    return
-
-                if self.last_value == flags and self.timer is not None:
-                    # there is a timer that should be cancelled, because the value is no longer different
-                    self.server.timer.unregister(self.timer)
-                    self.timer = None
-                elif self.last_value != flags and self.timer is None:
-                    # add a timer for the update, either immediately, or at the earliest possible time
-                    now = time.time()
-                    earliest = now if self.last_time is None else self.last_time + self.subscription.timeout/1000
-                    timeout = 0 if earliest <= now else earliest - now
-
-                    self.timer = self.server.timer.register(timeout, self.handle_update, repeat=False)
-
-            def handle_update(self) -> None:
-                self.timer = None
-
-                try:
-                    flags, = outer_self.command
-                except TypeError:
-                    return
-
-                if self.last_value != flags:
-                    self.last_value = flags
-                    self.send_async(io.CommandUpdate(outer_self.port, flags, self.subscription))
+            def send_update(self, command):
+                flags, = command
+                self.send_async(io.CommandUpdate(outer_self.port, flags, self.subscription))
 
         return SubscriptionManager(Info)
 
     def __analog_subscription_manager(self) -> SubscriptionManager:
         outer_self = self
 
-        class Info(SubscriptionInfo):
-            def __init__(self, *args, **kwargs) -> None:
-                super(Info, self).__init__(*args, **kwargs)
-                self.timer = None  # type: TimerDefinition
+        class Info(SensorSubscriptionInfo):
+            @property
+            def value(self):
+                return outer_self.analog_value
 
-            def handle_subscribe(self) -> None:
-                self.last_value = None
-                if self.counter == 0:
-                    # oversample 3 times, round delay up in milliseconds so we're not barely below the actual timeout
-                    timeout = math.ceil(self.subscription.timeout / 3)
-                    self.timer = self.server.timer.register(timeout / 1000, self.handle_update)
-
-                super(Info, self).handle_subscribe()
-
-            def handle_unsubscribe(self) -> None:
-                super(Info, self).handle_unsubscribe()
-
-                if self.counter == 0:
-                    self.server.timer.unregister(self.timer)
-
-            def handle_update(self) -> None:
-                value = outer_self.analog_value
-
-                now = time.time()
-                earliest = now if self.last_time is None else self.last_time + self.subscription.timeout / 1000
-
-                if value != self.last_value and now >= earliest:
-                    self.last_value = value
-                    self.send_async(analog.Update(outer_self.port, value, self.subscription))
+            def send_update(self, value):
+                self.send_async(analog.Update(outer_self.port, value, self.subscription))
 
         return SubscriptionManager(Info)
 
