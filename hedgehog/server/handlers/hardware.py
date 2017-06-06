@@ -22,8 +22,6 @@ class SubscriptionInfo(object):
         self._last_time = None  # type: float
         self._last_value = None  # type: Any
 
-        self.extra = None  # type: Any
-
     @property
     def last_time(self) -> float:
         return self._last_time
@@ -47,9 +45,16 @@ class SubscriptionInfo(object):
     def send_async(self, *msgs: Message) -> None:
         self.server.send_async(self.ident, *msgs)
 
+    def handle_subscribe(self):
+        self.counter += 1
+
+    def handle_unsubscribe(self):
+        self.counter -= 1
+
 
 class SubscriptionManager(object):
-    def __init__(self) -> None:
+    def __init__(self, SubscriptionType: Type[SubscriptionInfo]) -> None:
+        self.SubscriptionType = SubscriptionType
         self.subscriptions = {}  # type: Dict[Tuple[Header, int], SubscriptionInfo]
 
     def subscribe(self, server: HedgehogServerActor, ident: Header, subscription: Subscription) -> None:
@@ -58,28 +63,20 @@ class SubscriptionManager(object):
 
         if subscription.subscribe:
             if key not in self.subscriptions:
-                info = SubscriptionInfo(server, ident, subscription)
+                info = self.SubscriptionType(server, ident, subscription)
                 self.subscriptions[key] = info
-                self.handle_subscribe(info)
             else:
                 info = self.subscriptions[key]
-            info.counter += 1
+            info.handle_subscribe()
         else:
             try:
                 info = self.subscriptions[key]
             except KeyError:
                 raise FailedCommandError("can't cancel nonexistent subscription")
             else:
-                info.counter -= 1
+                info.handle_unsubscribe()
                 if info.counter == 0:
-                    self.handle_unsubscribe(info)
                     del self.subscriptions[key]
-
-    def handle_subscribe(self, info: SubscriptionInfo) -> None:
-        pass
-
-    def handle_unsubscribe(self, info: SubscriptionInfo) -> None:
-        pass
 
 
 class _HWHandler(object):
@@ -95,56 +92,62 @@ class _IOHandler(_HWHandler):
     def __command_subscription_manager(self) -> SubscriptionManager:
         outer_self = self
 
-        class Extra(object):
-            timer = None  # type: TimerDefinition
+        class Info(SubscriptionInfo):
+            def __init__(self, *args, **kwargs) -> None:
+                super(Info, self).__init__(*args, **kwargs)
+                self.timer = None  # type: TimerDefinition
 
-        class Mgr(SubscriptionManager):
-            def __init__(self) -> None:
-                super(Mgr, self).__init__()
+            def handle_subscribe(self) -> None:
+                if self.counter == 0:
+                    self.timer = self.server.timer.register(self.subscription.timeout / 1000, self.handle_update)
 
-            def handle_subscribe(self, info: SubscriptionInfo) -> None:
-                info.extra = Extra()
-                info.extra.timer = info.server.timer.register(info.subscription.timeout / 1000, lambda: self.handle_update(info))
+                super(Info, self).handle_subscribe()
 
-            def handle_unsubscribe(self, info: SubscriptionInfo) -> None:
-                info.server.timer.unregister(info.extra.timer)
+            def handle_unsubscribe(self) -> None:
+                super(Info, self).handle_unsubscribe()
 
-            def handle_update(self, info: SubscriptionInfo) -> None:
+                if self.counter == 0:
+                    self.server.timer.unregister(self.timer)
+
+            def handle_update(self) -> None:
                 try:
                     flags, = outer_self.command
                 except TypeError:
                     pass
                 else:
-                    if info.should_send(flags):
-                        info.last_value = flags
-                        info.send_async(io.CommandUpdate(outer_self.port, flags, info.subscription))
+                    if self.should_send(flags):
+                        self.last_value = flags
+                        self.send_async(io.CommandUpdate(outer_self.port, flags, self.subscription))
 
-        return Mgr()
+        return SubscriptionManager(Info)
 
     def __analog_subscription_manager(self) -> SubscriptionManager:
         outer_self = self
 
-        class Extra(object):
-            timer = None  # type: TimerDefinition
+        class Info(SubscriptionInfo):
+            def __init__(self, *args, **kwargs) -> None:
+                super(Info, self).__init__(*args, **kwargs)
+                self.timer = None  # type: TimerDefinition
 
-        class Mgr(SubscriptionManager):
-            def __init__(self) -> None:
-                super(Mgr, self).__init__()
+            def handle_subscribe(self) -> None:
+                if self.counter == 0:
+                    self.timer = self.server.timer.register(self.subscription.timeout / 1000, self.handle_update)
 
-            def handle_subscribe(self, info: SubscriptionInfo) -> None:
-                info.extra = Extra()
-                info.extra.timer = info.server.timer.register(info.subscription.timeout / 1000, lambda: self.handle_update(info))
+                super(Info, self).handle_subscribe()
 
-            def handle_unsubscribe(self, info: SubscriptionInfo) -> None:
-                info.server.timer.unregister(info.extra.timer)
+            def handle_unsubscribe(self) -> None:
+                super(Info, self).handle_unsubscribe()
 
-            def handle_update(self, info: SubscriptionInfo) -> None:
+                if self.counter == 0:
+                    self.server.timer.unregister(self.timer)
+
+            def handle_update(self) -> None:
                 value = outer_self.analog_value
-                if info.should_send(value):
-                    info.last_value = value
-                    info.send_async(analog.Update(outer_self.port, value, info.subscription))
+                if self.should_send(value):
+                    self.last_value = value
+                    self.send_async(analog.Update(outer_self.port, value, self.subscription))
 
-        return Mgr()
+        return SubscriptionManager(Info)
 
     def __init__(self, adapter: HardwareAdapter, port: int) -> None:
         super(_IOHandler, self).__init__(adapter)
