@@ -120,10 +120,6 @@ class TestSimulator(unittest.TestCase):
             self.assertReplyReq(socket, servo.Action(0, True, 0), ack.UNSUPPORTED_COMMAND)
 
     def test_io(self):
-        # TODO I have no idea why, but this is necessary for the tests to run through
-        with connectSimulatorReq():
-            pass
-
         with connectSimulatorDealer() as socket:
             # ### io.CommandRequest
 
