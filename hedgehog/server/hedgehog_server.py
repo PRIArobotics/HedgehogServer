@@ -92,7 +92,8 @@ class HedgehogServerActor(object):
 
     def terminate(self) -> None:
         for socket in list(self.poller.sockets):
-            self.poller.unregister(socket)
+            self.unregister(socket)
+        self.socket.close()
 
     def register(self, socket: SocketLike, cb: Callable[[], None]) -> None:
         self.poller.register(socket, zmq.POLLIN, cb)
