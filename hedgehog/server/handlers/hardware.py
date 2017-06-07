@@ -210,6 +210,19 @@ class _IOHandler(_HWHandler):
 
         return SubscriptionManager(Info)
 
+    def __digital_subscription_manager(self) -> SubscriptionManager:
+        outer_self = self
+
+        class Info(SensorSubscriptionInfo):
+            @property
+            def value(self):
+                return outer_self.digital_value
+
+            def send_update(self, value):
+                self.send_async(digital.Update(outer_self.port, value, self.subscription))
+
+        return SubscriptionManager(Info)
+
     def __init__(self, adapter: HardwareAdapter, port: int) -> None:
         super(_IOHandler, self).__init__(adapter)
         self.port = port
@@ -217,6 +230,7 @@ class _IOHandler(_HWHandler):
 
         self.subscription_managers[io.CommandSubscribe] = self.__command_subscription_manager()
         self.subscription_managers[analog.Subscribe] = self.__analog_subscription_manager()
+        self.subscription_managers[digital.Subscribe] = self.__digital_subscription_manager()
 
     def action(self, flags: int) -> None:
         self.adapter.set_io_state(self.port, flags)
@@ -234,10 +248,46 @@ class _IOHandler(_HWHandler):
 
 
 class _MotorHandler(_HWHandler):
+    def __command_subscription_manager(self) -> SubscriptionManager:
+        outer_self = self
+
+        class Info(CommandSubscriptionInfo):
+            @property
+            def command(self):
+                return outer_self.command
+
+            def send_update(self, command):
+                state, amount = command
+                self.send_async(motor.CommandUpdate(outer_self.port, state, amount, self.subscription))
+
+        return SubscriptionManager(Info)
+
+    def __state_subscription_manager(self) -> SubscriptionManager:
+        outer_self = self
+
+        class Info(SensorSubscriptionInfo):
+            @property
+            def value(self):
+                return outer_self.state
+
+            def send_update(self, value):
+                velocity, position = value
+                self.send_async(motor.StateUpdate(outer_self.port, velocity, position, self.subscription))
+
+        return SubscriptionManager(Info)
+
     def __init__(self, adapter: HardwareAdapter, port: int) -> None:
         super(_MotorHandler, self).__init__(adapter)
         self.port = port
         self.command = None  # type: Tuple[int, int]
+
+        self.subscription_managers[motor.CommandSubscribe] = self.__command_subscription_manager()
+        try:
+            self.state
+        except UnsupportedCommandError:
+            pass
+        else:
+            self.subscription_managers[motor.StateSubscribe] = self.__state_subscription_manager()
 
     def action(self, state: int, amount: int, reached_state: int, relative: int, absolute: int) -> None:
         self.adapter.set_motor(self.port, state, amount, reached_state, relative, absolute)
@@ -252,10 +302,26 @@ class _MotorHandler(_HWHandler):
 
 
 class _ServoHandler(_HWHandler):
+    def __command_subscription_manager(self) -> SubscriptionManager:
+        outer_self = self
+
+        class Info(CommandSubscriptionInfo):
+            @property
+            def command(self):
+                return outer_self.command
+
+            def send_update(self, command):
+                active, position = command
+                self.send_async(servo.CommandUpdate(outer_self.port, active, position, self.subscription))
+
+        return SubscriptionManager(Info)
+
     def __init__(self, adapter: HardwareAdapter, port: int) -> None:
         super(_ServoHandler, self).__init__(adapter)
         self.port = port
         self.command = None  # type: Tuple[bool, int]
+
+        self.subscription_managers[servo.CommandSubscribe] = self.__command_subscription_manager()
 
     def action(self, active: bool, position: int) -> None:
         self.adapter.set_servo(self.port, active, position)
@@ -310,6 +376,11 @@ class HardwareHandler(CommandHandler):
         value = self.ios[msg.port].digital_value
         return digital.Reply(msg.port, value)
 
+    @_command(digital.Subscribe)
+    def digital_command_subscribe(self, server, ident, msg):
+        self.ios[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
+        return ack.Acknowledgement()
+
     @_command(motor.Action)
     def motor_action(self, server, ident, msg):
         # if msg.relative is not None or msg.absolute is not None:
@@ -330,10 +401,20 @@ class HardwareHandler(CommandHandler):
         else:
             return motor.CommandReply(msg.port, state, amount)
 
+    @_command(motor.CommandSubscribe)
+    def motor_command_subscribe(self, server, ident, msg):
+        self.motors[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
+        return ack.Acknowledgement()
+
     @_command(motor.StateRequest)
     def motor_state_request(self, server, ident, msg):
         velocity, position = self.motors[msg.port].state
         return motor.StateReply(msg.port, velocity, position)
+
+    @_command(motor.StateSubscribe)
+    def motor_state_subscribe(self, server, ident, msg):
+        self.motors[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
+        return ack.Acknowledgement()
 
     # def motor_state_update(self, port, state):
     #     if port in self.motor_cb:
@@ -359,3 +440,8 @@ class HardwareHandler(CommandHandler):
             raise FailedCommandError("no command executed yet")
         else:
             return servo.CommandReply(msg.port, active, position)
+
+    @_command(servo.CommandSubscribe)
+    def servo_command_subscribe(self, server, ident, msg):
+        self.servos[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
+        return ack.Acknowledgement()

@@ -293,51 +293,139 @@ class TestSimulator(unittest.TestCase):
             self.assertReplyDealer(socket, analog.Subscribe(0, unsub), ack.Acknowledgement())
 
     def test_digital(self):
-        with connectSimulatorReq() as socket:
+        with connectSimulatorDealer() as socket:
             # ### digital.Request
 
-            self.assertReplyReq(socket, digital.Request(0), digital.Reply(0, False))
+            self.assertReplyDealer(socket, digital.Request(0), digital.Reply(0, False))
+
+            # ### digital.Subscribe
+
+            sub = Subscription()
+            sub.subscribe = False
+            sub.timeout = 10
+            self.assertReplyDealer(socket, digital.Subscribe(0, sub), ack.FAILED_COMMAND)
+
+            sub = Subscription()
+            sub.subscribe = True
+            sub.timeout = 10
+            self.assertReplyDealer(socket, digital.Subscribe(0, sub), ack.Acknowledgement())
+
+            # check immediate update
+            self.assertEqual(socket.poll(1), zmq.POLLIN)
+            _, response = socket.recv_msg()
+            self.assertEqual(response, digital.Update(0, False, sub))
+
+            sub = Subscription()
+            sub.subscribe = False
+            sub.timeout = 10
+            self.assertReplyDealer(socket, digital.Subscribe(0, sub), ack.Acknowledgement())
 
     def test_motor(self):
-        with connectSimulatorReq() as socket:
+        with connectSimulatorDealer() as socket:
             # ### motor.CommandRequest
 
-            self.assertReplyReq(socket, motor.CommandRequest(0), ack.FAILED_COMMAND)
+            self.assertReplyDealer(socket, motor.CommandRequest(0), ack.FAILED_COMMAND)
 
             # ### motor.Action
 
-            self.assertReplyReq(socket, motor.Action(0, motor.POWER), ack.Acknowledgement())
+            self.assertReplyDealer(socket, motor.Action(0, motor.POWER), ack.Acknowledgement())
 
             # send an invalid command
             action = motor.Action(0, motor.BRAKE)
             action.relative = 100
-            self.assertReplyReq(socket, action, ack.INVALID_COMMAND)
+            self.assertReplyDealer(socket, action, ack.INVALID_COMMAND)
 
             # ### motor.CommandRequest
 
-            self.assertReplyReq(socket, motor.CommandRequest(0), motor.CommandReply(0, motor.POWER, 0))
+            self.assertReplyDealer(socket, motor.CommandRequest(0), motor.CommandReply(0, motor.POWER, 0))
 
             # ### motor.StateRequest
 
-            self.assertReplyReq(socket, motor.StateRequest(0), motor.StateReply(0, 0, 0))
+            self.assertReplyDealer(socket, motor.StateRequest(0), motor.StateReply(0, 0, 0))
 
             # ### motor.SetPositionAction
 
-            self.assertReplyReq(socket, motor.SetPositionAction(0, 0), ack.Acknowledgement())
+            self.assertReplyDealer(socket, motor.SetPositionAction(0, 0), ack.Acknowledgement())
+
+            # ### motor.CommandSubscribe
+
+            sub = Subscription()
+            sub.subscribe = False
+            sub.timeout = 10
+            self.assertReplyDealer(socket, motor.CommandSubscribe(0, sub), ack.FAILED_COMMAND)
+
+            sub = Subscription()
+            sub.subscribe = True
+            sub.timeout = 10
+            self.assertReplyDealer(socket, motor.CommandSubscribe(0, sub), ack.Acknowledgement())
+
+            # check immediate update
+            self.assertEqual(socket.poll(1), zmq.POLLIN)
+            _, response = socket.recv_msg()
+            self.assertEqual(response, motor.CommandUpdate(0, motor.POWER, 0, sub))
+
+            sub = Subscription()
+            sub.subscribe = False
+            sub.timeout = 10
+            self.assertReplyDealer(socket, motor.CommandSubscribe(0, sub), ack.Acknowledgement())
+
+            # ### motor.StateSubscribe
+
+            sub = Subscription()
+            sub.subscribe = False
+            sub.timeout = 10
+            self.assertReplyDealer(socket, motor.StateSubscribe(0, sub), ack.FAILED_COMMAND)
+
+            sub = Subscription()
+            sub.subscribe = True
+            sub.timeout = 10
+            self.assertReplyDealer(socket, motor.StateSubscribe(0, sub), ack.Acknowledgement())
+
+            # check immediate update
+            self.assertEqual(socket.poll(1), zmq.POLLIN)
+            _, response = socket.recv_msg()
+            self.assertEqual(response, motor.StateUpdate(0, 0, 0, sub))
+
+            sub = Subscription()
+            sub.subscribe = False
+            sub.timeout = 10
+            self.assertReplyDealer(socket, motor.StateSubscribe(0, sub), ack.Acknowledgement())
 
     def test_servo(self):
-        with connectSimulatorReq() as socket:
+        with connectSimulatorDealer() as socket:
             # ### servo.CommandRequest
 
-            self.assertReplyReq(socket, servo.CommandRequest(0), ack.FAILED_COMMAND)
+            self.assertReplyDealer(socket, servo.CommandRequest(0), ack.FAILED_COMMAND)
 
             # ### servo.Action
 
-            self.assertReplyReq(socket, servo.Action(0, True, 0), ack.Acknowledgement())
+            self.assertReplyDealer(socket, servo.Action(0, True, 0), ack.Acknowledgement())
 
             # ### servo.CommandRequest
 
-            self.assertReplyReq(socket, servo.CommandRequest(0), servo.CommandReply(0, True, 0))
+            self.assertReplyDealer(socket, servo.CommandRequest(0), servo.CommandReply(0, True, 0))
+
+            # ### servo.CommandSubscribe
+
+            sub = Subscription()
+            sub.subscribe = False
+            sub.timeout = 10
+            self.assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.FAILED_COMMAND)
+
+            sub = Subscription()
+            sub.subscribe = True
+            sub.timeout = 10
+            self.assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.Acknowledgement())
+
+            # check immediate update
+            self.assertEqual(socket.poll(1), zmq.POLLIN)
+            _, response = socket.recv_msg()
+            self.assertEqual(response, servo.CommandUpdate(0, True, 0, sub))
+
+            sub = Subscription()
+            sub.subscribe = False
+            sub.timeout = 10
+            self.assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.Acknowledgement())
 
     def handle_streams(self) -> Callable[[process.StreamUpdate], Dict[int, bytes]]:
         def handler():
