@@ -3,7 +3,7 @@ from typing import cast, Any, Dict, Tuple, Type
 import math
 import time
 from hedgehog.protocol import Header, Message
-from hedgehog.protocol.errors import FailedCommandError
+from hedgehog.protocol.errors import FailedCommandError, UnsupportedCommandError
 from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo
 from hedgehog.protocol.proto.subscription_pb2 import Subscription
 from hedgehog.utils.zmq.timer import TimerDefinition
@@ -174,7 +174,12 @@ class _HWHandler(object):
         self.subscription_managers = {}  # type: Dict[Type[Message], SubscriptionManager]
 
     def subscribe(self, server: HedgehogServerActor, ident: Header, msg: Type[Message], subscription: Subscription) -> None:
-        self.subscription_managers[msg].subscribe(server, ident, subscription)
+        try:
+            mgr = self.subscription_managers[msg]
+        except KeyError as err:
+            raise UnsupportedCommandError(msg.msg_name()) from err
+        else:
+            mgr.subscribe(server, ident, subscription)
 
 
 class _IOHandler(_HWHandler):
