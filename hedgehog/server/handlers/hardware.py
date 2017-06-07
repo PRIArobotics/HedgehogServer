@@ -171,10 +171,10 @@ class SubscriptionManager(object):
 class _HWHandler(object):
     def __init__(self, adapter: HardwareAdapter) -> None:
         self.adapter = adapter
-        self.subscription_handlers = {}  # type: Dict[Type[Message], SubscriptionManager]
+        self.subscription_managers = {}  # type: Dict[Type[Message], SubscriptionManager]
 
     def subscribe(self, server: HedgehogServerActor, ident: Header, msg: Type[Message], subscription: Subscription) -> None:
-        self.subscription_handlers[msg].subscribe(server, ident, subscription)
+        self.subscription_managers[msg].subscribe(server, ident, subscription)
 
 
 class _IOHandler(_HWHandler):
@@ -210,13 +210,13 @@ class _IOHandler(_HWHandler):
         self.port = port
         self.command = None  # type: Tuple[int]
 
-        self.subscription_handlers[io.CommandSubscribe] = self.__command_subscription_manager()
-        self.subscription_handlers[analog.Subscribe] = self.__analog_subscription_manager()
+        self.subscription_managers[io.CommandSubscribe] = self.__command_subscription_manager()
+        self.subscription_managers[analog.Subscribe] = self.__analog_subscription_manager()
 
     def action(self, flags: int) -> None:
         self.adapter.set_io_state(self.port, flags)
         self.command = flags,
-        for info in self.subscription_handlers[io.CommandSubscribe].subscriptions.values():
+        for info in self.subscription_managers[io.CommandSubscribe].subscriptions.values():
             cast(CommandSubscriptionInfo, info).schedule_update()
 
     @property
