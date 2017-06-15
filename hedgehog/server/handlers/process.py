@@ -21,10 +21,9 @@ class ProcessHandler(CommandHandler):
         self._processes[pid] = proc
 
         def cb():
-            msg = proc.read()
-            if msg is None:
-                msg = process.ExitUpdate(pid, proc.returncode)
-                server.send_async(ident, msg)
+            _msg = proc.read()
+            if _msg is None:
+                server.send_async(ident, process.ExitUpdate(pid, proc.returncode))
 
                 # turn off all actuators
                 for port in range(4):
@@ -33,12 +32,10 @@ class ProcessHandler(CommandHandler):
                     self.adapter.set_servo(port, False, 0)
 
                 server.unregister(proc.socket)
-                proc.socket.close()
                 del self._processes[pid]
             else:
-                fileno, msg = msg
-                msg = process.StreamUpdate(pid, fileno, msg)
-                server.send_async(ident, msg)
+                fileno, msg = _msg
+                server.send_async(ident, process.StreamUpdate(pid, fileno, msg))
 
         server.register(proc.socket, cb)
         return process.ExecuteReply(pid)

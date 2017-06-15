@@ -1,3 +1,5 @@
+from typing import Optional, Tuple
+
 import zmq
 import fcntl
 import os
@@ -9,7 +11,7 @@ from hedgehog.utils.zmq.pipe import pipe
 from hedgehog.utils.zmq.poller import Poller
 
 
-class Process:
+class Process(object):
     """
     `Process` provides a ZMQ-based abstraction around a `Popen` object.
 
@@ -27,7 +29,7 @@ class Process:
     have reached EOF and the process will have finished with the indicated `status`.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         """
         Runs a process defined by `args`.
 
@@ -36,11 +38,11 @@ class Process:
 
         :param args: The command line arguments
         """
-        ctx = zmq.Context()
+        self.ctx = zmq.Context()
 
-        self.socket, socket = pipe(ctx)
+        self.socket, socket = pipe(self.ctx)
 
-        self.returncode = None
+        self.returncode = None  # type: int
         self.proc = subprocess.Popen(
             args,
             stdout=subprocess.PIPE,
@@ -100,7 +102,7 @@ class Process:
 
         threading.Thread(target=poll).start()
 
-    def send_signal(self, signal):
+    def send_signal(self, signal: int) -> None:
         """
         Sends `signal` to the child process.
 
@@ -108,7 +110,7 @@ class Process:
         """
         self.proc.send_signal(signal)
 
-    def write(self, fileno, chunk=b''):
+    def write(self, fileno: int, chunk=b'') -> None:
         """
         Writes `chunk` to the child process' file `fileno`.
 
@@ -119,15 +121,15 @@ class Process:
         """
         self.socket.send_multipart([b'WRITE', bytes([fileno]), chunk])
 
-    def read(self):
+    def read(self) -> Optional[Tuple[int, bytes]]:
         """
         Reads from the child process' streams.
 
         If the message received from the socket is `b'EXIT'`, `None` is returned;
         otherwise, the return value is a tuple `(fileno, chunk)`, where `fileno` is either `STDOUT` or `STDERR`.
 
-        Note that calling `read` after `b'EXIT'` was received will block indefinitely,
-        and that this method will not close the underlying socket on `b'EXIT'`.
+        Note that reading `b'EXIT'` will close the underlying socket connecting to the process, and subsequent calls to
+        `read` will therefore raise an error.
 
         :return: `None`, or `(fileno, chunk)`
         """
@@ -136,6 +138,8 @@ class Process:
             [fileno], chunk = msg
             return fileno, chunk
         elif cmd == b'EXIT':
+            self.socket.close()
+            self.ctx.term()
             return None
         else:
             assert False

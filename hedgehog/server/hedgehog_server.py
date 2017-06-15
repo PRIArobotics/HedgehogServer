@@ -1,12 +1,14 @@
-from typing import Callable, Dict
+from typing import Callable, Dict, Type
 
 import logging
 import sys
+import traceback
 import zmq
 from hedgehog.utils.zmq import Active
 from hedgehog.utils.zmq.actor import Actor, CommandRegistry
 from hedgehog.utils.zmq.poller import Poller
 from hedgehog.utils.zmq.socket import SocketLike
+from hedgehog.utils.zmq.timer import Timer
 from hedgehog.protocol import ServerSide, Header, RawMessage, Message
 from hedgehog.protocol.sockets import DealerRouterSocket
 from hedgehog.protocol.errors import HedgehogCommandError, UnsupportedCommandError, FailedCommandError
@@ -19,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 class HedgehogServerActor(object):
-    def __init__(self, ctx: zmq.Context, cmd_pipe, evt_pipe, endpoint: str, handlers: Dict[str, HandlerCallback]) -> None:
+    def __init__(self, ctx: zmq.Context, cmd_pipe, evt_pipe, endpoint: str, handlers: Dict[Type[Message], HandlerCallback]) -> None:
         self.ctx = ctx
         self.cmd_pipe = cmd_pipe
         self.evt_pipe = evt_pipe
@@ -27,6 +29,7 @@ class HedgehogServerActor(object):
         self.socket = DealerRouterSocket(ctx, zmq.ROUTER, side=ServerSide)
         self.socket.bind(endpoint)
         self.handlers = handlers
+        self.timer = Timer(ctx)
 
         self.poller = Poller()
         self.register_cmd_pipe()
@@ -63,7 +66,7 @@ class HedgehogServerActor(object):
                 msg = ServerSide.parse(msg_raw)
                 logger.debug("Receive command: %s", msg)
                 try:
-                    handler = self.handlers[msg.meta.discriminator]
+                    handler = self.handlers[msg.__class__]
                 except KeyError:
                     raise UnsupportedCommandError(msg.__class__.msg_name())
                 try:
@@ -71,6 +74,7 @@ class HedgehogServerActor(object):
                 except HedgehogCommandError:
                     raise
                 except Exception as err:
+                    traceback.print_exc()
                     raise FailedCommandError("uncaught exception: {}".format(repr(err))) from err
             except HedgehogCommandError as err:
                 result = err.to_message()
@@ -90,7 +94,8 @@ class HedgehogServerActor(object):
 
     def terminate(self) -> None:
         for socket in list(self.poller.sockets):
-            self.poller.unregister(socket)
+            self.unregister(socket)
+        self.socket.close()
 
     def register(self, socket: SocketLike, cb: Callable[[], None]) -> None:
         self.poller.register(socket, zmq.POLLIN, cb)
@@ -102,15 +107,23 @@ class HedgehogServerActor(object):
         # Signal actor successfully initialized
         self.evt_pipe.signal()
 
-        while len(self.poller.sockets) > 0:
-            for _, _, handler in self.poller.poll():
-                handler()
+        with self.timer:
+            def recv_timer() -> None:
+                self.timer.evt_pipe.recv_expect(b'TIMER')
+                then, t = self.timer.evt_pipe.pop()
+                t.aux()
+
+            self.register(self.timer.evt_pipe, recv_timer)
+
+            while len(self.poller.sockets) > 0:
+                for _, _, handler in self.poller.poll():
+                    handler()
 
 
 class HedgehogServer(Active):
     hedgehog_server_class = HedgehogServerActor
 
-    def __init__(self, ctx: zmq.Context, endpoint: str, handlers: Dict[str, HandlerCallback]) -> None:
+    def __init__(self, ctx: zmq.Context, endpoint: str, handlers: Dict[Type[Message], HandlerCallback]) -> None:
         self.ctx = ctx
         self.actor = None  # type: HedgehogServerActor
         self.endpoint = endpoint
