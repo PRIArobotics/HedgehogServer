@@ -87,7 +87,7 @@ class TestSimulator(unittest.TestCase):
         return response
 
     def assertReplyDealer(self, socket, req: Message,
-                       rep: Union[int, type, Message, Callable[[Message], None]], **kwargs) -> Message:
+                          rep: Union[int, type, Message, Callable[[Message], None]], **kwargs) -> Message:
         check = self._check(rep, **kwargs)
 
         socket.send_msg([], req)
