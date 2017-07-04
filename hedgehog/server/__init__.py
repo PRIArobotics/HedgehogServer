@@ -20,7 +20,7 @@ from .hardware.serial import SerialHardwareAdapter
 logger = logging.getLogger(__name__)
 
 
-def parse_args():
+def parse_args(simulator=False):
     parser = argparse.ArgumentParser()
     parser.add_argument('-n', '--name', default=None,
                         help="Node name for discovery; can use {mode} and {mac} "
@@ -38,6 +38,9 @@ def parse_args():
                         help="The hedgehog config file; default: %(default)s")
     parser.add_argument('--logging-conf', dest='logging_conf',
                         help="If given, logging is configured from this file")
+    if simulator:
+        parser.add_argument('--sensors', '--simulate-sensors', dest='simulate_sensors', action='store_true',
+                            help="If given, noisy sensor readings will be simulated")
     return parser.parse_args()
 
 
@@ -94,10 +97,19 @@ def apply_scan_config(config, scan_config):
 
 
 def launch(hardware):
-    args = parse_args()
+    from hedgehog.server.hardware.simulated import SimulatedHardwareAdapter
+    simulator = hardware == SimulatedHardwareAdapter
+
+    args = parse_args(simulator)
 
     if args.logging_conf:
         logging.config.fileConfig(args.logging_conf)
+
+    if simulator and args.simulate_sensors:
+        _hardware = hardware
+
+        def hardware(*args, **kwargs):
+            return _hardware(*args, simulate_sensors=True, **kwargs)
 
     config = configparser.ConfigParser()
     config.read(args.config_file)
@@ -111,9 +123,8 @@ def launch(hardware):
         with open(args.config_file, mode='w') as f:
             config.write(f)
 
-    from hedgehog.server.hardware.simulated import SimulatedHardwareAdapter
     name = args.name or config.get('default', 'name', fallback='Hedgehog {mode} {mac}')
-    name = name.format(**name_fmt_kwargs(hardware == SimulatedHardwareAdapter))
+    name = name.format(**name_fmt_kwargs(simulator))
     port = args.port or config.getint('default', 'port', fallback=0)
     services = set()
     services.update(args.services)
