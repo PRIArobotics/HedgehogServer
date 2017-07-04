@@ -151,7 +151,7 @@ class TestSimulator(unittest.TestCase):
             self.assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
 
             # check immediate update
-            self.assertEqual(socket.poll(1), zmq.POLLIN)
+            self.assertEqual(socket.poll(5), zmq.POLLIN)
             _, response = socket.recv_msg()
             self.assertEqual(response, io.CommandUpdate(0, io.INPUT_PULLDOWN, sub))
 
@@ -174,13 +174,13 @@ class TestSimulator(unittest.TestCase):
             self.assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
 
             # check there is no update, even after a time
-            self.assertEqual(socket.poll(15), 0)
+            self.assertEqual(socket.poll(50), 0)
 
             # send a first command to get an update
             self.assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
 
             # check immediate update
-            self.assertEqual(socket.poll(1), zmq.POLLIN)
+            self.assertEqual(socket.poll(5), zmq.POLLIN)
             _, response = socket.recv_msg()
             self.assertEqual(response, io.CommandUpdate(0, io.INPUT_PULLDOWN, sub))
 
@@ -188,13 +188,13 @@ class TestSimulator(unittest.TestCase):
             self.assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
 
             # check there is no update, even after a time
-            self.assertEqual(socket.poll(15), 0)
+            self.assertEqual(socket.poll(50), 0)
 
             # change command value
             self.assertReplyDealer(socket, io.Action(0, io.INPUT_PULLUP), ack.Acknowledgement())
 
             # check immediate update (as time has passed)
-            self.assertEqual(socket.poll(1), zmq.POLLIN)
+            self.assertEqual(socket.poll(5), zmq.POLLIN)
             _, response = socket.recv_msg()
             self.assertEqual(response, io.CommandUpdate(0, io.INPUT_PULLUP, sub))
 
@@ -202,7 +202,7 @@ class TestSimulator(unittest.TestCase):
             self.assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
 
             # check update is not immediately
-            self.assertEqual(socket.poll(1), 0)
+            self.assertEqual(socket.poll(5), 0)
             _, response = socket.recv_msg()
             self.assertEqual(response, io.CommandUpdate(0, io.INPUT_PULLDOWN, sub))
 
@@ -210,7 +210,7 @@ class TestSimulator(unittest.TestCase):
             self.assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
 
             # check update is not immediately
-            self.assertEqual(socket.poll(1), 0)
+            self.assertEqual(socket.poll(5), 0)
             _, response = socket.recv_msg()
             self.assertEqual(response, io.CommandUpdate(0, io.INPUT_PULLDOWN, sub))
 
@@ -221,7 +221,7 @@ class TestSimulator(unittest.TestCase):
             self.assertReplyDealer(socket, io.Action(0, io.INPUT_PULLUP), ack.Acknowledgement())
 
             # check update is not immediately
-            self.assertEqual(socket.poll(1), 0)
+            self.assertEqual(socket.poll(5), 0)
             _, response = socket.recv_msg()
             self.assertEqual(response, io.CommandUpdate(0, io.INPUT_PULLUP, sub))
 
@@ -247,7 +247,7 @@ class TestSimulator(unittest.TestCase):
             self.assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
 
             # check immediate update
-            self.assertEqual(socket.poll(1), zmq.POLLIN)
+            self.assertEqual(socket.poll(5), zmq.POLLIN)
             _, response = socket.recv_msg()
             self.assertEqual(response, analog.Update(0, 0, sub))
 
@@ -270,19 +270,19 @@ class TestSimulator(unittest.TestCase):
             self.assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
 
             # check immediate update
-            self.assertEqual(socket.poll(1), zmq.POLLIN)
+            self.assertEqual(socket.poll(5), zmq.POLLIN)
             _, response = socket.recv_msg()
             self.assertEqual(response, analog.Update(0, 0, sub))
 
             # check there is no update, even after a time
-            self.assertEqual(socket.poll(12), 0)
+            self.assertEqual(socket.poll(50), 0)
 
             # add extra subscription
             self.assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
 
             # check immediate update
             # TODO update is not quite immediately with current implementation
-            self.assertEqual(socket.poll(4), zmq.POLLIN)
+            self.assertEqual(socket.poll(15), zmq.POLLIN)
             _, response = socket.recv_msg()
             self.assertEqual(response, analog.Update(0, 0, sub))
 
@@ -311,7 +311,7 @@ class TestSimulator(unittest.TestCase):
             self.assertReplyDealer(socket, digital.Subscribe(0, sub), ack.Acknowledgement())
 
             # check immediate update
-            self.assertEqual(socket.poll(1), zmq.POLLIN)
+            self.assertEqual(socket.poll(5), zmq.POLLIN)
             _, response = socket.recv_msg()
             self.assertEqual(response, digital.Update(0, False, sub))
 
@@ -360,7 +360,7 @@ class TestSimulator(unittest.TestCase):
             self.assertReplyDealer(socket, motor.CommandSubscribe(0, sub), ack.Acknowledgement())
 
             # check immediate update
-            self.assertEqual(socket.poll(1), zmq.POLLIN)
+            self.assertEqual(socket.poll(5), zmq.POLLIN)
             _, response = socket.recv_msg()
             self.assertEqual(response, motor.CommandUpdate(0, motor.POWER, 0, sub))
 
@@ -382,7 +382,7 @@ class TestSimulator(unittest.TestCase):
             self.assertReplyDealer(socket, motor.StateSubscribe(0, sub), ack.Acknowledgement())
 
             # check immediate update
-            self.assertEqual(socket.poll(1), zmq.POLLIN)
+            self.assertEqual(socket.poll(5), zmq.POLLIN)
             _, response = socket.recv_msg()
             self.assertEqual(response, motor.StateUpdate(0, 0, 0, sub))
 
@@ -418,7 +418,7 @@ class TestSimulator(unittest.TestCase):
             self.assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.Acknowledgement())
 
             # check immediate update
-            self.assertEqual(socket.poll(1), zmq.POLLIN)
+            self.assertEqual(socket.poll(5), zmq.POLLIN)
             _, response = socket.recv_msg()
             self.assertEqual(response, servo.CommandUpdate(0, True, 0, sub))
 
