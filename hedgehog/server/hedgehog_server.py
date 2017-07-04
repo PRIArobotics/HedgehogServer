@@ -1,7 +1,6 @@
 from typing import Callable, Dict, Type
 
 import logging
-import sys
 import traceback
 import zmq
 from hedgehog.utils.zmq import Active
