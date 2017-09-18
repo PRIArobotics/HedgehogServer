@@ -324,7 +324,7 @@ class _ServoHandler(_HWHandler):
         self.subscription_managers[servo.CommandSubscribe] = self.__command_subscription_manager()
 
     def action(self, active: bool, position: int) -> None:
-        self.adapter.set_servo(self.port, active, position)
+        self.adapter.set_servo(self.port, active, position if active else 0)
         self.command = active, position
 
 

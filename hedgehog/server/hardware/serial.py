@@ -61,12 +61,24 @@ _cmd_lengths = {
 }
 
 
+class TruncatedcommandError(FailedCommandError):
+    pass
+
+
 class SerialHardwareAdapter(HardwareAdapter):
     def __init__(self, motor_state_update_cb=None):
         super().__init__(motor_state_update_cb=motor_state_update_cb)
         self.controller = Controller()
         self.serial = self.controller.serial
         self.controller.reset(True)
+
+    def repeatable_command(self, cmd, reply_code=OK, tries=3):
+        for i in range(tries):
+            try:
+                return self.command(cmd, reply_code=reply_code)
+            except TruncatedcommandError:
+                if i == tries - 1:
+                    raise
 
     def command(self, cmd, reply_code=OK):
         def read_command():
@@ -77,7 +89,11 @@ class SerialHardwareAdapter(HardwareAdapter):
                     cmd += self.serial.read(length - 1)
             else:
                 cmd += self.serial.read()
-                cmd += self.serial.read(cmd[1])
+                length = cmd[1] + 2
+                if length > 2:
+                    cmd += self.serial.read(length - 2)
+            if len(cmd) != length:
+                raise TruncatedcommandError("HWC sent a truncated response")
             return list(cmd)
 
         self.serial.write(bytes(cmd))
@@ -111,15 +127,15 @@ class SerialHardwareAdapter(HardwareAdapter):
                 raise FailedCommandError("unsupported servo position")
 
     def set_io_state(self, port, flags):
-        self.command([IO_STATE, port, flags])
+        self.repeatable_command([IO_STATE, port, flags])
 
     def get_analog(self, port):
-        _, port_, value_hi, value_lo = self.command([ANALOG_REQ, port], ANALOG_REP)
+        _, port_, value_hi, value_lo = self.repeatable_command([ANALOG_REQ, port], ANALOG_REP)
         assert port_ == port
         return int.from_bytes([value_hi, value_lo], 'big')
 
     def get_digital(self, port):
-        _, port_, value = self.command([DIGITAL_REQ, port], DIGITAL_REP)
+        _, port_, value = self.repeatable_command([DIGITAL_REQ, port], DIGITAL_REP)
         assert port_ == port
         assert value & ~0x01 == 0x00
         return value != 0
@@ -129,11 +145,11 @@ class SerialHardwareAdapter(HardwareAdapter):
             raise FailedCommandError("unsupported motor power/velocity")
         value = amount if amount > 0 else (0x8000 | -amount)
         value_hi, value_lo = value.to_bytes(2, 'big')
-        self.command([MOTOR, port, state, value_hi, value_lo])
+        self.repeatable_command([MOTOR, port, state, value_hi, value_lo])
 
     def set_servo(self, port, active, position):
         if not 0 <= position < 0x8000:
             raise FailedCommandError("unsupported servo position")
         value = position | (0x8000 if active else 0x0000)
         value_hi, value_lo = value.to_bytes(2, 'big')
-        self.command([SERVO, port, value_hi, value_lo])
+        self.repeatable_command([SERVO, port, value_hi, value_lo])
