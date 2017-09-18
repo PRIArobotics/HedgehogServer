@@ -61,6 +61,10 @@ _cmd_lengths = {
 }
 
 
+class TruncatedcommandError(FailedCommandError):
+    pass
+
+
 class SerialHardwareAdapter(HardwareAdapter):
     def __init__(self, motor_state_update_cb=None):
         super().__init__(motor_state_update_cb=motor_state_update_cb)
@@ -77,7 +81,11 @@ class SerialHardwareAdapter(HardwareAdapter):
                     cmd += self.serial.read(length - 1)
             else:
                 cmd += self.serial.read()
-                cmd += self.serial.read(cmd[1])
+                length = cmd[1] + 2
+                if length > 2:
+                    cmd += self.serial.read(length - 2)
+            if len(cmd) != length:
+                raise TruncatedcommandError("HWC sent a truncated response")
             return list(cmd)
 
         self.serial.write(bytes(cmd))
