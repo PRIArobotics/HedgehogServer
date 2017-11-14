@@ -1,5 +1,6 @@
 from typing import cast, Any, Dict, Tuple, Type
 
+import itertools
 import math
 import time
 from hedgehog.protocol import Header, Message
@@ -335,9 +336,9 @@ class HardwareHandler(CommandHandler):
         super().__init__()
         self.adapter = adapter
         # TODO hard-coded number of ports
-        self.ios = [_IOHandler(adapter, port) for port in range(0, 16)]
+        self.ios = {port: _IOHandler(adapter, port) for port in itertools.chain(range(0, 16), (0x80, 0x90, 0x91))}
         self.motors = [_MotorHandler(adapter, port) for port in range(0, 4)]
-        self.servos = [_ServoHandler(adapter, port) for port in range(0, 4)]
+        self.servos = [_ServoHandler(adapter, port) for port in range(0, 6)]
         # self.motor_cb = {}
         # self.adapter.motor_state_update_cb = self.motor_state_update
 
