@@ -1,6 +1,5 @@
 from typing import Any, Callable, Dict, List, Tuple, Type, Union
 
-import unittest
 import zmq
 import signal
 import time
@@ -54,53 +53,62 @@ def connectSimulatorDealer(handlers: handlers.HandlerCallbackDict=None):
     ctx.term()
 
 
-class TestSimulator(unittest.TestCase):
-    def assertMsgEqual(self, msg: Message, msg_class: Type[Message], **kwargs) -> None:
-        self.assertEqual(type(msg), msg_class)
-        for field, value in kwargs.items():
-            self.assertEqual(getattr(msg, field), value)
+def assertMsgEqual(msg: Message, msg_class: Type[Message], **kwargs) -> None:
+    assert type(msg) == msg_class
+    for field, value in kwargs.items():
+        assert getattr(msg, field) == value
 
-    def assertNack(self, msg: Message, code: int, **kwargs) -> None:
-        self.assertMsgEqual(msg, ack.Acknowledgement, code=code, **kwargs)
 
-    def _check(self, expect: Union[int, type, Message, Callable[[Message], None]], **kwargs) -> Callable[[Message], None]:
-        if isinstance(expect, int):
-            code = expect  # type: int
-            return lambda msg: self.assertNack(msg, code, **kwargs)
-        elif isinstance(expect, type) and issubclass(expect, Message):
-            msg_class = expect  # type: Type[Message]
-            return lambda msg: self.assertMsgEqual(msg, msg_class, **kwargs)
-        elif isinstance(expect, Message):
-            rep = expect  # type: Message
-            return lambda msg: self.assertEqual(msg, rep)
-        else:
-            check = expect  # type: Callable[[Message], None]
-            return check
+def assertNack(msg: Message, code: int, **kwargs) -> None:
+    assertMsgEqual(msg, ack.Acknowledgement, code=code, **kwargs)
 
-    def assertReplyReq(self, socket, req: Message,
-                       rep: Union[int, type, Message, Callable[[Message], None]], **kwargs) -> Message:
-        check = self._check(rep, **kwargs)
 
-        socket.send_msg(req)
-        response = socket.recv_msg()
-        check(response)
-        return response
+def _check(expect: Union[int, type, Message, Callable[[Message], None]], **kwargs) -> Callable[[Message], None]:
+    if isinstance(expect, int):
+        code = expect  # type: int
+        return lambda msg: assertNack(msg, code, **kwargs)
+    elif isinstance(expect, type) and issubclass(expect, Message):
+        msg_class = expect  # type: Type[Message]
+        return lambda msg: assertMsgEqual(msg, msg_class, **kwargs)
+    elif isinstance(expect, Message):
+        def assertEqual(a, b):
+            assert a == b
 
-    def assertReplyDealer(self, socket, req: Message,
-                          rep: Union[int, type, Message, Callable[[Message], None]], **kwargs) -> Message:
-        check = self._check(rep, **kwargs)
+        rep = expect  # type: Message
+        return lambda msg: assertEqual(msg, rep)
+    else:
+        check = expect  # type: Callable[[Message], None]
+        return check
 
-        socket.send_msg([], req)
-        _, response = socket.recv_msg()
-        check(response)
-        return response
+
+def assertReplyReq(socket, req: Message,
+                   rep: Union[int, type, Message, Callable[[Message], None]], **kwargs) -> Message:
+    check = _check(rep, **kwargs)
+
+    socket.send_msg(req)
+    response = socket.recv_msg()
+    check(response)
+    return response
+
+
+def assertReplyDealer(socket, req: Message,
+                      rep: Union[int, type, Message, Callable[[Message], None]], **kwargs) -> Message:
+    check = _check(rep, **kwargs)
+
+    socket.send_msg([], req)
+    _, response = socket.recv_msg()
+    check(response)
+    return response
+
+
+class TestSimulator(object):
 
     def test_multipart(self):
         with connectSimulatorReq() as socket:
             socket.send_msgs([analog.Request(0), digital.Request(0)])
             update = socket.recv_msgs()
-            self.assertEqual(update[0], analog.Reply(0, 0))
-            self.assertEqual(update[1], digital.Reply(0, False))
+            assert update[0] == analog.Reply(0, 0)
+            assert update[1] == digital.Reply(0, False)
 
     def test_unsupported(self):
         from hedgehog.server import handlers
@@ -111,54 +119,54 @@ class TestSimulator(unittest.TestCase):
         _handlers = handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
 
         with connectSimulatorReq(_handlers) as socket:
-            self.assertReplyReq(socket, io.Action(0, io.INPUT_PULLDOWN), ack.UNSUPPORTED_COMMAND)
-            self.assertReplyReq(socket, analog.Request(0), ack.UNSUPPORTED_COMMAND)
-            self.assertReplyReq(socket, digital.Request(0), ack.UNSUPPORTED_COMMAND)
-            self.assertReplyReq(socket, motor.Action(0, motor.POWER), ack.UNSUPPORTED_COMMAND)
-            self.assertReplyReq(socket, motor.StateRequest(0), ack.UNSUPPORTED_COMMAND)
-            self.assertReplyReq(socket, motor.SetPositionAction(0, 0), ack.UNSUPPORTED_COMMAND)
-            self.assertReplyReq(socket, servo.Action(0, True, 0), ack.UNSUPPORTED_COMMAND)
+            assertReplyReq(socket, io.Action(0, io.INPUT_PULLDOWN), ack.UNSUPPORTED_COMMAND)
+            assertReplyReq(socket, analog.Request(0), ack.UNSUPPORTED_COMMAND)
+            assertReplyReq(socket, digital.Request(0), ack.UNSUPPORTED_COMMAND)
+            assertReplyReq(socket, motor.Action(0, motor.POWER), ack.UNSUPPORTED_COMMAND)
+            assertReplyReq(socket, motor.StateRequest(0), ack.UNSUPPORTED_COMMAND)
+            assertReplyReq(socket, motor.SetPositionAction(0, 0), ack.UNSUPPORTED_COMMAND)
+            assertReplyReq(socket, servo.Action(0, True, 0), ack.UNSUPPORTED_COMMAND)
 
     def test_io(self):
         with connectSimulatorDealer() as socket:
             # ### io.CommandRequest
 
-            self.assertReplyDealer(socket, io.CommandRequest(0), ack.FAILED_COMMAND)
+            assertReplyDealer(socket, io.CommandRequest(0), ack.FAILED_COMMAND)
 
             # ### io.Action
 
-            self.assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
+            assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
 
             # send an invalid command
             action = io.Action(0, 0)
             action.flags = io.OUTPUT | io.PULLDOWN
-            self.assertReplyDealer(socket, action, ack.INVALID_COMMAND)
+            assertReplyDealer(socket, action, ack.INVALID_COMMAND)
 
             # ### io.CommandRequest
 
-            self.assertReplyDealer(socket, io.CommandRequest(0), io.CommandReply(0, io.INPUT_PULLDOWN))
+            assertReplyDealer(socket, io.CommandRequest(0), io.CommandReply(0, io.INPUT_PULLDOWN))
 
             # ### io.CommandSubscribe
 
             sub = Subscription()
             sub.subscribe = False
             sub.timeout = 10
-            self.assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.FAILED_COMMAND)
+            assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.FAILED_COMMAND)
 
             sub = Subscription()
             sub.subscribe = True
             sub.timeout = 10
-            self.assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
+            assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
 
             # check immediate update
-            self.assertEqual(socket.poll(5), zmq.POLLIN)
+            assert socket.poll(5) == zmq.POLLIN
             _, response = socket.recv_msg()
-            self.assertEqual(response, io.CommandUpdate(0, io.INPUT_PULLDOWN, sub))
+            assert response == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
 
             sub = Subscription()
             sub.subscribe = False
             sub.timeout = 10
-            self.assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
+            assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
 
     def test_command_subscription(self):
         with connectSimulatorDealer() as socket:
@@ -171,90 +179,90 @@ class TestSimulator(unittest.TestCase):
             unsub.timeout = 10
 
             # original subscription
-            self.assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
+            assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
 
             # check there is no update, even after a time
-            self.assertEqual(socket.poll(50), 0)
+            assert socket.poll(50) == 0
 
             # send a first command to get an update
-            self.assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
+            assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
 
             # check immediate update
-            self.assertEqual(socket.poll(5), zmq.POLLIN)
+            assert socket.poll(5) == zmq.POLLIN
             _, response = socket.recv_msg()
-            self.assertEqual(response, io.CommandUpdate(0, io.INPUT_PULLDOWN, sub))
+            assert response == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
 
             # send another command that does not actually change the value
-            self.assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
+            assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
 
             # check there is no update, even after a time
-            self.assertEqual(socket.poll(50), 0)
+            assert socket.poll(50) == 0
 
             # change command value
-            self.assertReplyDealer(socket, io.Action(0, io.INPUT_PULLUP), ack.Acknowledgement())
+            assertReplyDealer(socket, io.Action(0, io.INPUT_PULLUP), ack.Acknowledgement())
 
             # check immediate update (as time has passed)
-            self.assertEqual(socket.poll(5), zmq.POLLIN)
+            assert socket.poll(5) == zmq.POLLIN
             _, response = socket.recv_msg()
-            self.assertEqual(response, io.CommandUpdate(0, io.INPUT_PULLUP, sub))
+            assert response == io.CommandUpdate(0, io.INPUT_PULLUP, sub)
 
             # change command value
-            self.assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
+            assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
 
             # check update is not immediately
-            self.assertEqual(socket.poll(5), 0)
+            assert socket.poll(5) == 0
             _, response = socket.recv_msg()
-            self.assertEqual(response, io.CommandUpdate(0, io.INPUT_PULLDOWN, sub))
+            assert response == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
 
             # add extra subscription
-            self.assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
+            assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
 
             # check update is not immediately
-            self.assertEqual(socket.poll(5), 0)
+            assert socket.poll(5) == 0
             _, response = socket.recv_msg()
-            self.assertEqual(response, io.CommandUpdate(0, io.INPUT_PULLDOWN, sub))
+            assert response == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
 
             # cancel extra subscription
-            self.assertReplyDealer(socket, io.CommandSubscribe(0, unsub), ack.Acknowledgement())
+            assertReplyDealer(socket, io.CommandSubscribe(0, unsub), ack.Acknowledgement())
 
             # change command value
-            self.assertReplyDealer(socket, io.Action(0, io.INPUT_PULLUP), ack.Acknowledgement())
+            assertReplyDealer(socket, io.Action(0, io.INPUT_PULLUP), ack.Acknowledgement())
 
             # check update is not immediately
-            self.assertEqual(socket.poll(5), 0)
+            assert socket.poll(5) == 0
             _, response = socket.recv_msg()
-            self.assertEqual(response, io.CommandUpdate(0, io.INPUT_PULLUP, sub))
+            assert response == io.CommandUpdate(0, io.INPUT_PULLUP, sub)
 
             # cancel original subscription
-            self.assertReplyDealer(socket, io.CommandSubscribe(0, unsub), ack.Acknowledgement())
+            assertReplyDealer(socket, io.CommandSubscribe(0, unsub), ack.Acknowledgement())
 
     def test_analog(self):
         with connectSimulatorDealer() as socket:
             # ### analog.Request
 
-            self.assertReplyDealer(socket, analog.Request(0), analog.Reply(0, 0))
+            assertReplyDealer(socket, analog.Request(0), analog.Reply(0, 0))
 
             # ### analog.Subscribe
 
             sub = Subscription()
             sub.subscribe = False
             sub.timeout = 10
-            self.assertReplyDealer(socket, analog.Subscribe(0, sub), ack.FAILED_COMMAND)
+            assertReplyDealer(socket, analog.Subscribe(0, sub), ack.FAILED_COMMAND)
 
             sub = Subscription()
             sub.subscribe = True
             sub.timeout = 10
-            self.assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
+            assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
 
             # check immediate update
-            self.assertEqual(socket.poll(5), zmq.POLLIN)
+            assert socket.poll(5) == zmq.POLLIN
             _, response = socket.recv_msg()
-            self.assertEqual(response, analog.Update(0, 0, sub))
+            assert response == analog.Update(0, 0, sub)
 
             sub = Subscription()
             sub.subscribe = False
             sub.timeout = 10
-            self.assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
+            assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
 
     def test_sensor_subscription(self):
         with connectSimulatorDealer() as socket:
@@ -267,165 +275,165 @@ class TestSimulator(unittest.TestCase):
             unsub.timeout = 10
 
             # original subscription
-            self.assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
+            assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
 
             # check immediate update
-            self.assertEqual(socket.poll(5), zmq.POLLIN)
+            assert socket.poll(5) == zmq.POLLIN
             _, response = socket.recv_msg()
-            self.assertEqual(response, analog.Update(0, 0, sub))
+            assert response == analog.Update(0, 0, sub)
 
             # check there is no update, even after a time
-            self.assertEqual(socket.poll(50), 0)
+            assert socket.poll(50) == 0
 
             # add extra subscription
-            self.assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
+            assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
 
             # check immediate update
             # TODO update is not quite immediately with current implementation
-            self.assertEqual(socket.poll(15), zmq.POLLIN)
+            assert socket.poll(15) == zmq.POLLIN
             _, response = socket.recv_msg()
-            self.assertEqual(response, analog.Update(0, 0, sub))
+            assert response == analog.Update(0, 0, sub)
 
             # cancel extra subscription
-            self.assertReplyDealer(socket, analog.Subscribe(0, unsub), ack.Acknowledgement())
+            assertReplyDealer(socket, analog.Subscribe(0, unsub), ack.Acknowledgement())
 
             # cancel original subscription
-            self.assertReplyDealer(socket, analog.Subscribe(0, unsub), ack.Acknowledgement())
+            assertReplyDealer(socket, analog.Subscribe(0, unsub), ack.Acknowledgement())
 
     def test_digital(self):
         with connectSimulatorDealer() as socket:
             # ### digital.Request
 
-            self.assertReplyDealer(socket, digital.Request(0), digital.Reply(0, False))
+            assertReplyDealer(socket, digital.Request(0), digital.Reply(0, False))
 
             # ### digital.Subscribe
 
             sub = Subscription()
             sub.subscribe = False
             sub.timeout = 10
-            self.assertReplyDealer(socket, digital.Subscribe(0, sub), ack.FAILED_COMMAND)
+            assertReplyDealer(socket, digital.Subscribe(0, sub), ack.FAILED_COMMAND)
 
             sub = Subscription()
             sub.subscribe = True
             sub.timeout = 10
-            self.assertReplyDealer(socket, digital.Subscribe(0, sub), ack.Acknowledgement())
+            assertReplyDealer(socket, digital.Subscribe(0, sub), ack.Acknowledgement())
 
             # check immediate update
-            self.assertEqual(socket.poll(5), zmq.POLLIN)
+            assert socket.poll(5) == zmq.POLLIN
             _, response = socket.recv_msg()
-            self.assertEqual(response, digital.Update(0, False, sub))
+            assert response == digital.Update(0, False, sub)
 
             sub = Subscription()
             sub.subscribe = False
             sub.timeout = 10
-            self.assertReplyDealer(socket, digital.Subscribe(0, sub), ack.Acknowledgement())
+            assertReplyDealer(socket, digital.Subscribe(0, sub), ack.Acknowledgement())
 
     def test_motor(self):
         with connectSimulatorDealer() as socket:
             # ### motor.CommandRequest
 
-            self.assertReplyDealer(socket, motor.CommandRequest(0), ack.FAILED_COMMAND)
+            assertReplyDealer(socket, motor.CommandRequest(0), ack.FAILED_COMMAND)
 
             # ### motor.Action
 
-            self.assertReplyDealer(socket, motor.Action(0, motor.POWER), ack.Acknowledgement())
+            assertReplyDealer(socket, motor.Action(0, motor.POWER), ack.Acknowledgement())
 
             # send an invalid command
             action = motor.Action(0, motor.BRAKE)
             action.relative = 100
-            self.assertReplyDealer(socket, action, ack.INVALID_COMMAND)
+            assertReplyDealer(socket, action, ack.INVALID_COMMAND)
 
             # ### motor.CommandRequest
 
-            self.assertReplyDealer(socket, motor.CommandRequest(0), motor.CommandReply(0, motor.POWER, 0))
+            assertReplyDealer(socket, motor.CommandRequest(0), motor.CommandReply(0, motor.POWER, 0))
 
             # ### motor.StateRequest
 
-            self.assertReplyDealer(socket, motor.StateRequest(0), motor.StateReply(0, 0, 0))
+            assertReplyDealer(socket, motor.StateRequest(0), motor.StateReply(0, 0, 0))
 
             # ### motor.SetPositionAction
 
-            self.assertReplyDealer(socket, motor.SetPositionAction(0, 0), ack.Acknowledgement())
+            assertReplyDealer(socket, motor.SetPositionAction(0, 0), ack.Acknowledgement())
 
             # ### motor.CommandSubscribe
 
             sub = Subscription()
             sub.subscribe = False
             sub.timeout = 10
-            self.assertReplyDealer(socket, motor.CommandSubscribe(0, sub), ack.FAILED_COMMAND)
+            assertReplyDealer(socket, motor.CommandSubscribe(0, sub), ack.FAILED_COMMAND)
 
             sub = Subscription()
             sub.subscribe = True
             sub.timeout = 10
-            self.assertReplyDealer(socket, motor.CommandSubscribe(0, sub), ack.Acknowledgement())
+            assertReplyDealer(socket, motor.CommandSubscribe(0, sub), ack.Acknowledgement())
 
             # check immediate update
-            self.assertEqual(socket.poll(5), zmq.POLLIN)
+            assert socket.poll(5) == zmq.POLLIN
             _, response = socket.recv_msg()
-            self.assertEqual(response, motor.CommandUpdate(0, motor.POWER, 0, sub))
+            assert response == motor.CommandUpdate(0, motor.POWER, 0, sub)
 
             sub = Subscription()
             sub.subscribe = False
             sub.timeout = 10
-            self.assertReplyDealer(socket, motor.CommandSubscribe(0, sub), ack.Acknowledgement())
+            assertReplyDealer(socket, motor.CommandSubscribe(0, sub), ack.Acknowledgement())
 
             # ### motor.StateSubscribe
 
             sub = Subscription()
             sub.subscribe = False
             sub.timeout = 10
-            self.assertReplyDealer(socket, motor.StateSubscribe(0, sub), ack.FAILED_COMMAND)
+            assertReplyDealer(socket, motor.StateSubscribe(0, sub), ack.FAILED_COMMAND)
 
             sub = Subscription()
             sub.subscribe = True
             sub.timeout = 10
-            self.assertReplyDealer(socket, motor.StateSubscribe(0, sub), ack.Acknowledgement())
+            assertReplyDealer(socket, motor.StateSubscribe(0, sub), ack.Acknowledgement())
 
             # check immediate update
-            self.assertEqual(socket.poll(5), zmq.POLLIN)
+            assert socket.poll(5) == zmq.POLLIN
             _, response = socket.recv_msg()
-            self.assertEqual(response, motor.StateUpdate(0, 0, 0, sub))
+            assert response == motor.StateUpdate(0, 0, 0, sub)
 
             sub = Subscription()
             sub.subscribe = False
             sub.timeout = 10
-            self.assertReplyDealer(socket, motor.StateSubscribe(0, sub), ack.Acknowledgement())
+            assertReplyDealer(socket, motor.StateSubscribe(0, sub), ack.Acknowledgement())
 
     def test_servo(self):
         with connectSimulatorDealer() as socket:
             # ### servo.CommandRequest
 
-            self.assertReplyDealer(socket, servo.CommandRequest(0), ack.FAILED_COMMAND)
+            assertReplyDealer(socket, servo.CommandRequest(0), ack.FAILED_COMMAND)
 
             # ### servo.Action
 
-            self.assertReplyDealer(socket, servo.Action(0, True, 0), ack.Acknowledgement())
+            assertReplyDealer(socket, servo.Action(0, True, 0), ack.Acknowledgement())
 
             # ### servo.CommandRequest
 
-            self.assertReplyDealer(socket, servo.CommandRequest(0), servo.CommandReply(0, True, 0))
+            assertReplyDealer(socket, servo.CommandRequest(0), servo.CommandReply(0, True, 0))
 
             # ### servo.CommandSubscribe
 
             sub = Subscription()
             sub.subscribe = False
             sub.timeout = 10
-            self.assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.FAILED_COMMAND)
+            assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.FAILED_COMMAND)
 
             sub = Subscription()
             sub.subscribe = True
             sub.timeout = 10
-            self.assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.Acknowledgement())
+            assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.Acknowledgement())
 
             # check immediate update
-            self.assertEqual(socket.poll(5), zmq.POLLIN)
+            assert socket.poll(5) == zmq.POLLIN
             _, response = socket.recv_msg()
-            self.assertEqual(response, servo.CommandUpdate(0, True, 0, sub))
+            assert response == servo.CommandUpdate(0, True, 0, sub)
 
             sub = Subscription()
             sub.subscribe = False
             sub.timeout = 10
-            self.assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.Acknowledgement())
+            assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.Acknowledgement())
 
     def handle_streams(self) -> Callable[[process.StreamUpdate], Dict[int, bytes]]:
         def handler():
@@ -457,7 +465,7 @@ class TestSimulator(unittest.TestCase):
 
     def test_process_echo(self):
         with connectSimulatorDealer() as socket:
-            response = self.assertReplyDealer(socket, process.ExecuteAction('echo', 'asdf'),
+            response = assertReplyDealer(socket, process.ExecuteAction('echo', 'asdf'),
                                               process.ExecuteReply)  # type: process.ExecuteReply
             pid = response.pid
 
@@ -465,42 +473,42 @@ class TestSimulator(unittest.TestCase):
             output = None
             while output is None:
                 _, msg = socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
-                self.assertMsgEqual(msg, process.StreamUpdate, pid=pid)
+                assertMsgEqual(msg, process.StreamUpdate, pid=pid)
                 output = stream_handler(msg)
 
-            self.assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b''), ack.Acknowledgement())
+            assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b''), ack.Acknowledgement())
 
             _, msg = socket.recv_msg()
-            self.assertEqual(msg, process.ExitUpdate(pid, 0))
+            assert msg == process.ExitUpdate(pid, 0)
 
-            self.assertEqual(output[process.STDOUT], b'asdf\n')
-            self.assertEqual(output[process.STDERR], b'')
+            assert output[process.STDOUT] == b'asdf\n'
+            assert output[process.STDERR] == b''
 
     def test_process_cat(self):
         with connectSimulatorDealer() as socket:
-            response = self.assertReplyDealer(socket, process.ExecuteAction('cat'),
+            response = assertReplyDealer(socket, process.ExecuteAction('cat'),
                                               process.ExecuteReply)  # type: process.ExecuteReply
             pid = response.pid
 
-            self.assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b'asdf'), ack.Acknowledgement())
-            self.assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b''), ack.Acknowledgement())
+            assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b'asdf'), ack.Acknowledgement())
+            assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b''), ack.Acknowledgement())
 
             stream_handler = self.handle_streams()
             output = None
             while output is None:
                 _, msg = socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
-                self.assertMsgEqual(msg, process.StreamUpdate, pid=pid)
+                assertMsgEqual(msg, process.StreamUpdate, pid=pid)
                 output = stream_handler(msg)
 
             _, msg = socket.recv_msg()
-            self.assertEqual(msg, process.ExitUpdate(pid, 0))
+            assert msg == process.ExitUpdate(pid, 0)
 
-            self.assertEqual(output[process.STDOUT], b'asdf')
-            self.assertEqual(output[process.STDERR], b'')
+            assert output[process.STDOUT] == b'asdf'
+            assert output[process.STDERR] == b''
 
     def test_process_pwd(self):
         with connectSimulatorDealer() as socket:
-            response = self.assertReplyDealer(socket, process.ExecuteAction('pwd', working_dir='/'),
+            response = assertReplyDealer(socket, process.ExecuteAction('pwd', working_dir='/'),
                                               process.ExecuteReply)  # type: process.ExecuteReply
             pid = response.pid
 
@@ -508,35 +516,35 @@ class TestSimulator(unittest.TestCase):
             output = None
             while output is None:
                 _, msg = socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
-                self.assertMsgEqual(msg, process.StreamUpdate, pid=pid)
+                assertMsgEqual(msg, process.StreamUpdate, pid=pid)
                 output = stream_handler(msg)
 
-            self.assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b''), ack.Acknowledgement())
+            assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b''), ack.Acknowledgement())
 
             _, msg = socket.recv_msg()
-            self.assertEqual(msg, process.ExitUpdate(pid, 0))
+            assert msg == process.ExitUpdate(pid, 0)
 
-            self.assertEqual(output[process.STDOUT], b'/\n')
-            self.assertEqual(output[process.STDERR], b'')
+            assert output[process.STDOUT] == b'/\n'
+            assert output[process.STDERR] == b''
 
     def test_process_sleep(self):
         with connectSimulatorDealer() as socket:
-            response = self.assertReplyDealer(socket, process.ExecuteAction('sleep', '1'),
+            response = assertReplyDealer(socket, process.ExecuteAction('sleep', '1'),
                                               process.ExecuteReply)  # type: process.ExecuteReply
             pid = response.pid
 
-            self.assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b''), ack.Acknowledgement())
-            self.assertReplyDealer(socket, process.SignalAction(pid, signal.SIGINT), ack.Acknowledgement())
+            assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b''), ack.Acknowledgement())
+            assertReplyDealer(socket, process.SignalAction(pid, signal.SIGINT), ack.Acknowledgement())
 
             stream_handler = self.handle_streams()
             output = None
             while output is None:
                 _, msg = socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
-                self.assertMsgEqual(msg, process.StreamUpdate, pid=pid)
+                assertMsgEqual(msg, process.StreamUpdate, pid=pid)
                 output = stream_handler(msg)
 
             _, msg = socket.recv_msg()
-            self.assertEqual(msg, process.ExitUpdate(pid, -signal.SIGINT))
+            assert msg == process.ExitUpdate(pid, -signal.SIGINT)
 
 
 def collect_outputs(proc):
@@ -552,7 +560,7 @@ def collect_outputs(proc):
     return proc.returncode, b''.join(output[process.STDOUT]), b''.join(output[process.STDERR])
 
 
-class TestProcess(unittest.TestCase):
+class TestProcess(object):
     def test_cat(self):
         proc = Process('cat')
 
@@ -562,9 +570,9 @@ class TestProcess(unittest.TestCase):
         proc.write(process.STDIN)
 
         status, out, err = collect_outputs(proc)
-        self.assertEqual(status, 0)
-        self.assertEqual(out, b'as df')
-        self.assertEqual(err, b'')
+        assert status == 0
+        assert out == b'as df'
+        assert err == b''
 
     def test_echo(self):
         proc = Process('echo', 'as', 'df')
@@ -572,9 +580,9 @@ class TestProcess(unittest.TestCase):
         proc.write(process.STDIN)
 
         status, out, err = collect_outputs(proc)
-        self.assertEqual(status, 0)
-        self.assertEqual(out, b'as df\n')
-        self.assertEqual(err, b'')
+        assert status == 0
+        assert out == b'as df\n'
+        assert err == b''
 
     def test_pwd(self):
         proc = Process('pwd', cwd='/')
@@ -582,9 +590,9 @@ class TestProcess(unittest.TestCase):
         proc.write(process.STDIN)
 
         status, out, err = collect_outputs(proc)
-        self.assertEqual(status, 0)
-        self.assertEqual(out, b'/\n')
-        self.assertEqual(err, b'')
+        assert status == 0
+        assert out == b'/\n'
+        assert err == b''
 
     def test_signal_sleep(self):
         proc = Process('sleep', '1')
@@ -594,10 +602,6 @@ class TestProcess(unittest.TestCase):
         proc.send_signal(signal.SIGINT)
 
         status, out, err = collect_outputs(proc)
-        self.assertEqual(status, -2)
-        self.assertEqual(out, b'')
-        self.assertEqual(err, b'')
-
-
-if __name__ == '__main__':
-    unittest.main()
+        assert status == -2
+        assert out == b''
+        assert err == b''

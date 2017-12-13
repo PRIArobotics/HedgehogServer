@@ -14,4 +14,4 @@ install:
     - pip install -Ue .[dev]
 
 # command to run tests
-script: nosetests -vw tests
+script: pytest
