@@ -1,11 +1,12 @@
-from typing import Any, Callable, Dict, Tuple, Type
+import functools
+from typing import Any, Callable, Coroutine, Dict, Tuple, Type
 
 from hedgehog.protocol import Header, Message
-from ..hedgehog_server import HedgehogServerActor
+from ..hedgehog_server import HedgehogServer
 
 
-HandlerFunction = Callable[['CommandHandler', HedgehogServerActor, Header, Message], Message]
-HandlerCallback = Callable[[HedgehogServerActor, Header, Message], Message]
+HandlerFunction = Callable[['CommandHandler', HedgehogServer, Header, Message], Coroutine[Any, Any, Message]]
+HandlerCallback = Callable[[HedgehogServer, Header, Message], Coroutine[Any, Any, Message]]
 HandlerCallbackDict = Dict[Type[Message], HandlerCallback]
 HandlerDecorator = Callable[[Type[Message]], Callable[[HandlerFunction], HandlerFunction]]
 
@@ -26,7 +27,7 @@ class CommandHandler(object):
 
     def __init__(self) -> None:
         self.handlers = {
-            key: handler.__get__(self)
+            key: functools.partial(handler, self)
             for key, handler in self._handlers.items()
         }  # type: Dict[Type[Message], HandlerCallback]
 

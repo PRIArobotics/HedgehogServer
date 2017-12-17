@@ -13,10 +13,10 @@ class SimulatedHardwareAdapter(HardwareAdapter):
 
         self.io_states = {}  # type: Dict[int, int]
 
-    def set_io_state(self, port, flags):
+    async def set_io_state(self, port, flags):
         self.io_states[port] = flags
 
-    def get_analog(self, port):
+    async def get_analog(self, port):
         if not self.simulate_sensors:
             return 0
 
@@ -35,7 +35,7 @@ class SimulatedHardwareAdapter(HardwareAdapter):
             num = 4095
         return num
 
-    def get_digital(self, port):
+    async def get_digital(self, port):
         if not self.simulate_sensors:
             return False
 
@@ -48,18 +48,18 @@ class SimulatedHardwareAdapter(HardwareAdapter):
         }[self.io_states.get(port, io.INPUT_FLOATING)]
         return value
 
-    def set_motor(self, port, state, amount=0, reached_state=POWER, relative=None, absolute=None):
+    async def set_motor(self, port, state, amount=0, reached_state=POWER, relative=None, absolute=None):
         # TODO set motor action
         pass
 
-    def get_motor(self, port):
+    async def get_motor(self, port):
         return 0, 0
 
-    def set_motor_position(self, port, position):
+    async def set_motor_position(self, port, position):
         # TODO set motor position
         pass
 
-    def set_servo(self, port, active, position):
+    async def set_servo(self, port, active, position):
         # TODO set servo position
         pass
 

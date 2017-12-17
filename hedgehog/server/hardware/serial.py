@@ -72,16 +72,16 @@ class SerialHardwareAdapter(HardwareAdapter):
         self.serial = self.controller.serial
         self.controller.reset(True)
 
-    def repeatable_command(self, cmd, reply_code=OK, tries=3):
+    async def repeatable_command(self, cmd, reply_code=OK, tries=3):
         for i in range(tries):
             try:
-                return self.command(cmd, reply_code=reply_code)
+                return await self.command(cmd, reply_code=reply_code)
             except TruncatedcommandError:
                 if i == tries - 1:
                     raise
 
-    def command(self, cmd, reply_code=OK):
-        def read_command():
+    async def command(self, cmd, reply_code=OK):
+        async def read_command():
             cmd = self.serial.read()
             if cmd[0] in _cmd_lengths:
                 length = _cmd_lengths[cmd[0]]
@@ -97,10 +97,10 @@ class SerialHardwareAdapter(HardwareAdapter):
             return list(cmd)
 
         self.serial.write(bytes(cmd))
-        reply = read_command()
+        reply = await read_command()
         while reply[0] not in _replies | _errors:
             # TODO do something with the update
-            reply = read_command()
+            reply = await read_command()
 
         if reply[0] in _replies:
             assert reply[0] == reply_code
@@ -126,30 +126,30 @@ class SerialHardwareAdapter(HardwareAdapter):
             elif reply[0] == INVALID_VALUE and cmd[0] == SERVO:
                 raise FailedCommandError("unsupported servo position")
 
-    def set_io_state(self, port, flags):
-        self.repeatable_command([IO_STATE, port, flags])
+    async def set_io_state(self, port, flags):
+        await self.repeatable_command([IO_STATE, port, flags])
 
-    def get_analog(self, port):
-        _, port_, value_hi, value_lo = self.repeatable_command([ANALOG_REQ, port], ANALOG_REP)
+    async def get_analog(self, port):
+        _, port_, value_hi, value_lo = await self.repeatable_command([ANALOG_REQ, port], ANALOG_REP)
         assert port_ == port
         return int.from_bytes([value_hi, value_lo], 'big')
 
-    def get_digital(self, port):
-        _, port_, value = self.repeatable_command([DIGITAL_REQ, port], DIGITAL_REP)
+    async def get_digital(self, port):
+        _, port_, value = await self.repeatable_command([DIGITAL_REQ, port], DIGITAL_REP)
         assert port_ == port
         assert value & ~0x01 == 0x00
         return value != 0
 
-    def set_motor(self, port, state, amount=0, reached_state=POWER, relative=None, absolute=None):
+    async def set_motor(self, port, state, amount=0, reached_state=POWER, relative=None, absolute=None):
         if not -0x8000 < amount < 0x8000:
             raise FailedCommandError("unsupported motor power/velocity")
         value = amount if amount > 0 else (0x8000 | -amount)
         value_hi, value_lo = value.to_bytes(2, 'big')
-        self.repeatable_command([MOTOR, port, state, value_hi, value_lo])
+        await self.repeatable_command([MOTOR, port, state, value_hi, value_lo])
 
-    def set_servo(self, port, active, position):
+    async def set_servo(self, port, active, position):
         if not 0 <= position < 0x8000:
             raise FailedCommandError("unsupported servo position")
         value = position | (0x8000 if active else 0x0000)
         value_hi, value_lo = value.to_bytes(2, 'big')
-        self.repeatable_command([SERVO, port, value_hi, value_lo])
+        await self.repeatable_command([SERVO, port, value_hi, value_lo])

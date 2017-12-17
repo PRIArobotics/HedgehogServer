@@ -15,7 +15,7 @@ class ProcessHandler(CommandHandler):
         self.adapter = adapter
 
     @_command(process.ExecuteAction)
-    def process_execute_action(self, server, ident, msg):
+    async def process_execute_action(self, server, ident, msg):
         proc = Process(*msg.args, cwd=msg.working_dir)
         pid = proc.proc.pid
         self._processes[pid] = proc
@@ -41,7 +41,7 @@ class ProcessHandler(CommandHandler):
         return process.ExecuteReply(pid)
 
     @_command(process.StreamAction)
-    def process_stream_action(self, server, ident, msg):
+    async def process_stream_action(self, server, ident, msg):
         # check whether the process has already finished
         if msg.pid in self._processes:
             proc = self._processes[msg.pid]
@@ -51,7 +51,7 @@ class ProcessHandler(CommandHandler):
             raise FailedCommandError("no process with pid {}".format(msg.pid))
 
     @_command(process.SignalAction)
-    def process_signal_action(self, server, ident, msg):
+    async def process_signal_action(self, server, ident, msg):
         # check whether the process has already finished
         if msg.pid in self._processes:
             proc = self._processes[msg.pid]
