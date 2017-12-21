@@ -1,7 +1,7 @@
 
 import pytest
 import asyncio.selector_events
-from aiostream import stream
+from aiostream import stream, streamcontext
 
 from hedgehog.server.subscription import SubscriptionStream
 
@@ -44,3 +44,28 @@ async def test_subscription_stream_granularity():
     await assert_stream(
         expected,
         subs.subscribe(0.03, lambda a, b: abs(a - b) > 1, 0.09))
+
+
+@pytest.mark.asyncio
+async def test_subscription_stream_delayed_subscribe():
+    actual = [0, 1, 2, 3, 4, 5, 6, 7]
+    expected = [2, 3, (4, 5), 6, 7]
+
+    subs = SubscriptionStream(make_stream([(0.02, item) for item in actual]))
+    await asyncio.sleep(0.05)
+    await assert_stream(
+        expected,
+        subs.subscribe(0.03, None, None))
+
+
+@pytest.mark.asyncio
+async def test_subscription_stream_cancel():
+    actual = [0, 1, 2, 3, 4, 5, 6, 7]
+    expected = [0, 1, (2, 3)]
+
+    subs = SubscriptionStream(make_stream([(0.02, item) for item in actual]))
+    await assert_stream(
+        expected,
+        streamcontext(subs.subscribe(0.03, None, None))[:3])
+
+    await asyncio.sleep(0.02)
