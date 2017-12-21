@@ -7,15 +7,29 @@ class SubscriptionStream(object):
 
     def __init__(self, stream):
         self._queues = []
-        self._poller = asyncio.ensure_future(self._input_poller(stream))
+        self._stream = stream
+        self._poller = None
+
+    async def __aenter__(self):
+        self._poller = asyncio.ensure_future(self._input_poller(self._stream))
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        self._poller.cancel()
+        try:
+            await self._poller
+        except asyncio.CancelledError:
+            pass
 
     async def _input_poller(self, stream):
-        async with streamcontext(stream) as streamer:
-            async for item in streamer:
-                for queue in self._queues:
-                    await queue.put(item)
-        for queue in self._queues:
-            await queue.put(self._EOF)
+        try:
+            async with streamcontext(stream) as streamer:
+                async for item in streamer:
+                    for queue in self._queues:
+                        await queue.put(item)
+        finally:
+            for queue in self._queues:
+                await queue.put(self._EOF)
 
     def subscribe(self, timeout=None, granularity=None, granularity_timeout=None):
         def sleep(timeout):
