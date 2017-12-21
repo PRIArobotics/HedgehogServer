@@ -24,23 +24,23 @@ async def assert_stream(expected, _stream):
         assert i == len(expected) - 1
 
 
-class TestSubscription(object):
-    @pytest.mark.asyncio
-    async def test_subscription_stream(self, event_loop):
-        actual = [0, 1, 2, 3, 4, 5, 6, 7]
-        expected = [0, 1, (2, 3), 4, (5, 6), 7]
+@pytest.mark.asyncio
+async def test_subscription_stream():
+    actual = [0, 1, 2, 3, 4, 5, 6, 7]
+    expected = [0, 1, (2, 3), 4, (5, 6), 7]
 
-        subs = SubscriptionStream(make_stream([(0.02, item) for item in actual]))
-        await assert_stream(
-            expected,
-            subs.subscribe(0.03, None, None))
+    subs = SubscriptionStream(make_stream([(0.02, item) for item in actual]))
+    await assert_stream(
+        expected,
+        subs.subscribe(0.03, None, None))
 
-    @pytest.mark.asyncio
-    async def test_subscription_stream_granularity(self, event_loop):
-        actual = [0, 1, 2, 1, 2, 1, 1, 0]
-        expected = [0, 2, 1, 0]
 
-        subs = SubscriptionStream(make_stream([(0.02, item) for item in actual]))
-        await assert_stream(
-            expected,
-            subs.subscribe(0.03, lambda a, b: abs(a - b) > 1, 0.09))
+@pytest.mark.asyncio
+async def test_subscription_stream_granularity():
+    actual = [0, 1, 2, 1, 2, 1, 1, 0]
+    expected = [0, 2, 1, 0]
+
+    subs = SubscriptionStream(make_stream([(0.02, item) for item in actual]))
+    await assert_stream(
+        expected,
+        subs.subscribe(0.03, lambda a, b: abs(a - b) > 1, 0.09))
