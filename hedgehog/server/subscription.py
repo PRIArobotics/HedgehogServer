@@ -1,7 +1,7 @@
 import asyncio
-from aiostream import streamcontext
+from aiostream import pipe, stream, streamcontext
 
-from hedgehog.utils.asyncio import Active
+from hedgehog.utils.asyncio import stream_from_queue, Active
 
 
 class SubscriptionStream(Active):
@@ -99,3 +99,19 @@ class SubscriptionStream(Active):
                 self._queues.remove(queue)
 
         return _stream()
+
+
+def polling_subscription_input(poll, interval_queue):
+    """
+    Returns a stream to use with `SubscriptionStream` based on the given polling function and queue of intervals.
+
+    The polling function may be asynchronous and returns a single value for the stream,
+    while the `interval_queue` is given intervals in which to perform the polling.
+    For example, by `put`ting `1` into the queue, the poll function will be subsequently called once per second,
+    by later `put`ting `2` into the queue, that interval is increased to two seconds.
+
+    An interval of zero means no timeout between `poll` calls, negative values pause polling.
+    No polling is also the default before any interval was `put` into the queue yet.
+    """
+    return stream_from_queue(interval_queue) | pipe.switchmap(
+        lambda interval: stream.never() if interval < 0 else stream.repeat((), interval=interval) | pipe.starmap(poll))

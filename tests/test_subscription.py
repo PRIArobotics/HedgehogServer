@@ -3,7 +3,8 @@ import pytest
 import asyncio.selector_events
 from aiostream import stream, streamcontext
 
-from hedgehog.server.subscription import SubscriptionStream
+from hedgehog.utils.asyncio import stream_from_queue
+from hedgehog.server.subscription import SubscriptionStream, polling_subscription_input
 
 
 async def make_stream(pairs):
@@ -67,3 +68,20 @@ async def test_subscription_stream_cancel():
         await assert_stream(
             expected,
             streamcontext(subs.subscribe(0.03, None, None))[:3])
+
+
+@pytest.mark.asyncio
+async def test_polling_subscription_input():
+    i = 0
+
+    async def poll():
+        nonlocal i
+        i += 1
+        return i
+
+    queue = asyncio.Queue()
+    await queue.put(0.01)
+    await assert_stream(
+        [1, 2, 3],
+        polling_subscription_input(poll, queue)[:3])
+
