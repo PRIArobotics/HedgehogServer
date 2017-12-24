@@ -1,10 +1,11 @@
 from typing import Any, Callable, Coroutine, Dict, Type
 
+import asyncio
 import logging
 import traceback
 import zmq.asyncio
-import aiostream.stream
-from hedgehog.utils.asyncio import Actor
+from aiostream import pipe
+from hedgehog.utils.asyncio import Actor, stream_from_queue
 from hedgehog.utils.zmq.poller import Poller
 from hedgehog.utils.zmq.socket import SocketLike
 from hedgehog.utils.zmq.timer import Timer
@@ -60,8 +61,9 @@ class HedgehogServer(Actor):
     async def run(self, cmd_pipe, evt_pipe):
         self.socket = DealerRouterSocket(self.ctx, zmq.ROUTER, side=ServerSide)
         self.socket.bind(self.endpoint)
-
         await evt_pipe.send(b'$START')
+
+        stream_queue = asyncio.Queue()
 
         async def commands():
             while True:
@@ -73,7 +75,11 @@ class HedgehogServer(Actor):
                 ident, msgs_raw = await self.socket.recv_msgs_raw()
                 yield (b'MSG', ident, msgs_raw)
 
-        async with aiostream.stream.merge(commands(), requests()).stream() as streamer:
+        await stream_queue.put(commands())
+        await stream_queue.put(requests())
+
+        events = stream_from_queue(stream_queue) | pipe.flatten()
+        async with events.stream() as streamer:
             async for cmd, *payload in streamer:
                 if cmd == b'$TERM':
                     break
