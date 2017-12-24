@@ -1,8 +1,23 @@
 import asyncio
 from aiostream import streamcontext
 
+from hedgehog.utils.asyncio import Active
 
-class SubscriptionStream(object):
+
+class SubscriptionStream(Active):
+    """
+    `SubscriptionStream` implements the behavior regarding timeout, granularity, and granularity timeout
+    described in subscription.proto.
+
+    SubscriptionStream polls a given input `stream` asynchronously; to manage this asynchronous polling,
+    this class is `Active`.
+    It forwards the input items to all output streams created with `subscribe`, if there are any.
+    Each subscribed stream then assesses what to do with that value according to its parameters.
+
+    A closed output stream will no longer receive items, and when the input stream terminates,
+    or the subscription stream is stopped as an `Active`, all output streams will eventually terminate as well.
+    """
+
     _EOF = object()
 
     def __init__(self, stream):
@@ -10,11 +25,10 @@ class SubscriptionStream(object):
         self._stream = stream
         self._poller = None
 
-    async def __aenter__(self):
+    async def start(self):
         self._poller = asyncio.ensure_future(self._input_poller(self._stream))
-        return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def stop(self):
         self._poller.cancel()
         try:
             await self._poller
