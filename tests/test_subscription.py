@@ -17,7 +17,7 @@ async def assert_stream(expected, _stream):
         i = -1
         async for i, item in streamer:
             exp = expected[i]
-            if isinstance(exp, tuple):
+            if isinstance(exp, set):
                 assert item in exp
             else:
                 assert item == exp
@@ -27,7 +27,7 @@ async def assert_stream(expected, _stream):
 @pytest.mark.asyncio
 async def test_subscription_stream():
     actual = [0, 1, 2, 3, 4, 5, 6, 7]
-    expected = [0, 1, (2, 3), 4, (5, 6), 7]
+    expected = [0, 1, {2, 3}, 4, {5, 6}, 7]
 
     async with SubscriptionStream(make_stream([(0.02, item) for item in actual])) as subs:
         await assert_stream(
@@ -49,7 +49,7 @@ async def test_subscription_stream_granularity():
 @pytest.mark.asyncio
 async def test_subscription_stream_delayed_subscribe():
     actual = [0, 1, 2, 3, 4, 5, 6, 7]
-    expected = [2, 3, (4, 5), 6, 7]
+    expected = [2, 3, {4, 5}, 6, 7]
 
     async with SubscriptionStream(make_stream([(0.02, item) for item in actual])) as subs:
         await asyncio.sleep(0.05)
@@ -61,7 +61,7 @@ async def test_subscription_stream_delayed_subscribe():
 @pytest.mark.asyncio
 async def test_subscription_stream_cancel():
     actual = [0, 1, 2, 3, 4, 5, 6, 7]
-    expected = [0, 1, (2, 3)]
+    expected = [0, 1, {2, 3}]
 
     async with SubscriptionStream(make_stream([(0.02, item) for item in actual])) as subs:
         await assert_stream(
