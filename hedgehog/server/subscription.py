@@ -4,12 +4,12 @@ from aiostream import pipe, stream
 from hedgehog.utils.asyncio import stream_from_queue
 
 
-class SubscriptionHandler(object):
+class SubscriptionStreamer(object):
     """
-    `SubscriptionHandler` implements the behavior regarding timeout, granularity, and granularity timeout
+    `SubscriptionStreamer` implements the behavior regarding timeout, granularity, and granularity timeout
     described in subscription.proto.
 
-    SubscriptionHandler receives updates via `send` and `close`
+    SubscriptionStreamer receives updates via `send` and `close`
     and forwards them to all output streams created with `subscribe`, if there are any.
     Each output stream then assesses whether and when to yield the update value, according to its parameters.
 

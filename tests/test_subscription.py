@@ -3,7 +3,7 @@ import asyncio.selector_events
 from aiostream import stream, streamcontext
 from aiostream.context_utils import async_context_manager
 
-from hedgehog.server.subscription import SubscriptionHandler, polling_subscription_input
+from hedgehog.server.subscription import SubscriptionStreamer, polling_subscription_input
 
 
 async def make_stream(pairs):
@@ -44,11 +44,11 @@ async def assert_stream(expected, _stream):
 
 
 @pytest.mark.asyncio
-async def test_subscription_stream():
+async def test_subscription_streamer():
     actual = [0, 1, 2, 3, 4, 5, 6, 7]
     expected = [0, 1, {2, 3}, 4, {5, 6}, 7]
 
-    subs = SubscriptionHandler()
+    subs = SubscriptionStreamer()
     async with do_stream(subs, make_stream([(0.02, item) for item in actual])):
         await assert_stream(
             expected,
@@ -56,11 +56,11 @@ async def test_subscription_stream():
 
 
 @pytest.mark.asyncio
-async def test_subscription_stream_granularity():
+async def test_subscription_streamer_granularity():
     actual = [0, 1, 2, 1, 2, 1, 1, 0]
     expected = [0, 2, 1, 0]
 
-    subs = SubscriptionHandler()
+    subs = SubscriptionStreamer()
     async with do_stream(subs, make_stream([(0.02, item) for item in actual])):
         await assert_stream(
             expected,
@@ -68,11 +68,11 @@ async def test_subscription_stream_granularity():
 
 
 @pytest.mark.asyncio
-async def test_subscription_stream_delayed_subscribe():
+async def test_subscription_streamer_delayed_subscribe():
     actual = [0, 1, 2, 3, 4, 5, 6, 7]
     expected = [2, 3, {4, 5}, 6, 7]
 
-    subs = SubscriptionHandler()
+    subs = SubscriptionStreamer()
     async with do_stream(subs, make_stream([(0.02, item) for item in actual])):
         await asyncio.sleep(0.05)
         await assert_stream(
@@ -81,11 +81,11 @@ async def test_subscription_stream_delayed_subscribe():
 
 
 @pytest.mark.asyncio
-async def test_subscription_stream_cancel():
+async def test_subscription_streamer_cancel():
     actual = [0, 1, 2, 3, 4, 5, 6, 7]
     expected = [0, 1, {2, 3}]
 
-    subs = SubscriptionHandler()
+    subs = SubscriptionStreamer()
     async with do_stream(subs, make_stream([(0.02, item) for item in actual])):
         await assert_stream(
             expected,
