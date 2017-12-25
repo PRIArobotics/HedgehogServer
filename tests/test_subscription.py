@@ -1,16 +1,34 @@
-
 import pytest
 import asyncio.selector_events
 from aiostream import stream, streamcontext
+from aiostream.context_utils import async_context_manager
 
-from hedgehog.utils.asyncio import stream_from_queue
-from hedgehog.server.subscription import SubscriptionStream, polling_subscription_input
+from hedgehog.server.subscription import SubscriptionHandler, polling_subscription_input
 
 
 async def make_stream(pairs):
     for delay, item in pairs:
         await asyncio.sleep(delay)
         yield item
+
+
+@async_context_manager
+async def do_stream(subs, _stream):
+    async def the_stream():
+        async with streamcontext(_stream) as streamer:
+            async for item in streamer:
+                await subs.send(item)
+        await subs.close()
+
+    task = asyncio.ensure_future(the_stream())
+    try:
+        yield
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 async def assert_stream(expected, _stream):
@@ -30,7 +48,8 @@ async def test_subscription_stream():
     actual = [0, 1, 2, 3, 4, 5, 6, 7]
     expected = [0, 1, {2, 3}, 4, {5, 6}, 7]
 
-    async with SubscriptionStream(make_stream([(0.02, item) for item in actual])) as subs:
+    subs = SubscriptionHandler()
+    async with do_stream(subs, make_stream([(0.02, item) for item in actual])):
         await assert_stream(
             expected,
             subs.subscribe(0.03, None, None))
@@ -41,7 +60,8 @@ async def test_subscription_stream_granularity():
     actual = [0, 1, 2, 1, 2, 1, 1, 0]
     expected = [0, 2, 1, 0]
 
-    async with SubscriptionStream(make_stream([(0.02, item) for item in actual])) as subs:
+    subs = SubscriptionHandler()
+    async with do_stream(subs, make_stream([(0.02, item) for item in actual])):
         await assert_stream(
             expected,
             subs.subscribe(0.03, lambda a, b: abs(a - b) > 1, 0.09))
@@ -52,7 +72,8 @@ async def test_subscription_stream_delayed_subscribe():
     actual = [0, 1, 2, 3, 4, 5, 6, 7]
     expected = [2, 3, {4, 5}, 6, 7]
 
-    async with SubscriptionStream(make_stream([(0.02, item) for item in actual])) as subs:
+    subs = SubscriptionHandler()
+    async with do_stream(subs, make_stream([(0.02, item) for item in actual])):
         await asyncio.sleep(0.05)
         await assert_stream(
             expected,
@@ -64,7 +85,8 @@ async def test_subscription_stream_cancel():
     actual = [0, 1, 2, 3, 4, 5, 6, 7]
     expected = [0, 1, {2, 3}]
 
-    async with SubscriptionStream(make_stream([(0.02, item) for item in actual])) as subs:
+    subs = SubscriptionHandler()
+    async with do_stream(subs, make_stream([(0.02, item) for item in actual])):
         await assert_stream(
             expected,
             streamcontext(subs.subscribe(0.03, None, None))[:3])

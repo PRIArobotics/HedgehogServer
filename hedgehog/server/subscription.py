@@ -1,49 +1,34 @@
 import asyncio
-from aiostream import pipe, stream, streamcontext
+from aiostream import pipe, stream
 
-from hedgehog.utils.asyncio import stream_from_queue, Active
+from hedgehog.utils.asyncio import stream_from_queue
 
 
-class SubscriptionStream(Active):
+class SubscriptionHandler(object):
     """
-    `SubscriptionStream` implements the behavior regarding timeout, granularity, and granularity timeout
+    `SubscriptionHandler` implements the behavior regarding timeout, granularity, and granularity timeout
     described in subscription.proto.
 
-    SubscriptionStream polls a given input `stream` asynchronously; to manage this asynchronous polling,
-    this class is `Active`.
-    It forwards the input items to all output streams created with `subscribe`, if there are any.
-    Each subscribed stream then assesses what to do with that value according to its parameters.
+    SubscriptionHandler receives updates via `send` and `close`
+    and forwards them to all output streams created with `subscribe`, if there are any.
+    Each output stream then assesses whether and when to yield the update value, according to its parameters.
 
-    A closed output stream will no longer receive items, and when the input stream terminates,
-    or the subscription stream is stopped as an `Active`, all output streams will eventually terminate as well.
+    A closed output stream will no longer receive items, and when `close` is called,
+    all output streams will eventually terminate as well.
     """
 
     _EOF = object()
 
-    def __init__(self, stream):
+    def __init__(self):
         self._queues = []
-        self._stream = stream
-        self._poller = None
 
-    async def start(self):
-        self._poller = asyncio.ensure_future(self._input_poller(self._stream))
+    async def send(self, item):
+        for queue in self._queues:
+            await queue.put(item)
 
-    async def stop(self):
-        self._poller.cancel()
-        try:
-            await self._poller
-        except asyncio.CancelledError:
-            pass
-
-    async def _input_poller(self, stream):
-        try:
-            async with streamcontext(stream) as streamer:
-                async for item in streamer:
-                    for queue in self._queues:
-                        await queue.put(item)
-        finally:
-            for queue in self._queues:
-                await queue.put(self._EOF)
+    async def close(self):
+        for queue in self._queues:
+            await queue.put(self._EOF)
 
     def subscribe(self, timeout=None, granularity=None, granularity_timeout=None):
         def sleep(timeout):
@@ -103,8 +88,11 @@ class SubscriptionStream(Active):
 
 def polling_subscription_input(poll, interval_queue):
     """
-    Returns a stream to use with `SubscriptionStream` based on the given polling function and queue of intervals.
+    Returns a stream useful for poll based subscriptions.
+    To support subscriptions of different frequencies, either the polling interval needs to be pessimistically small,
+    or slower-than-promised updates must be accepted, or the polling interval needs to be flexible.
 
+    `polling_subscription_input` implements flexible polling timeouts.
     The polling function may be asynchronous and returns a single value for the stream,
     while the `interval_queue` is given intervals in which to perform the polling.
     For example, by `put`ting `1` into the queue, the poll function will be subsequently called once per second,
