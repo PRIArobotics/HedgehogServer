@@ -34,6 +34,9 @@ class SubscriptionHandler(object):
         def sleep(timeout):
             return asyncio.ensure_future(asyncio.sleep(timeout)) if timeout is not None else None
 
+        if granularity is None:
+            granularity = lambda a, b: a != b
+
         queue = asyncio.Queue()
         self._queues.append(queue)
 
@@ -66,7 +69,7 @@ class SubscriptionHandler(object):
                         t_granularity_timeout = None
 
                     if new_value is not None and t_timeout is None:
-                        granularity_check = granularity is None or old_value is None or granularity(old_value[0], new_value[0])
+                        granularity_check = old_value is None or granularity(old_value[0], new_value[0])
                         granularity_timeout_check = granularity_timeout is not None and t_granularity_timeout is None
                         if granularity_check or granularity_timeout_check:
                             if t_granularity_timeout is not None:
