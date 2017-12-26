@@ -1,4 +1,4 @@
-from typing import cast, Any, Dict, Tuple, Type
+from typing import Any, Dict, Tuple, Type
 
 import itertools
 import math
@@ -10,6 +10,7 @@ from hedgehog.protocol.proto.subscription_pb2 import Subscription
 from hedgehog.utils.zmq.timer import TimerDefinition
 
 from . import CommandHandler, command_handlers
+from .. import subscription
 from ..hardware import HardwareAdapter
 from ..hedgehog_server import HedgehogServer
 
@@ -184,32 +185,26 @@ class _HWHandler(object):
 
 
 class _IOHandler(_HWHandler):
-    def __command_subscription_manager(self) -> SubscriptionManager:
+    def __command_subscribable(self) -> subscription.TriggeredSubscribable:
         outer_self = self
 
-        class Info(CommandSubscriptionInfo):
-            @property
-            def command(self):
-                return outer_self.command
+        class Subs(subscription.TriggeredSubscribable):
+            def compose_update(self, server: HedgehogServer, ident: Header, subscription: Subscription, flags: int):
+                return io.CommandUpdate(outer_self.port, flags, subscription)
 
-            def send_update(self, command):
-                flags, = command
-                self.send_async(io.CommandUpdate(outer_self.port, flags, self.subscription))
+        return Subs()
 
-        return SubscriptionManager(Info)
-
-    def __analog_subscription_manager(self) -> SubscriptionManager:
+    def __analog_subscribable(self) -> subscription.PolledSubscribable:
         outer_self = self
 
-        class Info(SensorSubscriptionInfo):
-            @property
-            def value(self):
-                return outer_self.analog_value
+        class Subs(subscription.PolledSubscribable):
+            async def poll(self):
+                return await outer_self.analog_value
 
-            def send_update(self, value):
-                self.send_async(analog.Update(outer_self.port, value, self.subscription))
+            def compose_update(self, server: HedgehogServer, ident: Header, subscription: Subscription, value: int):
+                return analog.Update(outer_self.port, value, subscription)
 
-        return SubscriptionManager(Info)
+        return Subs()
 
     def __digital_subscription_manager(self) -> SubscriptionManager:
         outer_self = self
@@ -228,16 +223,15 @@ class _IOHandler(_HWHandler):
         super(_IOHandler, self).__init__(adapter)
         self.port = port
         self.command = None  # type: Tuple[int]
+        self._command = self.__command_subscribable()
+        self._analog_value = self.__analog_subscribable()
 
-        self.subscription_managers[io.CommandSubscribe] = self.__command_subscription_manager()
-        self.subscription_managers[analog.Subscribe] = self.__analog_subscription_manager()
         self.subscription_managers[digital.Subscribe] = self.__digital_subscription_manager()
 
     async def action(self, flags: int) -> None:
         await self.adapter.set_io_state(self.port, flags)
+        await self._command.update(flags)
         self.command = flags,
-        for info in self.subscription_managers[io.CommandSubscribe].subscriptions.values():
-            cast(CommandSubscriptionInfo, info).schedule_update()
 
     @property
     async def analog_value(self) -> int:
@@ -345,7 +339,7 @@ class HardwareHandler(CommandHandler):
         # self.adapter.motor_state_update_cb = self.motor_state_update
 
     @_command(io.Action)
-    async def analog_state_action(self, server, ident, msg):
+    async def io_state_action(self, server, ident, msg):
         await self.ios[msg.port].action(msg.flags)
         return ack.Acknowledgement()
 
@@ -361,7 +355,8 @@ class HardwareHandler(CommandHandler):
 
     @_command(io.CommandSubscribe)
     async def io_command_subscribe(self, server, ident, msg):
-        self.ios[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
+        # self.ios[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
+        await self.ios[msg.port]._command.subscribe(server, ident, msg.subscription)
         return ack.Acknowledgement()
 
     @_command(analog.Request)
@@ -371,7 +366,8 @@ class HardwareHandler(CommandHandler):
 
     @_command(analog.Subscribe)
     async def analog_command_subscribe(self, server, ident, msg):
-        self.ios[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
+        # self.ios[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
+        await self.ios[msg.port]._analog_value.subscribe(server, ident, msg.subscription)
         return ack.Acknowledgement()
 
     @_command(digital.Request)

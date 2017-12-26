@@ -159,27 +159,30 @@ async def test_io(event_loop):
 
         await assertReplyDealer(socket, io.CommandRequest(0), io.CommandReply(0, io.INPUT_PULLDOWN))
 
-        # # ### io.CommandSubscribe
-        #
-        # sub = Subscription()
-        # sub.subscribe = False
-        # sub.timeout = 10
-        # await assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.FAILED_COMMAND)
-        #
-        # sub = Subscription()
-        # sub.subscribe = True
-        # sub.timeout = 10
-        # await assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
-        #
-        # # check immediate update
-        # assert socket.poll(5) == zmq.POLLIN
-        # _, response = socket.recv_msg()
-        # assert response == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
-        #
-        # sub = Subscription()
-        # sub.subscribe = False
-        # sub.timeout = 10
-        # await assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
+        # ### io.CommandSubscribe
+
+        sub = Subscription()
+        sub.subscribe = False
+        sub.timeout = 10
+        await assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.FAILED_COMMAND)
+
+        sub = Subscription()
+        sub.subscribe = True
+        await assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
+
+        await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
+
+        _, response = await socket.recv_msg()
+        assert response == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
+
+        await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLUP), ack.Acknowledgement())
+
+        _, response = await socket.recv_msg()
+        assert response == io.CommandUpdate(0, io.INPUT_PULLUP, sub)
+
+        sub = Subscription()
+        sub.subscribe = False
+        await assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
 
 
 # def test_command_subscription(self):
@@ -249,37 +252,38 @@ async def test_io(event_loop):
 #
 #         # cancel original subscription
 #         assertReplyDealer(socket, io.CommandSubscribe(0, unsub), ack.Acknowledgement())
-#
-#
-# def test_analog(self):
-#     with connectSimulatorDealer() as socket:
-#         # ### analog.Request
-#
-#         assertReplyDealer(socket, analog.Request(0), analog.Reply(0, 0))
-#
-#         # ### analog.Subscribe
-#
-#         sub = Subscription()
-#         sub.subscribe = False
-#         sub.timeout = 10
-#         assertReplyDealer(socket, analog.Subscribe(0, sub), ack.FAILED_COMMAND)
-#
-#         sub = Subscription()
-#         sub.subscribe = True
-#         sub.timeout = 10
-#         assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
-#
-#         # check immediate update
-#         assert socket.poll(5) == zmq.POLLIN
-#         _, response = socket.recv_msg()
-#         assert response == analog.Update(0, 0, sub)
-#
-#         sub = Subscription()
-#         sub.subscribe = False
-#         sub.timeout = 10
-#         assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
-#
-#
+
+
+@pytest.mark.asyncio
+async def test_analog(event_loop):
+    async with connectSimulatorDealer() as socket:
+        # ### analog.Request
+
+        await assertReplyDealer(socket, analog.Request(0), analog.Reply(0, 0))
+
+        # ### analog.Subscribe
+
+        sub = Subscription()
+        sub.subscribe = False
+        sub.timeout = 10
+        await assertReplyDealer(socket, analog.Subscribe(0, sub), ack.FAILED_COMMAND)
+
+        sub = Subscription()
+        sub.subscribe = True
+        sub.timeout = 10
+        await assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
+
+        # # check immediate update
+        # assert socket.poll(5) == zmq.POLLIN
+        _, response = await socket.recv_msg()
+        assert response == analog.Update(0, 0, sub)
+
+        sub = Subscription()
+        sub.subscribe = False
+        sub.timeout = 10
+        await assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
+
+
 # def test_sensor_subscription(self):
 #     with connectSimulatorDealer() as socket:
 #         sub = Subscription()

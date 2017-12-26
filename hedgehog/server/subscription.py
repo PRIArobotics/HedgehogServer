@@ -1,6 +1,8 @@
 import asyncio
-from aiostream import pipe, stream
+import functools
+from aiostream import pipe, stream, streamcontext
 
+from hedgehog.protocol.errors import FailedCommandError
 from hedgehog.utils.asyncio import stream_from_queue
 
 
@@ -106,3 +108,99 @@ def polling_subscription_input(poll, interval_queue):
     """
     return stream_from_queue(interval_queue) | pipe.switchmap(
         lambda interval: stream.never() if interval < 0 else stream.repeat((), interval=interval) | pipe.starmap(poll))
+
+
+class Subscribable(object):
+    def compose_update(self, server, ident, subscription, value):
+        raise NotImplementedError()  # pragma: no cover
+
+
+class TriggeredSubscribable(Subscribable):
+    """
+    Represents a value that changes by triggers known to the server, so it doesn't need to be actively polled.
+    """
+
+    def __init__(self) -> None:
+        self.streamer = SubscriptionStreamer()
+        self.subscriptions = {}
+
+    async def update(self, value):
+        await self.streamer.send(value)
+
+    async def subscribe(self, server, ident, subscription):
+        # TODO incomplete
+        key = (ident, subscription.timeout)
+
+        if subscription.subscribe:
+            if key not in self.subscriptions:
+                updates = streamcontext(self.streamer.subscribe(subscription.timeout / 1000))
+                updates |= pipe.map(lambda value:
+                                    server.send_async(ident, self.compose_update(server, ident, subscription, value)))
+                await server.register(updates)
+
+                self.subscriptions[key] = 1
+            else:
+                self.subscriptions[key] += 1
+        else:
+            try:
+                self.subscriptions[key] -= 1
+                if self.subscriptions[key] == 0:
+                    del self.subscriptions[key]
+            except KeyError:
+                raise FailedCommandError("can't cancel nonexistent subscription")
+
+
+class PolledSubscribable(Subscribable):
+    """
+    Represents a value that changes by independently from the server, so it is polled to observe changes.
+    """
+
+    def __init__(self) -> None:
+        self.streamer = SubscriptionStreamer()
+        self.intervals = asyncio.Queue()
+        self.subscriptions = {}
+        self.timeouts = set()
+        self._registered = False
+
+    async def poll(self):
+        raise NotImplementedError()  # pragma: no cover
+
+    async def register(self, server):
+        if not self._registered:
+            async def do_poll():
+                await self.streamer.send(await self.poll())
+            # do_poll is wrapped in partial so that it's treated as a regular (not async) function;
+            # we want to yield the awaitable, not its result
+            await server.register(polling_subscription_input(functools.partial(do_poll), self.intervals))
+            self._registered = True
+
+    async def subscribe(self, server, ident, subscription):
+        await self.register(server)
+
+        # TODO incomplete
+        key = (ident, subscription.timeout)
+
+        if subscription.subscribe:
+            if key not in self.subscriptions:
+                updates = streamcontext(self.streamer.subscribe(subscription.timeout / 1000))
+                updates |= pipe.map(lambda value:
+                                    server.send_async(ident, self.compose_update(server, ident, subscription, value)))
+                await server.register(updates)
+
+                self.timeouts.add(subscription.timeout)
+                await self.intervals.put(min(self.timeouts))
+
+                self.subscriptions[key] = 1
+            else:
+                self.subscriptions[key] += 1
+        else:
+            try:
+                self.subscriptions[key] -= 1
+                if self.subscriptions[key] == 0:
+                    del self.subscriptions[key]
+
+                    self.timeouts.remove(subscription.timeout)
+                    await self.intervals.put(min(self.timeouts, default=-1))
+
+            except KeyError:
+                raise FailedCommandError("can't cancel nonexistent subscription")
