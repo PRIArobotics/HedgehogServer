@@ -81,6 +81,8 @@ class HedgehogServer(Actor):
         events = stream_from_queue(stream_queue) | pipe.flatten()
         async with events.stream() as streamer:
             async for cmd, *payload in streamer:
+                begin = asyncio.get_event_loop().time()
+
                 if cmd == b'EVENT':
                     awaitable, = payload
                     await awaitable
@@ -89,5 +91,10 @@ class HedgehogServer(Actor):
                     await stream_queue.put(streamcontext(stream) | pipe.map(lambda item: (b'EVENT', item)))
                 elif cmd == b'$TERM':
                     break
+
+                end = asyncio.get_event_loop().time()
+                if end - begin > 0.1:
+                    logger.warning("long running (%.1f ms) handler on server loop: %s %s",
+                                   (end-begin) * 1000, cmd, payload)
 
         self.socket.close()
