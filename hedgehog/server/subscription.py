@@ -187,7 +187,7 @@ class PolledSubscribable(Subscribable):
                                     server.send_async(ident, self.compose_update(server, ident, subscription, value)))
                 await server.register(updates)
 
-                self.timeouts.add(subscription.timeout)
+                self.timeouts.add(subscription.timeout / 1000)
                 await self.intervals.put(min(self.timeouts))
 
                 self.subscriptions[key] = 1
@@ -199,7 +199,7 @@ class PolledSubscribable(Subscribable):
                 if self.subscriptions[key] == 0:
                     del self.subscriptions[key]
 
-                    self.timeouts.remove(subscription.timeout)
+                    self.timeouts.remove(subscription.timeout / 1000)
                     await self.intervals.put(min(self.timeouts, default=-1))
 
             except KeyError:
