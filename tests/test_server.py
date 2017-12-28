@@ -1,7 +1,9 @@
 from typing import Any, Callable, Dict, List, Tuple, Type, Union
 
 import pytest
-import asyncio.selector_events
+from hedgehog.utils.test_utils import event_loop, assertTimeout, assertImmediate
+
+import asyncio
 import zmq.asyncio
 import signal
 import time
@@ -18,12 +20,8 @@ from hedgehog.server.handlers.process import ProcessHandler
 from hedgehog.server.hardware.simulated import SimulatedHardwareAdapter
 
 
-@pytest.fixture
-def event_loop():
-    loop = zmq.asyncio.ZMQEventLoop()
-    asyncio.set_event_loop(loop)
-    yield loop
-    loop.close()
+# Pytest fixtures
+event_loop
 
 
 def handler() -> handlers.HandlerCallbackDict:
@@ -95,8 +93,9 @@ async def assertReplyReq(socket, req: Message,
                    rep: Union[int, type, Message, Callable[[Message], None]], **kwargs) -> Message:
     check = _check(rep, **kwargs)
 
-    await socket.send_msg(req)
-    response = await socket.recv_msg()
+    with assertImmediate():
+        await socket.send_msg(req)
+        response = await socket.recv_msg()
     check(response)
     return response
 
@@ -105,8 +104,9 @@ async def assertReplyDealer(socket, req: Message,
                       rep: Union[int, type, Message, Callable[[Message], None]], **kwargs) -> Message:
     check = _check(rep, **kwargs)
 
-    await socket.send_msg([], req)
-    _, response = await socket.recv_msg()
+    with assertImmediate():
+        await socket.send_msg([], req)
+        _, response = await socket.recv_msg()
     check(response)
     return response
 
@@ -114,8 +114,9 @@ async def assertReplyDealer(socket, req: Message,
 @pytest.mark.asyncio
 async def test_multipart(event_loop):
     async with connectSimulatorReq() as socket:
-        await socket.send_msgs([analog.Request(0), digital.Request(0)])
-        update = await socket.recv_msgs()
+        with assertImmediate():
+            await socket.send_msgs([analog.Request(0), digital.Request(0)])
+            update = await socket.recv_msgs()
         assert update[0] == analog.Reply(0, 0)
         assert update[1] == digital.Reply(0, False)
 
@@ -163,22 +164,26 @@ async def test_io(event_loop):
 
         sub = Subscription()
         sub.subscribe = False
-        sub.timeout = 10
+        sub.timeout = 1000
         await assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.FAILED_COMMAND)
 
         sub = Subscription()
         sub.subscribe = True
         await assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
 
-        await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
+        await assertTimeout(socket.recv_multipart(), 1)
 
-        _, response = await socket.recv_msg()
-        assert response == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
+        with assertImmediate():
+            await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
 
-        await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLUP), ack.Acknowledgement())
+            _, response = await socket.recv_msg()
+            assert response == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
 
-        _, response = await socket.recv_msg()
-        assert response == io.CommandUpdate(0, io.INPUT_PULLUP, sub)
+        with assertImmediate():
+            await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLUP), ack.Acknowledgement())
+
+            _, response = await socket.recv_msg()
+            assert response == io.CommandUpdate(0, io.INPUT_PULLUP, sub)
 
         sub = Subscription()
         sub.subscribe = False
@@ -265,22 +270,21 @@ async def test_analog(event_loop):
 
         sub = Subscription()
         sub.subscribe = False
-        sub.timeout = 10
+        sub.timeout = 1000
         await assertReplyDealer(socket, analog.Subscribe(0, sub), ack.FAILED_COMMAND)
 
-        sub = Subscription()
-        sub.subscribe = True
-        sub.timeout = 10
-        await assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
+        with assertImmediate():
+            sub = Subscription()
+            sub.subscribe = True
+            sub.timeout = 1000
+            await assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
 
-        # # check immediate update
-        # assert socket.poll(5) == zmq.POLLIN
-        _, response = await socket.recv_msg()
-        assert response == analog.Update(0, 0, sub)
+            _, response = await socket.recv_msg()
+            assert response == analog.Update(0, 0, sub)
 
         sub = Subscription()
         sub.subscribe = False
-        sub.timeout = 10
+        sub.timeout = 1000
         await assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
 
 
