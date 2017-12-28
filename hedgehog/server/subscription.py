@@ -51,7 +51,8 @@ class SubscriptionStreamer(object):
             new_value = None
 
             try:
-                while t_item is not None or t_timeout is not None or t_granularity_timeout is not None:
+                while t_item is not None or (new_value is not None and
+                                             (t_timeout is not None or t_granularity_timeout is not None)):
                     done, pending = await asyncio.wait(
                         [t for t in (t_item, t_timeout, t_granularity_timeout) if t is not None],
                         return_when=asyncio.FIRST_COMPLETED)
