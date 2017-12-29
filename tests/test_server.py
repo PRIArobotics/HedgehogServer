@@ -339,35 +339,35 @@ async def test_sensor_subscription():
         await assertTimeout(socket.recv_multipart(), 2)
 
 
-# def test_digital(self):
-#     with connectSimulatorDealer() as socket:
-#         # ### digital.Request
-#
-#         assertReplyDealer(socket, digital.Request(0), digital.Reply(0, False))
-#
-#         # ### digital.Subscribe
-#
-#         sub = Subscription()
-#         sub.subscribe = False
-#         sub.timeout = 10
-#         assertReplyDealer(socket, digital.Subscribe(0, sub), ack.FAILED_COMMAND)
-#
-#         sub = Subscription()
-#         sub.subscribe = True
-#         sub.timeout = 10
-#         assertReplyDealer(socket, digital.Subscribe(0, sub), ack.Acknowledgement())
-#
-#         # check immediate update
-#         assert socket.poll(5) == zmq.POLLIN
-#         _, response = socket.recv_msg()
-#         assert response == digital.Update(0, False, sub)
-#
-#         sub = Subscription()
-#         sub.subscribe = False
-#         sub.timeout = 10
-#         assertReplyDealer(socket, digital.Subscribe(0, sub), ack.Acknowledgement())
-#
-#
+@pytest.mark.asyncio
+async def test_digital():
+    async with connectSimulatorDealer() as socket:
+        # ### digital.Request
+
+        await assertReplyDealer(socket, digital.Request(0), digital.Reply(0, False))
+
+        # ### digital.Subscribe
+
+        sub = Subscription()
+        sub.subscribe = False
+        sub.timeout = 1000
+        await assertReplyDealer(socket, digital.Subscribe(0, sub), ack.FAILED_COMMAND)
+
+        with assertImmediate():
+            sub = Subscription()
+            sub.subscribe = True
+            sub.timeout = 1000
+            await assertReplyDealer(socket, digital.Subscribe(0, sub), ack.Acknowledgement())
+
+            _, response = await socket.recv_msg()
+            assert response == digital.Update(0, False, sub)
+
+        sub = Subscription()
+        sub.subscribe = False
+        sub.timeout = 1000
+        await assertReplyDealer(socket, digital.Subscribe(0, sub), ack.Acknowledgement())
+
+
 # def test_motor(self):
 #     with connectSimulatorDealer() as socket:
 #         # ### motor.CommandRequest

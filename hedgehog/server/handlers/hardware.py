@@ -206,18 +206,17 @@ class _IOHandler(_HWHandler):
 
         return Subs()
 
-    def __digital_subscription_manager(self) -> SubscriptionManager:
+    def __digital_subscribable(self) -> subscription.PolledSubscribable:
         outer_self = self
 
-        class Info(SensorSubscriptionInfo):
-            @property
-            def value(self):
-                return outer_self.digital_value
+        class Subs(subscription.PolledSubscribable):
+            async def poll(self):
+                return await outer_self.digital_value
 
-            def send_update(self, value):
-                self.send_async(digital.Update(outer_self.port, value, self.subscription))
+            def compose_update(self, server: HedgehogServer, ident: Header, subscription: Subscription, value: bool):
+                return digital.Update(outer_self.port, value, subscription)
 
-        return SubscriptionManager(Info)
+        return Subs()
 
     def __init__(self, adapter: HardwareAdapter, port: int) -> None:
         super(_IOHandler, self).__init__(adapter)
@@ -225,8 +224,7 @@ class _IOHandler(_HWHandler):
         self.command = None  # type: Tuple[int]
         self._command = self.__command_subscribable()
         self._analog_value = self.__analog_subscribable()
-
-        self.subscription_managers[digital.Subscribe] = self.__digital_subscription_manager()
+        self._digital_value = self.__digital_subscribable()
 
     async def action(self, flags: int) -> None:
         await self.adapter.set_io_state(self.port, flags)
@@ -366,7 +364,6 @@ class HardwareHandler(CommandHandler):
 
     @_command(analog.Subscribe)
     async def analog_command_subscribe(self, server, ident, msg):
-        # self.ios[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
         await self.ios[msg.port]._analog_value.subscribe(server, ident, msg.subscription)
         return ack.Acknowledgement()
 
@@ -377,7 +374,7 @@ class HardwareHandler(CommandHandler):
 
     @_command(digital.Subscribe)
     async def digital_command_subscribe(self, server, ident, msg):
-        self.ios[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
+        await self.ios[msg.port]._digital_value.subscribe(server, ident, msg.subscription)
         return ack.Acknowledgement()
 
     @_command(motor.Action)
