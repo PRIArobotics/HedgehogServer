@@ -112,8 +112,31 @@ def polling_subscription_input(poll, interval_queue):
 
 
 class Subscribable(object):
+    def __init__(self):
+        self.streamer = SubscriptionStreamer()
+        self.subscriptions = {}
+
     def compose_update(self, server, ident, subscription, value):
         raise NotImplementedError()  # pragma: no cover
+
+
+class SubscriptionHandle(object):
+    def __init__(self, do_subscribe):
+        self._do_subscribe = do_subscribe
+        self.count = 0
+        self._updates = None
+
+    async def increment(self):
+        if self.count == 0:
+            self._updates = await self._do_subscribe()
+            # await self._do_subscribe()
+        self.count += 1
+
+    async def decrement(self):
+        self.count -= 1
+        if self.count == 0:
+            await self._updates.aclose()
+            self._updates = None
 
 
 class TriggeredSubscribable(Subscribable):
@@ -122,8 +145,7 @@ class TriggeredSubscribable(Subscribable):
     """
 
     def __init__(self) -> None:
-        self.streamer = SubscriptionStreamer()
-        self.subscriptions = {}
+        super(TriggeredSubscribable, self).__init__()
 
     async def update(self, value):
         await self.streamer.send(value)
@@ -134,21 +156,27 @@ class TriggeredSubscribable(Subscribable):
 
         if subscription.subscribe:
             if key not in self.subscriptions:
-                updates = streamcontext(self.streamer.subscribe(subscription.timeout / 1000))
-                updates |= pipe.map(lambda value:
-                                    server.send_async(ident, self.compose_update(server, ident, subscription, value)))
-                await server.register(updates)
-
-                self.subscriptions[key] = 1
+                async def do_subscribe():
+                    updates = streamcontext(self.streamer.subscribe(subscription.timeout / 1000))
+                    updates |= pipe.map(lambda value:
+                                        server.send_async(ident, self.compose_update(server, ident, subscription, value)))
+                    updates = streamcontext(updates)
+                    await server.register(updates)
+                    return updates
+                handle = self.subscriptions[key] = SubscriptionHandle(do_subscribe)
             else:
-                self.subscriptions[key] += 1
+                handle = self.subscriptions[key]
+
+            await handle.increment()
         else:
             try:
-                self.subscriptions[key] -= 1
-                if self.subscriptions[key] == 0:
-                    del self.subscriptions[key]
+                handle = self.subscriptions[key]
             except KeyError:
                 raise FailedCommandError("can't cancel nonexistent subscription")
+            else:
+                await handle.decrement()
+                if handle.count == 0:
+                    del self.subscriptions[key]
 
 
 class PolledSubscribable(Subscribable):
@@ -157,9 +185,8 @@ class PolledSubscribable(Subscribable):
     """
 
     def __init__(self) -> None:
-        self.streamer = SubscriptionStreamer()
+        super(PolledSubscribable, self).__init__()
         self.intervals = asyncio.Queue()
-        self.subscriptions = {}
         self.timeouts = set()
         self._registered = False
 
@@ -183,25 +210,32 @@ class PolledSubscribable(Subscribable):
 
         if subscription.subscribe:
             if key not in self.subscriptions:
-                updates = streamcontext(self.streamer.subscribe(subscription.timeout / 1000))
-                updates |= pipe.map(lambda value:
-                                    server.send_async(ident, self.compose_update(server, ident, subscription, value)))
-                await server.register(updates)
+                async def do_subscribe():
+                    updates = streamcontext(self.streamer.subscribe(subscription.timeout / 1000))
+                    updates |= pipe.map(lambda value:
+                                        server.send_async(ident, self.compose_update(server, ident, subscription, value)))
+                    updates = streamcontext(updates)
+                    await server.register(updates)
 
-                self.timeouts.add(subscription.timeout / 1000)
-                await self.intervals.put(min(self.timeouts))
+                    self.timeouts.add(subscription.timeout / 1000)
+                    await self.intervals.put(min(self.timeouts))
 
-                self.subscriptions[key] = 1
+                    return updates
+
+                handle = self.subscriptions[key] = SubscriptionHandle(do_subscribe)
             else:
-                self.subscriptions[key] += 1
+                handle = self.subscriptions[key]
+
+            await handle.increment()
         else:
             try:
-                self.subscriptions[key] -= 1
-                if self.subscriptions[key] == 0:
-                    del self.subscriptions[key]
-
+                handle = self.subscriptions[key]
+            except KeyError:
+                raise FailedCommandError("can't cancel nonexistent subscription")
+            else:
+                await handle.decrement()
+                if handle.count == 0:
                     self.timeouts.remove(subscription.timeout / 1000)
                     await self.intervals.put(min(self.timeouts, default=-1))
 
-            except KeyError:
-                raise FailedCommandError("can't cancel nonexistent subscription")
+                    del self.subscriptions[key]

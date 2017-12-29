@@ -259,6 +259,12 @@ async def test_command_subscription():
         # cancel original subscription
         await assertReplyDealer(socket, io.CommandSubscribe(0, unsub), ack.Acknowledgement())
 
+        # change command value
+        await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
+
+        # check there is no update, even after a time
+        await assertTimeout(socket.recv_multipart(), 2)
+
 
 @pytest.mark.asyncio
 async def test_analog():
