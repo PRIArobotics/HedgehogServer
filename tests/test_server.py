@@ -17,22 +17,23 @@ from hedgehog.server import handlers, HedgehogServer
 from hedgehog.server.process import Process
 from hedgehog.server.handlers.hardware import HardwareHandler
 from hedgehog.server.handlers.process import ProcessHandler
-from hedgehog.server.hardware.simulated import SimulatedHardwareAdapter
+from hedgehog.server.hardware import HardwareAdapter
+from hedgehog.server.hardware.mocked import MockedHardwareAdapter
 
 
 # Pytest fixtures
 event_loop
 
 
-def handler() -> handlers.HandlerCallbackDict:
-    adapter = SimulatedHardwareAdapter()
+def handler(adapter: HardwareAdapter=None) -> handlers.HandlerCallbackDict:
+    if adapter is None:
+        adapter = MockedHardwareAdapter()
     return handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
 
 
 @async_context_manager
-async def connectSimulatorReq(handlers: handlers.HandlerCallbackDict=None):
-    if handlers is None:
-        handlers = handler()
+async def connectSimulatorReq(adapter: HardwareAdapter=None):
+    handlers = handler(adapter)
 
     ctx = zmq.asyncio.Context()
     async with HedgehogServer(ctx, 'inproc://controller', handlers):
@@ -46,9 +47,8 @@ async def connectSimulatorReq(handlers: handlers.HandlerCallbackDict=None):
 
 
 @async_context_manager
-async def connectSimulatorDealer(handlers: handlers.HandlerCallbackDict=None):
-    if handlers is None:
-        handlers = handler()
+async def connectSimulatorDealer(adapter: HardwareAdapter=None):
+    handlers = handler(adapter)
 
     ctx = zmq.asyncio.Context()
     async with HedgehogServer(ctx, 'inproc://controller', handlers):
@@ -123,14 +123,7 @@ async def test_multipart():
 
 @pytest.mark.asyncio
 async def test_unsupported():
-    from hedgehog.server import handlers
-    from hedgehog.server.handlers.hardware import HardwareHandler
-    from hedgehog.server.handlers.process import ProcessHandler
-    from hedgehog.server.hardware import HardwareAdapter
-    adapter = HardwareAdapter()
-    _handlers = handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
-
-    async with connectSimulatorReq(_handlers) as socket:
+    async with connectSimulatorReq(HardwareAdapter()) as socket:
         await assertReplyReq(socket, io.Action(0, io.INPUT_PULLDOWN), ack.UNSUPPORTED_COMMAND)
         await assertReplyReq(socket, analog.Request(0), ack.UNSUPPORTED_COMMAND)
         await assertReplyReq(socket, digital.Request(0), ack.UNSUPPORTED_COMMAND)
@@ -297,7 +290,11 @@ async def test_analog():
 
 @pytest.mark.asyncio
 async def test_sensor_subscription():
-    async with connectSimulatorDealer() as socket:
+    adapter = MockedHardwareAdapter()
+    adapter.set_analog(0, 0.5, 100)
+    adapter.set_analog(0, 3, 0)
+
+    async with connectSimulatorDealer(adapter) as socket:
         sub = Subscription()
         sub.subscribe = True
         sub.timeout = 1000
@@ -314,8 +311,15 @@ async def test_sensor_subscription():
             _, response = await socket.recv_msg()
             assert response == analog.Update(0, 0, sub)
 
-        # check there is no update, even after a time
-        await assertTimeout(socket.recv_multipart(), 2)
+        # check the next update comes after one second, even though the change occurs earlier
+        with assertPassed(1):
+            _, response = await socket.recv_msg()
+            assert response == analog.Update(0, 100, sub)
+
+        # check the next update comes after two seconds, as the value didn't change earlier
+        with assertPassed(2):
+            _, response = await socket.recv_msg()
+            assert response == analog.Update(0, 0, sub)
 
         # FIXME no update at all
         # # add extra subscription
