@@ -229,7 +229,7 @@ async def test_command_subscription():
             _, response = await socket.recv_msg()
             assert response == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
 
-        # FIXME no update at all
+        # FIXME no immediate update
         # # check update is not immediately
         # with assertPassed(1):
         #     # add extra subscription
@@ -368,115 +368,117 @@ async def test_digital():
         await assertReplyDealer(socket, digital.Subscribe(0, sub), ack.Acknowledgement())
 
 
-# def test_motor(self):
-#     with connectSimulatorDealer() as socket:
-#         # ### motor.CommandRequest
-#
-#         assertReplyDealer(socket, motor.CommandRequest(0), ack.FAILED_COMMAND)
-#
-#         # ### motor.Action
-#
-#         assertReplyDealer(socket, motor.Action(0, motor.POWER), ack.Acknowledgement())
-#
-#         # send an invalid command
-#         action = motor.Action(0, motor.BRAKE)
-#         action.relative = 100
-#         assertReplyDealer(socket, action, ack.INVALID_COMMAND)
-#
-#         # ### motor.CommandRequest
-#
-#         assertReplyDealer(socket, motor.CommandRequest(0), motor.CommandReply(0, motor.POWER, 0))
-#
-#         # ### motor.StateRequest
-#
-#         assertReplyDealer(socket, motor.StateRequest(0), motor.StateReply(0, 0, 0))
-#
-#         # ### motor.SetPositionAction
-#
-#         assertReplyDealer(socket, motor.SetPositionAction(0, 0), ack.Acknowledgement())
-#
-#         # ### motor.CommandSubscribe
-#
-#         sub = Subscription()
-#         sub.subscribe = False
-#         sub.timeout = 10
-#         assertReplyDealer(socket, motor.CommandSubscribe(0, sub), ack.FAILED_COMMAND)
-#
-#         sub = Subscription()
-#         sub.subscribe = True
-#         sub.timeout = 10
-#         assertReplyDealer(socket, motor.CommandSubscribe(0, sub), ack.Acknowledgement())
-#
-#         # check immediate update
-#         assert socket.poll(5) == zmq.POLLIN
-#         _, response = socket.recv_msg()
-#         assert response == motor.CommandUpdate(0, motor.POWER, 0, sub)
-#
-#         sub = Subscription()
-#         sub.subscribe = False
-#         sub.timeout = 10
-#         assertReplyDealer(socket, motor.CommandSubscribe(0, sub), ack.Acknowledgement())
-#
-#         # ### motor.StateSubscribe
-#
-#         sub = Subscription()
-#         sub.subscribe = False
-#         sub.timeout = 10
-#         assertReplyDealer(socket, motor.StateSubscribe(0, sub), ack.FAILED_COMMAND)
-#
-#         sub = Subscription()
-#         sub.subscribe = True
-#         sub.timeout = 10
-#         assertReplyDealer(socket, motor.StateSubscribe(0, sub), ack.Acknowledgement())
-#
-#         # check immediate update
-#         assert socket.poll(5) == zmq.POLLIN
-#         _, response = socket.recv_msg()
-#         assert response == motor.StateUpdate(0, 0, 0, sub)
-#
-#         sub = Subscription()
-#         sub.subscribe = False
-#         sub.timeout = 10
-#         assertReplyDealer(socket, motor.StateSubscribe(0, sub), ack.Acknowledgement())
-#
-#
-# def test_servo(self):
-#     with connectSimulatorDealer() as socket:
-#         # ### servo.CommandRequest
-#
-#         assertReplyDealer(socket, servo.CommandRequest(0), ack.FAILED_COMMAND)
-#
-#         # ### servo.Action
-#
-#         assertReplyDealer(socket, servo.Action(0, True, 0), ack.Acknowledgement())
-#
-#         # ### servo.CommandRequest
-#
-#         assertReplyDealer(socket, servo.CommandRequest(0), servo.CommandReply(0, True, 0))
-#
-#         # ### servo.CommandSubscribe
-#
-#         sub = Subscription()
-#         sub.subscribe = False
-#         sub.timeout = 10
-#         assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.FAILED_COMMAND)
-#
-#         sub = Subscription()
-#         sub.subscribe = True
-#         sub.timeout = 10
-#         assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.Acknowledgement())
-#
-#         # check immediate update
-#         assert socket.poll(5) == zmq.POLLIN
-#         _, response = socket.recv_msg()
-#         assert response == servo.CommandUpdate(0, True, 0, sub)
-#
-#         sub = Subscription()
-#         sub.subscribe = False
-#         sub.timeout = 10
-#         assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.Acknowledgement())
-#
-#
+@pytest.mark.asyncio
+async def test_motor():
+    async with connectSimulatorDealer() as socket:
+        # ### motor.CommandRequest
+
+        await assertReplyDealer(socket, motor.CommandRequest(0), ack.FAILED_COMMAND)
+
+        # ### motor.Action
+
+        await assertReplyDealer(socket, motor.Action(0, motor.POWER), ack.Acknowledgement())
+
+        # send an invalid command
+        action = motor.Action(0, motor.BRAKE)
+        action.relative = 100
+        await assertReplyDealer(socket, action, ack.INVALID_COMMAND)
+
+        # ### motor.CommandRequest
+
+        await assertReplyDealer(socket, motor.CommandRequest(0), motor.CommandReply(0, motor.POWER, 0))
+
+        # ### motor.StateRequest
+
+        await assertReplyDealer(socket, motor.StateRequest(0), motor.StateReply(0, 0, 0))
+
+        # ### motor.SetPositionAction
+
+        await assertReplyDealer(socket, motor.SetPositionAction(0, 0), ack.Acknowledgement())
+
+        # ### motor.CommandSubscribe
+
+        sub = Subscription()
+        sub.subscribe = False
+        sub.timeout = 1000
+        await assertReplyDealer(socket, motor.CommandSubscribe(0, sub), ack.FAILED_COMMAND)
+
+        # FIXME no immediate update
+        # with assertImmediate():
+        #     sub = Subscription()
+        #     sub.subscribe = True
+        #     sub.timeout = 1000
+        #     await assertReplyDealer(socket, motor.CommandSubscribe(0, sub), ack.Acknowledgement())
+        #
+        #     _, response = await socket.recv_msg()
+        #     assert response == motor.CommandUpdate(0, motor.POWER, 0, sub)
+        #
+        # sub = Subscription()
+        # sub.subscribe = False
+        # sub.timeout = 1000
+        # await assertReplyDealer(socket, motor.CommandSubscribe(0, sub), ack.Acknowledgement())
+        #
+        # ### motor.StateSubscribe
+
+        # FIXME
+        # sub = Subscription()
+        # sub.subscribe = False
+        # sub.timeout = 1000
+        # await assertReplyDealer(socket, motor.StateSubscribe(0, sub), ack.FAILED_COMMAND)
+        #
+        # with assertImmediate():
+        #     sub = Subscription()
+        #     sub.subscribe = True
+        #     sub.timeout = 1000
+        #     await assertReplyDealer(socket, motor.StateSubscribe(0, sub), ack.Acknowledgement())
+        #
+        #     _, response = await socket.recv_msg()
+        #     assert response == motor.StateUpdate(0, 0, 0, sub)
+        #
+        # sub = Subscription()
+        # sub.subscribe = False
+        # sub.timeout = 1000
+        # await assertReplyDealer(socket, motor.StateSubscribe(0, sub), ack.Acknowledgement())
+
+
+@pytest.mark.asyncio
+async def test_servo():
+    async with connectSimulatorDealer() as socket:
+        # ### servo.CommandRequest
+
+        await assertReplyDealer(socket, servo.CommandRequest(0), ack.FAILED_COMMAND)
+
+        # ### servo.Action
+
+        await assertReplyDealer(socket, servo.Action(0, True, 0), ack.Acknowledgement())
+
+        # ### servo.CommandRequest
+
+        await assertReplyDealer(socket, servo.CommandRequest(0), servo.CommandReply(0, True, 0))
+
+        # ### servo.CommandSubscribe
+
+        sub = Subscription()
+        sub.subscribe = False
+        sub.timeout = 10
+        await assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.FAILED_COMMAND)
+
+        # FIXME no immediate update
+        # with assertImmediate():
+        #     sub = Subscription()
+        #     sub.subscribe = True
+        #     sub.timeout = 10
+        #     await assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.Acknowledgement())
+        #
+        #     _, response = await socket.recv_msg()
+        #     assert response == servo.CommandUpdate(0, True, 0, sub)
+        #
+        # sub = Subscription()
+        # sub.subscribe = False
+        # sub.timeout = 10
+        # await assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.Acknowledgement())
+
+
 # def handle_streams(self) -> Callable[[process.StreamUpdate], Dict[int, bytes]]:
 #     def handler():
 #         outputs = {

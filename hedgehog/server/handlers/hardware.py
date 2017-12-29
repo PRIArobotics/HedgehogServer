@@ -15,173 +15,18 @@ from ..hardware import HardwareAdapter
 from ..hedgehog_server import HedgehogServer
 
 
-class SubscriptionInfo(object):
-    def __init__(self, server: HedgehogServer, ident: Header, subscription: Subscription) -> None:
-        self.server = server
-        self.ident = ident
-        self.subscription = subscription
-        self.counter = 0
-
-        self._last_time = None  # type: float
-        self._last_value = None  # type: Any
-
-    @property
-    def last_time(self) -> float:
-        return self._last_time
-
-    @property
-    def last_value(self) -> Any:
-        return self._last_value
-
-    @last_value.setter
-    def last_value(self, value: Any) -> None:
-        # setting the value to none is to force an update at the next possible point, not to delay it further
-        if value is not None:
-            self._last_time = time.time()
-        self._last_value = value
-
-    async def send_async(self, *msgs: Message) -> None:
-        await self.server.send_async(self.ident, *msgs)
-
-    def handle_subscribe(self):
-        self.counter += 1
-
-    def handle_unsubscribe(self):
-        self.counter -= 1
-
-
-class CommandSubscriptionInfo(SubscriptionInfo):
-    def __init__(self, *args, **kwargs) -> None:
-        super(CommandSubscriptionInfo, self).__init__(*args, **kwargs)
-        self.timer = None  # type: TimerDefinition
-
-    def handle_subscribe(self) -> None:
-        self.last_value = None
-        self.schedule_update()
-
-        super(CommandSubscriptionInfo, self).handle_subscribe()
-
-    def handle_unsubscribe(self) -> None:
-        super(CommandSubscriptionInfo, self).handle_unsubscribe()
-
-        if self.counter == 0 and self.timer is not None:
-            self.server.timer.unregister(self.timer)
-
-    def schedule_update(self) -> None:
-        command = self.command
-        if command is None:
-            return
-
-        if self.last_value == command and self.timer is not None:
-            # there is a timer that should be cancelled, because the value is no longer different
-            self.server.timer.unregister(self.timer)
-            self.timer = None
-        elif self.last_value != command and self.timer is None:
-            # add a timer for the update, either immediately, or at the earliest possible time
-            now = time.time()
-            earliest = now if self.last_time is None else self.last_time + self.subscription.timeout / 1000
-            timeout = 0 if earliest <= now else earliest - now
-
-            self.timer = self.server.timer.register(timeout, self.handle_update, repeat=False)
-
-    def handle_update(self) -> None:
-        self.timer = None
-
-        command = self.command
-        if command is None:
-            return
-
-        if self.last_value != command:
-            self.last_value = command
-            self.send_update(command)
-
-    @property
-    def command(self):
-        raise NotImplementedError()
-
-    def send_update(self, command):
-        raise NotImplementedError()
-
-
-class SensorSubscriptionInfo(SubscriptionInfo):
-    def __init__(self, *args, **kwargs) -> None:
-        super(SensorSubscriptionInfo, self).__init__(*args, **kwargs)
-        self.timer = None  # type: TimerDefinition
-
-    def handle_subscribe(self) -> None:
-        self.last_value = None
-        if self.counter == 0:
-            # oversample 3 times, round delay up in milliseconds so we're not barely below the actual timeout
-            timeout = math.ceil(self.subscription.timeout / 3)
-            self.timer = self.server.timer.register(timeout / 1000, self.handle_update)
-
-        super(SensorSubscriptionInfo, self).handle_subscribe()
-
-    def handle_unsubscribe(self) -> None:
-        super(SensorSubscriptionInfo, self).handle_unsubscribe()
-
-        if self.counter == 0:
-            self.server.timer.unregister(self.timer)
-
-    def handle_update(self) -> None:
-        value = self.value
-        if value is None:
-            return
-
-        now = time.time()
-        earliest = now if self.last_time is None else self.last_time + self.subscription.timeout / 1000
-
-        if value != self.last_value and now >= earliest:
-            self.last_value = value
-            self.send_update(value)
-
-    @property
-    def value(self):
-        raise NotImplementedError()
-
-    def send_update(self, value):
-        raise NotImplementedError()
-
-
-class SubscriptionManager(object):
-    def __init__(self, SubscriptionType: Type[SubscriptionInfo]) -> None:
-        self.SubscriptionType = SubscriptionType
-        self.subscriptions = {}  # type: Dict[Tuple[Header, int], SubscriptionInfo]
-
-    def subscribe(self, server: HedgehogServer, ident: Header, subscription: Subscription) -> None:
-        # TODO incomplete
-        key = (ident, subscription.timeout)
-
-        if subscription.subscribe:
-            if key not in self.subscriptions:
-                info = self.SubscriptionType(server, ident, subscription)
-                self.subscriptions[key] = info
-            else:
-                info = self.subscriptions[key]
-            info.handle_subscribe()
-        else:
-            try:
-                info = self.subscriptions[key]
-            except KeyError:
-                raise FailedCommandError("can't cancel nonexistent subscription")
-            else:
-                info.handle_unsubscribe()
-                if info.counter == 0:
-                    del self.subscriptions[key]
-
-
 class _HWHandler(object):
     def __init__(self, adapter: HardwareAdapter) -> None:
         self.adapter = adapter
-        self.subscription_managers = {}  # type: Dict[Type[Message], SubscriptionManager]
+        self.subscribables = {}  # type: Dict[Type[Message], subscription.Subscribable]
 
-    def subscribe(self, server: HedgehogServer, ident: Header, msg: Type[Message], subscription: Subscription) -> None:
+    async def subscribe(self, server: HedgehogServer, ident: Header, msg: Type[Message], subscription: Subscription) -> None:
         try:
-            mgr = self.subscription_managers[msg]
+            subscribable = self.subscribables[msg]
         except KeyError as err:
             raise UnsupportedCommandError(msg.msg_name()) from err
         else:
-            mgr.subscribe(server, ident, subscription)
+            await subscribable.subscribe(server, ident, subscription)
 
 
 class _IOHandler(_HWHandler):
@@ -222,13 +67,13 @@ class _IOHandler(_HWHandler):
         super(_IOHandler, self).__init__(adapter)
         self.port = port
         self.command = None  # type: Tuple[int]
-        self._command = self.__command_subscribable()
-        self._analog_value = self.__analog_subscribable()
-        self._digital_value = self.__digital_subscribable()
+        self.subscribables[io.CommandSubscribe] = self.__command_subscribable()
+        self.subscribables[analog.Subscribe] = self.__analog_subscribable()
+        self.subscribables[digital.Subscribe] = self.__digital_subscribable()
 
     async def action(self, flags: int) -> None:
         await self.adapter.set_io_state(self.port, flags)
-        await self._command.update(flags)
+        await self.subscribables[io.CommandSubscribe].update(flags)
         self.command = flags,
 
     @property
@@ -241,40 +86,35 @@ class _IOHandler(_HWHandler):
 
 
 class _MotorHandler(_HWHandler):
-    def __command_subscription_manager(self) -> SubscriptionManager:
+    def __command_subscribable(self) -> subscription.TriggeredSubscribable:
         outer_self = self
 
-        class Info(CommandSubscriptionInfo):
-            @property
-            def command(self):
-                return outer_self.command
-
-            def send_update(self, command):
+        class Subs(subscription.TriggeredSubscribable):
+            def compose_update(self, server: HedgehogServer, ident: Header, subscription: Subscription, command: Tuple[int, int]):
                 state, amount = command
-                self.send_async(motor.CommandUpdate(outer_self.port, state, amount, self.subscription))
+                return motor.CommandUpdate(outer_self.port, state, amount, subscription)
 
-        return SubscriptionManager(Info)
+        return Subs()
 
-    def __state_subscription_manager(self) -> SubscriptionManager:
+    def __state_subscribable(self) -> subscription.PolledSubscribable:
         outer_self = self
 
-        class Info(SensorSubscriptionInfo):
-            @property
-            def value(self):
-                return outer_self.state
+        class Subs(subscription.PolledSubscribable):
+            async def poll(self):
+                return await outer_self.state
 
-            def send_update(self, value):
-                velocity, position = value
-                self.send_async(motor.StateUpdate(outer_self.port, velocity, position, self.subscription))
+            def compose_update(self, server: HedgehogServer, ident: Header, subscription: Subscription, state: Tuple[int, int]):
+                velocity, position = state
+                return motor.StateUpdate(outer_self.port, velocity, position, subscription)
 
-        return SubscriptionManager(Info)
+        return Subs()
 
     def __init__(self, adapter: HardwareAdapter, port: int) -> None:
         super(_MotorHandler, self).__init__(adapter)
         self.port = port
         self.command = None  # type: Tuple[int, int]
 
-        self.subscription_managers[motor.CommandSubscribe] = self.__command_subscription_manager()
+        self.subscribables[motor.CommandSubscribe] = self.__command_subscribable()
         try:
             # TODO
             # self.state
@@ -282,10 +122,11 @@ class _MotorHandler(_HWHandler):
         except UnsupportedCommandError:
             pass
         else:
-            self.subscription_managers[motor.StateSubscribe] = self.__state_subscription_manager()
+            self.subscribables[motor.StateSubscribe] = self.__state_subscribable()
 
     async def action(self, state: int, amount: int, reached_state: int, relative: int, absolute: int) -> None:
         await self.adapter.set_motor(self.port, state, amount, reached_state, relative, absolute)
+        await self.subscribables[motor.CommandSubscribe].update((state, amount))
         self.command = state, amount
 
     async def set_position(self, position: int) -> None:
@@ -297,29 +138,26 @@ class _MotorHandler(_HWHandler):
 
 
 class _ServoHandler(_HWHandler):
-    def __command_subscription_manager(self) -> SubscriptionManager:
+    def __command_subscribable(self) -> subscription.TriggeredSubscribable:
         outer_self = self
 
-        class Info(CommandSubscriptionInfo):
-            @property
-            def command(self):
-                return outer_self.command
-
-            def send_update(self, command):
+        class Subs(subscription.TriggeredSubscribable):
+            def compose_update(self, server: HedgehogServer, ident: Header, subscription: Subscription, command: Tuple[bool, int]):
                 active, position = command
-                self.send_async(servo.CommandUpdate(outer_self.port, active, position, self.subscription))
+                return servo.CommandUpdate(outer_self.port, active, position, subscription)
 
-        return SubscriptionManager(Info)
+        return Subs()
 
     def __init__(self, adapter: HardwareAdapter, port: int) -> None:
         super(_ServoHandler, self).__init__(adapter)
         self.port = port
         self.command = None  # type: Tuple[bool, int]
 
-        self.subscription_managers[servo.CommandSubscribe] = self.__command_subscription_manager()
+        self.subscribables[servo.CommandSubscribe] = self.__command_subscribable()
 
     async def action(self, active: bool, position: int) -> None:
         await self.adapter.set_servo(self.port, active, position if active else 0)
+        await self.subscribables[servo.CommandSubscribe].update((active, position))
         self.command = active, position
 
 
@@ -353,8 +191,7 @@ class HardwareHandler(CommandHandler):
 
     @_command(io.CommandSubscribe)
     async def io_command_subscribe(self, server, ident, msg):
-        # self.ios[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
-        await self.ios[msg.port]._command.subscribe(server, ident, msg.subscription)
+        await self.ios[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
         return ack.Acknowledgement()
 
     @_command(analog.Request)
@@ -364,7 +201,7 @@ class HardwareHandler(CommandHandler):
 
     @_command(analog.Subscribe)
     async def analog_command_subscribe(self, server, ident, msg):
-        await self.ios[msg.port]._analog_value.subscribe(server, ident, msg.subscription)
+        await self.ios[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
         return ack.Acknowledgement()
 
     @_command(digital.Request)
@@ -374,7 +211,7 @@ class HardwareHandler(CommandHandler):
 
     @_command(digital.Subscribe)
     async def digital_command_subscribe(self, server, ident, msg):
-        await self.ios[msg.port]._digital_value.subscribe(server, ident, msg.subscription)
+        await self.ios[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
         return ack.Acknowledgement()
 
     @_command(motor.Action)
@@ -399,7 +236,7 @@ class HardwareHandler(CommandHandler):
 
     @_command(motor.CommandSubscribe)
     async def motor_command_subscribe(self, server, ident, msg):
-        self.motors[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
+        await self.motors[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
         return ack.Acknowledgement()
 
     @_command(motor.StateRequest)
@@ -409,7 +246,7 @@ class HardwareHandler(CommandHandler):
 
     @_command(motor.StateSubscribe)
     async def motor_state_subscribe(self, server, ident, msg):
-        self.motors[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
+        await self.motors[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
         return ack.Acknowledgement()
 
     # async def motor_state_update(self, port, state):
@@ -439,5 +276,5 @@ class HardwareHandler(CommandHandler):
 
     @_command(servo.CommandSubscribe)
     async def servo_command_subscribe(self, server, ident, msg):
-        self.servos[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
+        await self.servos[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
         return ack.Acknowledgement()

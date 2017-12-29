@@ -119,6 +119,9 @@ class Subscribable(object):
     def compose_update(self, server, ident, subscription, value):
         raise NotImplementedError()  # pragma: no cover
 
+    async def subscribe(self, server, ident, subscription):
+        raise NotImplementedError()  # pragma: no cover
+
 
 class SubscriptionHandle(object):
     def __init__(self, do_subscribe):
