@@ -1,7 +1,7 @@
 from typing import Any, Callable, Dict, List, Tuple, Type, Union
 
 import pytest
-from hedgehog.utils.test_utils import event_loop, assertTimeout, assertImmediate
+from hedgehog.utils.test_utils import event_loop, assertTimeout, assertImmediate, assertPassed
 
 import asyncio
 import zmq.asyncio
@@ -164,7 +164,6 @@ async def test_io():
 
         sub = Subscription()
         sub.subscribe = False
-        sub.timeout = 1000
         await assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.FAILED_COMMAND)
 
         sub = Subscription()
@@ -190,73 +189,75 @@ async def test_io():
         await assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
 
 
-# def test_command_subscription(self):
-#     with connectSimulatorDealer() as socket:
-#         sub = Subscription()
-#         sub.subscribe = True
-#         sub.timeout = 10
-#
-#         unsub = Subscription()
-#         unsub.subscribe = False
-#         unsub.timeout = 10
-#
-#         # original subscription
-#         assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
-#
-#         # check there is no update, even after a time
-#         assert socket.poll(50) == 0
-#
-#         # send a first command to get an update
-#         assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
-#
-#         # check immediate update
-#         assert socket.poll(5) == zmq.POLLIN
-#         _, response = socket.recv_msg()
-#         assert response == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
-#
-#         # send another command that does not actually change the value
-#         assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
-#
-#         # check there is no update, even after a time
-#         assert socket.poll(50) == 0
-#
-#         # change command value
-#         assertReplyDealer(socket, io.Action(0, io.INPUT_PULLUP), ack.Acknowledgement())
-#
-#         # check immediate update (as time has passed)
-#         assert socket.poll(5) == zmq.POLLIN
-#         _, response = socket.recv_msg()
-#         assert response == io.CommandUpdate(0, io.INPUT_PULLUP, sub)
-#
-#         # change command value
-#         assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
-#
-#         # check update is not immediately
-#         assert socket.poll(5) == 0
-#         _, response = socket.recv_msg()
-#         assert response == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
-#
-#         # add extra subscription
-#         assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
-#
-#         # check update is not immediately
-#         assert socket.poll(5) == 0
-#         _, response = socket.recv_msg()
-#         assert response == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
-#
-#         # cancel extra subscription
-#         assertReplyDealer(socket, io.CommandSubscribe(0, unsub), ack.Acknowledgement())
-#
-#         # change command value
-#         assertReplyDealer(socket, io.Action(0, io.INPUT_PULLUP), ack.Acknowledgement())
-#
-#         # check update is not immediately
-#         assert socket.poll(5) == 0
-#         _, response = socket.recv_msg()
-#         assert response == io.CommandUpdate(0, io.INPUT_PULLUP, sub)
-#
-#         # cancel original subscription
-#         assertReplyDealer(socket, io.CommandSubscribe(0, unsub), ack.Acknowledgement())
+@pytest.mark.asyncio
+async def test_command_subscription():
+    async with connectSimulatorDealer() as socket:
+        sub = Subscription()
+        sub.subscribe = True
+        sub.timeout = 1000
+
+        unsub = Subscription()
+        unsub.subscribe = False
+        unsub.timeout = 1000
+
+        # original subscription
+        await assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
+
+        # check there is no update, even after a time
+        await assertTimeout(socket.recv_multipart(), 2)
+
+        # check immediate update
+        with assertImmediate():
+            # send a first command to get an update
+            await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
+
+            _, response = await socket.recv_msg()
+            assert response == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
+
+        # send another command that does not actually change the value
+        await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
+
+        # check there is no update, even after a time
+        await assertTimeout(socket.recv_multipart(), 2)
+
+        # check immediate update (as time has passed)
+        with assertImmediate():
+            # change command value
+            await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLUP), ack.Acknowledgement())
+
+            _, response = await socket.recv_msg()
+            assert response == io.CommandUpdate(0, io.INPUT_PULLUP, sub)
+
+        # check update is not immediately
+        with assertPassed(1):
+            # change command value
+            await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
+
+            _, response = await socket.recv_msg()
+            assert response == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
+
+        # FIXME no update at all
+        # # check update is not immediately
+        # with assertPassed(1):
+        #     # add extra subscription
+        #     await assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
+        #
+        #     _, response = await socket.recv_msg()
+        #     assert response == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
+        #
+        # # cancel extra subscription
+        # await assertReplyDealer(socket, io.CommandSubscribe(0, unsub), ack.Acknowledgement())
+
+        # check update is not immediately
+        with assertPassed(1):
+            # change command value
+            await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLUP), ack.Acknowledgement())
+
+            _, response = await socket.recv_msg()
+            assert response == io.CommandUpdate(0, io.INPUT_PULLUP, sub)
+
+        # cancel original subscription
+        await assertReplyDealer(socket, io.CommandSubscribe(0, unsub), ack.Acknowledgement())
 
 
 @pytest.mark.asyncio
@@ -288,43 +289,46 @@ async def test_analog():
         await assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
 
 
-# def test_sensor_subscription(self):
-#     with connectSimulatorDealer() as socket:
-#         sub = Subscription()
-#         sub.subscribe = True
-#         sub.timeout = 10
-#
-#         unsub = Subscription()
-#         unsub.subscribe = False
-#         unsub.timeout = 10
-#
-#         # original subscription
-#         assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
-#
-#         # check immediate update
-#         assert socket.poll(5) == zmq.POLLIN
-#         _, response = socket.recv_msg()
-#         assert response == analog.Update(0, 0, sub)
-#
-#         # check there is no update, even after a time
-#         assert socket.poll(50) == 0
-#
-#         # add extra subscription
-#         assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
-#
-#         # check immediate update
-#         # TODO update is not quite immediately with current implementation
-#         assert socket.poll(15) == zmq.POLLIN
-#         _, response = socket.recv_msg()
-#         assert response == analog.Update(0, 0, sub)
-#
-#         # cancel extra subscription
-#         assertReplyDealer(socket, analog.Subscribe(0, unsub), ack.Acknowledgement())
-#
-#         # cancel original subscription
-#         assertReplyDealer(socket, analog.Subscribe(0, unsub), ack.Acknowledgement())
-#
-#
+@pytest.mark.asyncio
+async def test_sensor_subscription():
+    async with connectSimulatorDealer() as socket:
+        sub = Subscription()
+        sub.subscribe = True
+        sub.timeout = 1000
+
+        unsub = Subscription()
+        unsub.subscribe = False
+        unsub.timeout = 1000
+
+        # check immediate update
+        with assertImmediate():
+            # original subscription
+            await assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
+
+            _, response = await socket.recv_msg()
+            assert response == analog.Update(0, 0, sub)
+
+        # check there is no update, even after a time
+        await assertTimeout(socket.recv_multipart(), 2)
+
+        # FIXME no update at all
+        # # add extra subscription
+        # await assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
+        #
+        # # check immediate update
+        # _, response = await socket.recv_msg()
+        # assert response == analog.Update(0, 0, sub)
+        #
+        # # cancel extra subscription
+        # await assertReplyDealer(socket, analog.Subscribe(0, unsub), ack.Acknowledgement())
+
+        # cancel original subscription
+        await assertReplyDealer(socket, analog.Subscribe(0, unsub), ack.Acknowledgement())
+
+        # check there is no update, even after a time
+        await assertTimeout(socket.recv_multipart(), 2)
+
+
 # def test_digital(self):
 #     with connectSimulatorDealer() as socket:
 #         # ### digital.Request
