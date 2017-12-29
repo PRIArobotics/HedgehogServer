@@ -112,7 +112,7 @@ async def assertReplyDealer(socket, req: Message,
 
 
 @pytest.mark.asyncio
-async def test_multipart(event_loop):
+async def test_multipart():
     async with connectSimulatorReq() as socket:
         with assertImmediate():
             await socket.send_msgs([analog.Request(0), digital.Request(0)])
@@ -122,7 +122,7 @@ async def test_multipart(event_loop):
 
 
 @pytest.mark.asyncio
-async def test_unsupported(event_loop):
+async def test_unsupported():
     from hedgehog.server import handlers
     from hedgehog.server.handlers.hardware import HardwareHandler
     from hedgehog.server.handlers.process import ProcessHandler
@@ -141,7 +141,7 @@ async def test_unsupported(event_loop):
 
 
 @pytest.mark.asyncio
-async def test_io(event_loop):
+async def test_io():
     async with connectSimulatorDealer() as socket:
         # ### io.CommandRequest
 
@@ -260,7 +260,7 @@ async def test_io(event_loop):
 
 
 @pytest.mark.asyncio
-async def test_analog(event_loop):
+async def test_analog():
     async with connectSimulatorDealer() as socket:
         # ### analog.Request
 

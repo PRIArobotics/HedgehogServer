@@ -57,7 +57,7 @@ async def assert_stream(tim_seq, out_seq, _stream):
 
 
 @pytest.mark.asyncio
-async def test_subscription_streamer(event_loop):
+async def test_subscription_streamer():
     in_seq = [(2, item) for item in range(0, 7+1)]
     tim_seq = [2, 3, 3, 3, 3, 3]
     out_seq = [0, 1, {2, 3}, 4, {5, 6}, 7]
@@ -71,7 +71,7 @@ async def test_subscription_streamer(event_loop):
 
 
 @pytest.mark.asyncio
-async def test_subscription_streamer_granularity(event_loop):
+async def test_subscription_streamer_granularity():
     in_seq = [(2, item) for item in [0, 1, 2, 1, 2, 1, 1, 0]]
     tim_seq = [2, 4, 9, 9]
     out_seq = [0, 2, 1, 0]
@@ -85,7 +85,7 @@ async def test_subscription_streamer_granularity(event_loop):
 
 
 @pytest.mark.asyncio
-async def test_subscription_streamer_delayed_subscribe(event_loop):
+async def test_subscription_streamer_delayed_subscribe():
     in_seq = [(2, item) for item in range(0, 7+1)]
     tim_seq = [1, 3, 3, 3, 3]
     out_seq = [2, 3, {4, 5}, 6, 7]
@@ -100,7 +100,7 @@ async def test_subscription_streamer_delayed_subscribe(event_loop):
 
 
 @pytest.mark.asyncio
-async def test_subscription_streamer_cancel(event_loop):
+async def test_subscription_streamer_cancel():
     in_seq = [(2, item) for item in range(0, 7+1)]
     tim_seq = [2, 3, 3]
     out_seq = [0, 1, {2, 3}]
@@ -114,7 +114,7 @@ async def test_subscription_streamer_cancel(event_loop):
 
 
 @pytest.mark.asyncio
-async def test_polling_subscription_input(event_loop):
+async def test_polling_subscription_input():
     i = 0
 
     async def poll():
