@@ -12,7 +12,7 @@ from hedgehog.protocol.errors import HedgehogCommandError, UnsupportedCommandErr
 
 
 # TODO importing this from .handlers does not work...
-HandlerCallback = Callable[['HedgehogServer', Header, Message], Coroutine[Any, Any, Message]]
+HandlerCallback = Callable[['HedgehogServer', Header, Message], Awaitable[Message]]
 
 logger = logging.getLogger(__name__)
 
