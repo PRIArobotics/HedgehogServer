@@ -5,7 +5,7 @@ import asyncio
 from aiostream import stream, streamcontext
 from aiostream.context_utils import async_context_manager
 
-from hedgehog.server.subscription import SubscriptionStreamer, polling_subscription_input
+from hedgehog.server.subscription import SubscriptionStreamer
 
 
 # Pytest fixtures
@@ -111,23 +111,3 @@ async def test_subscription_streamer_cancel():
             await assert_stream(
                 tim_seq, out_seq,
                 streamcontext(subs.subscribe(3, None, None))[:3])
-
-
-@pytest.mark.asyncio
-async def test_polling_subscription_input():
-    i = 0
-
-    async def poll():
-        nonlocal i
-        i += 1
-        return i
-
-    tim_seq = [0, 1, 1]
-    out_seq = [1, 2, 3]
-
-    queue = asyncio.Queue()
-    with assertPassed(sum(tim_seq)):
-        await queue.put(1)
-        await assert_stream(
-            tim_seq, out_seq,
-            polling_subscription_input(poll, queue)[:3])

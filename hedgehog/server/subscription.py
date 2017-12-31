@@ -103,25 +103,6 @@ class SubscriptionStreamer(Generic[T]):
         return _stream()
 
 
-def polling_subscription_input(poll: Callable[[], Union[T, Awaitable[T]]], interval_queue: asyncio.Queue) -> AsyncIterator[T]:
-    """
-    Returns a stream useful for poll based subscriptions.
-    To support subscriptions of different frequencies, either the polling interval needs to be pessimistically small,
-    or slower-than-promised updates must be accepted, or the polling interval needs to be flexible.
-
-    `polling_subscription_input` implements flexible polling timeouts.
-    The polling function may be asynchronous and returns a single value for the stream,
-    while the `interval_queue` is given intervals in which to perform the polling.
-    For example, by `put`ting `1` into the queue, the poll function will be subsequently called once per second,
-    by later `put`ting `2` into the queue, that interval is increased to two seconds.
-
-    An interval of zero means no timeout between `poll` calls, negative values pause polling.
-    No polling is also the default before any interval was `put` into the queue yet.
-    """
-    return cast(AsyncIterator[T], stream_from_queue(interval_queue) | pipe.switchmap(
-        lambda interval: stream.never() if interval < 0 else stream.repeat((), interval=interval) | pipe.starmap(poll)))
-
-
 class Subscribable(Generic[T, Upd]):
     def __init__(self) -> None:
         self.streamer = SubscriptionStreamer[T]()
