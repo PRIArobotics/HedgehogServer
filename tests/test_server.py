@@ -3,10 +3,8 @@ from typing import Any, Callable, Dict, List, Tuple, Type, Union
 import pytest
 from hedgehog.utils.test_utils import event_loop, assertTimeout, assertImmediate, assertPassed
 
-import asyncio
 import zmq.asyncio
 import signal
-import time
 from aiostream.context_utils import async_context_manager
 
 from hedgehog.protocol import ClientSide
@@ -14,7 +12,6 @@ from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor,
 from hedgehog.protocol.proto.subscription_pb2 import Subscription
 from hedgehog.protocol.async_sockets import ReqSocket, DealerRouterSocket
 from hedgehog.server import handlers, HedgehogServer
-from hedgehog.server.process import Process
 from hedgehog.server.handlers.hardware import HardwareHandler
 from hedgehog.server.handlers.process import ProcessHandler
 from hedgehog.server.hardware import HardwareAdapter
@@ -479,177 +476,129 @@ async def test_servo():
         # await assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.Acknowledgement())
 
 
-# def handle_streams(self) -> Callable[[process.StreamUpdate], Dict[int, bytes]]:
-#     def handler():
-#         outputs = {
-#             process.STDOUT: [],
-#             process.STDERR: [],
-#         }  # type: Dict[int, List[bytes]]
-#
-#         open = len(outputs)
-#         while open > 0:
-#             msg = yield
-#             outputs[msg.fileno].append(msg.chunk)
-#             if msg.chunk == b'':
-#                 open -= 1
-#
-#         return {fileno: b''.join(chunks) for fileno, chunks in outputs.items()}
-#
-#     gen = handler()
-#     gen.send(None)
-#
-#     def send(msg: process.StreamUpdate) -> Dict[int, bytes]:
-#         try:
-#             gen.send(msg)
-#             return None
-#         except StopIteration as stop:
-#             return stop.value
-#
-#     return send
-#
-#
-# def test_process_echo(self):
-#     with connectSimulatorDealer() as socket:
-#         response = assertReplyDealer(socket, process.ExecuteAction('echo', 'asdf'),
-#                                           process.ExecuteReply)  # type: process.ExecuteReply
-#         pid = response.pid
-#
-#         stream_handler = self.handle_streams()
-#         output = None
-#         while output is None:
-#             _, msg = socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
-#             assertMsgEqual(msg, process.StreamUpdate, pid=pid)
-#             output = stream_handler(msg)
-#
-#         assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b''), ack.Acknowledgement())
-#
-#         _, msg = socket.recv_msg()
-#         assert msg == process.ExitUpdate(pid, 0)
-#
-#         assert output[process.STDOUT] == b'asdf\n'
-#         assert output[process.STDERR] == b''
-#
-#
-# def test_process_cat(self):
-#     with connectSimulatorDealer() as socket:
-#         response = assertReplyDealer(socket, process.ExecuteAction('cat'),
-#                                           process.ExecuteReply)  # type: process.ExecuteReply
-#         pid = response.pid
-#
-#         assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b'asdf'), ack.Acknowledgement())
-#         assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b''), ack.Acknowledgement())
-#
-#         stream_handler = self.handle_streams()
-#         output = None
-#         while output is None:
-#             _, msg = socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
-#             assertMsgEqual(msg, process.StreamUpdate, pid=pid)
-#             output = stream_handler(msg)
-#
-#         _, msg = socket.recv_msg()
-#         assert msg == process.ExitUpdate(pid, 0)
-#
-#         assert output[process.STDOUT] == b'asdf'
-#         assert output[process.STDERR] == b''
-#
-#
-# def test_process_pwd(self):
-#     with connectSimulatorDealer() as socket:
-#         response = assertReplyDealer(socket, process.ExecuteAction('pwd', working_dir='/'),
-#                                           process.ExecuteReply)  # type: process.ExecuteReply
-#         pid = response.pid
-#
-#         stream_handler = self.handle_streams()
-#         output = None
-#         while output is None:
-#             _, msg = socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
-#             assertMsgEqual(msg, process.StreamUpdate, pid=pid)
-#             output = stream_handler(msg)
-#
-#         assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b''), ack.Acknowledgement())
-#
-#         _, msg = socket.recv_msg()
-#         assert msg == process.ExitUpdate(pid, 0)
-#
-#         assert output[process.STDOUT] == b'/\n'
-#         assert output[process.STDERR] == b''
-#
-#
-# def test_process_sleep(self):
-#     with connectSimulatorDealer() as socket:
-#         response = assertReplyDealer(socket, process.ExecuteAction('sleep', '1'),
-#                                           process.ExecuteReply)  # type: process.ExecuteReply
-#         pid = response.pid
-#
-#         assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b''), ack.Acknowledgement())
-#         assertReplyDealer(socket, process.SignalAction(pid, signal.SIGINT), ack.Acknowledgement())
-#
-#         stream_handler = self.handle_streams()
-#         output = None
-#         while output is None:
-#             _, msg = socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
-#             assertMsgEqual(msg, process.StreamUpdate, pid=pid)
-#             output = stream_handler(msg)
-#
-#         _, msg = socket.recv_msg()
-#         assert msg == process.ExitUpdate(pid, -signal.SIGINT)
-#
-#
-# def collect_outputs(proc):
-#     output = {process.STDOUT: [], process.STDERR: []}  # type: Dict[int, List[bytes]]
-#
-#     msg = proc.read()
-#     while msg is not None:
-#         fileno, msg = msg
-#         if msg != b'':
-#             output[fileno].append(msg)
-#         msg = proc.read()
-#
-#     return proc.returncode, b''.join(output[process.STDOUT]), b''.join(output[process.STDERR])
-#
-#
-# class TestProcess(object):
-#     def test_cat(self):
-#         proc = Process('cat')
-#
-#         proc.write(process.STDIN, b'as ')
-#         time.sleep(0.1)
-#         proc.write(process.STDIN, b'df')
-#         proc.write(process.STDIN)
-#
-#         status, out, err = collect_outputs(proc)
-#         assert status == 0
-#         assert out == b'as df'
-#         assert err == b''
-#
-#     def test_echo(self):
-#         proc = Process('echo', 'as', 'df')
-#
-#         proc.write(process.STDIN)
-#
-#         status, out, err = collect_outputs(proc)
-#         assert status == 0
-#         assert out == b'as df\n'
-#         assert err == b''
-#
-#     def test_pwd(self):
-#         proc = Process('pwd', cwd='/')
-#
-#         proc.write(process.STDIN)
-#
-#         status, out, err = collect_outputs(proc)
-#         assert status == 0
-#         assert out == b'/\n'
-#         assert err == b''
-#
-#     def test_signal_sleep(self):
-#         proc = Process('sleep', '1')
-#
-#         proc.write(process.STDIN)
-#
-#         proc.send_signal(signal.SIGINT)
-#
-#         status, out, err = collect_outputs(proc)
-#         assert status == -2
-#         assert out == b''
-#         assert err == b''
+def handle_streams() -> Callable[[process.StreamUpdate], Dict[int, bytes]]:
+    outputs = {
+        process.STDOUT: [],
+        process.STDERR: [],
+    }  # type: Dict[int, List[bytes]]
+
+    open = len(outputs)
+
+    def send(msg: process.StreamUpdate):
+        nonlocal outputs, open
+
+        outputs[msg.fileno].append(msg.chunk)
+        if msg.chunk == b'':
+            open -= 1
+        if open > 0:
+            return None
+        return {fileno: b''.join(chunks) for fileno, chunks in outputs.items()}
+
+    return send
+
+
+@pytest.mark.asyncio
+async def test_process_echo():
+    async with connectSimulatorDealer() as socket:
+        response = await assertReplyDealer(socket, process.ExecuteAction('echo', 'asdf'),
+                                           process.ExecuteReply)  # type: process.ExecuteReply
+        pid = response.pid
+
+        stream_handler = handle_streams()
+        output = None
+
+        async def handle():
+            nonlocal output
+            _, msg = await socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
+            assertMsgEqual(msg, process.StreamUpdate, pid=pid)
+            output = stream_handler(msg)
+
+        while output is None:
+            await handle()
+
+        _, msg = await socket.recv_msg()
+        assert msg == process.ExitUpdate(pid, 0)
+
+        assert output[process.STDOUT] == b'asdf\n'
+        assert output[process.STDERR] == b''
+
+
+@pytest.mark.asyncio
+async def test_process_cat():
+    async with connectSimulatorDealer() as socket:
+        response = await assertReplyDealer(socket, process.ExecuteAction('cat'),
+                                           process.ExecuteReply)  # type: process.ExecuteReply
+        pid = response.pid
+
+        stream_handler = handle_streams()
+        output = None
+
+        async def handle():
+            nonlocal output
+            _, msg = await socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
+            assertMsgEqual(msg, process.StreamUpdate, pid=pid)
+            output = stream_handler(msg)
+
+        await assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b'asdf'), ack.Acknowledgement())
+        await handle()
+        await assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b''), ack.Acknowledgement())
+
+        while output is None:
+            await handle()
+
+        _, msg = await socket.recv_msg()
+        assert msg == process.ExitUpdate(pid, 0)
+
+        assert output[process.STDOUT] == b'asdf'
+        assert output[process.STDERR] == b''
+
+
+@pytest.mark.asyncio
+async def test_process_pwd():
+    async with connectSimulatorDealer() as socket:
+        response = await assertReplyDealer(socket, process.ExecuteAction('pwd', working_dir='/'),
+                                           process.ExecuteReply)  # type: process.ExecuteReply
+        pid = response.pid
+
+        stream_handler = handle_streams()
+        output = None
+
+        async def handle():
+            nonlocal output
+            _, msg = await socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
+            assertMsgEqual(msg, process.StreamUpdate, pid=pid)
+            output = stream_handler(msg)
+
+        while output is None:
+            await handle()
+
+        _, msg = await socket.recv_msg()
+        assert msg == process.ExitUpdate(pid, 0)
+
+        assert output[process.STDOUT] == b'/\n'
+        assert output[process.STDERR] == b''
+
+
+@pytest.mark.asyncio
+async def test_process_sleep():
+    async with connectSimulatorDealer() as socket:
+        response = await assertReplyDealer(socket, process.ExecuteAction('sleep', '1'),
+                                           process.ExecuteReply)  # type: process.ExecuteReply
+        pid = response.pid
+
+        stream_handler = handle_streams()
+        output = None
+
+        async def handle():
+            nonlocal output
+            _, msg = await socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
+            assertMsgEqual(msg, process.StreamUpdate, pid=pid)
+            output = stream_handler(msg)
+
+        await assertReplyDealer(socket, process.SignalAction(pid, signal.SIGINT), ack.Acknowledgement())
+
+        while output is None:
+            await handle()
+
+        _, msg = await socket.recv_msg()
+        assert msg == process.ExitUpdate(pid, -signal.SIGINT)
