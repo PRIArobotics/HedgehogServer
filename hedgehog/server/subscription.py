@@ -1,12 +1,22 @@
+from typing import cast, AsyncIterator, Awaitable, Callable, Dict, Generic, List, Optional, Set, Tuple, TypeVar, Union
+
 import asyncio
 import functools
 from aiostream import pipe, stream, streamcontext
 
+from hedgehog.protocol import Header
+from hedgehog.protocol.proto.subscription_pb2 import Subscription
 from hedgehog.protocol.errors import FailedCommandError
 from hedgehog.utils.asyncio import stream_from_queue
 
+from .hedgehog_server import HedgehogServer
 
-class SubscriptionStreamer(object):
+
+T = TypeVar('T')
+Upd = TypeVar('Upd')
+
+
+class SubscriptionStreamer(Generic[T]):
     """
     `SubscriptionStreamer` implements the behavior regarding timeout, granularity, and granularity timeout
     described in subscription.proto.
@@ -21,34 +31,35 @@ class SubscriptionStreamer(object):
 
     _EOF = object()
 
-    def __init__(self):
-        self._queues = []
+    def __init__(self) -> None:
+        self._queues = []  # type: List[asyncio.Queue]
 
-    async def send(self, item):
+    async def send(self, item: T) -> None:
         for queue in self._queues:
             await queue.put(item)
 
-    async def close(self):
+    async def close(self) -> None:
         for queue in self._queues:
             await queue.put(self._EOF)
 
-    def subscribe(self, timeout=None, granularity=None, granularity_timeout=None):
-        def sleep(timeout):
+    def subscribe(self, timeout: float=None,
+                  granularity: Callable[[T, T], bool]=None, granularity_timeout: float=None) -> AsyncIterator[T]:
+        def sleep(timeout: Optional[float]) -> Optional[asyncio.Future]:
             return asyncio.ensure_future(asyncio.sleep(timeout)) if timeout is not None else None
 
         if granularity is None:
             granularity = lambda a, b: a != b
 
-        queue = asyncio.Queue()
+        queue = asyncio.Queue()  # type: asyncio.Queue
         self._queues.append(queue)
 
-        async def _stream():
-            t_item = asyncio.ensure_future(queue.get())
-            t_timeout = None
-            t_granularity_timeout = None
+        async def _stream() -> AsyncIterator[T]:
+            t_item = asyncio.ensure_future(queue.get())  # type: Optional[asyncio.Future]
+            t_timeout = None  # type: Optional[asyncio.Future]
+            t_granularity_timeout = None  # type: Optional[asyncio.Future]
 
-            old_value = None
-            new_value = None
+            old_value = None  # type: Optional[Tuple[T]]
+            new_value = None  # type: Optional[Tuple[T]]
 
             try:
                 while t_item is not None or (new_value is not None and
@@ -92,7 +103,7 @@ class SubscriptionStreamer(object):
         return _stream()
 
 
-def polling_subscription_input(poll, interval_queue):
+def polling_subscription_input(poll: Callable[[], Union[T, Awaitable[T]]], interval_queue: asyncio.Queue) -> AsyncIterator[T]:
     """
     Returns a stream useful for poll based subscriptions.
     To support subscriptions of different frequencies, either the polling interval needs to be pessimistically small,
@@ -107,42 +118,42 @@ def polling_subscription_input(poll, interval_queue):
     An interval of zero means no timeout between `poll` calls, negative values pause polling.
     No polling is also the default before any interval was `put` into the queue yet.
     """
-    return stream_from_queue(interval_queue) | pipe.switchmap(
-        lambda interval: stream.never() if interval < 0 else stream.repeat((), interval=interval) | pipe.starmap(poll))
+    return cast(AsyncIterator[T], stream_from_queue(interval_queue) | pipe.switchmap(
+        lambda interval: stream.never() if interval < 0 else stream.repeat((), interval=interval) | pipe.starmap(poll)))
 
 
-class Subscribable(object):
-    def __init__(self):
-        self.streamer = SubscriptionStreamer()
-        self.subscriptions = {}
+class Subscribable(Generic[T, Upd]):
+    def __init__(self) -> None:
+        self.streamer = SubscriptionStreamer[T]()
+        self.subscriptions = {}  # type: Dict[Header, SubscriptionHandle]
 
-    def compose_update(self, server, ident, subscription, value):
+    def compose_update(self, server: HedgehogServer, ident: Header, subscription: Subscription, value: T) -> Upd:
         raise NotImplementedError()  # pragma: no cover
 
-    async def subscribe(self, server, ident, subscription):
+    async def subscribe(self, server: HedgehogServer, ident: Header, subscription: Subscription) -> None:
         raise NotImplementedError()  # pragma: no cover
 
 
 class SubscriptionHandle(object):
-    def __init__(self, do_subscribe):
+    def __init__(self, do_subscribe: Callable[[], Awaitable[AsyncIterator[Awaitable[None]]]]) -> None:
         self._do_subscribe = do_subscribe
         self.count = 0
-        self._updates = None
+        self._updates = None  # type: AsyncIterator[Awaitable[None]]
 
-    async def increment(self):
+    async def increment(self) -> None:
         if self.count == 0:
             self._updates = await self._do_subscribe()
             # await self._do_subscribe()
         self.count += 1
 
-    async def decrement(self):
+    async def decrement(self) -> None:
         self.count -= 1
         if self.count == 0:
-            await self._updates.aclose()
+            await self._updates.aclose()  # type: ignore
             self._updates = None
 
 
-class TriggeredSubscribable(Subscribable):
+class TriggeredSubscribable(Subscribable[T, Upd]):
     """
     Represents a value that changes by triggers known to the server, so it doesn't need to be actively polled.
     """
@@ -150,23 +161,24 @@ class TriggeredSubscribable(Subscribable):
     def __init__(self) -> None:
         super(TriggeredSubscribable, self).__init__()
 
-    async def update(self, value):
+    async def update(self, value: T) -> None:
         await self.streamer.send(value)
 
-    async def subscribe(self, server, ident, subscription):
+    async def subscribe(self, server: HedgehogServer, ident: Header, subscription: Subscription) -> None:
         # TODO incomplete
         key = (ident, subscription.timeout)
 
         if subscription.subscribe:
             if key not in self.subscriptions:
-                async def do_subscribe():
+                async def do_subscribe() -> AsyncIterator[Awaitable[None]]:
                     updates = streamcontext(self.streamer.subscribe(subscription.timeout / 1000))
                     updates |= pipe.map(lambda value:
                                         server.send_async(ident, self.compose_update(server, ident, subscription, value)))
                     updates = streamcontext(updates)
                     await server.register(updates)
-                    return updates
+                    return cast(AsyncIterator[Awaitable[None]], updates)
                 handle = self.subscriptions[key] = SubscriptionHandle(do_subscribe)
+
             else:
                 handle = self.subscriptions[key]
 
@@ -182,30 +194,30 @@ class TriggeredSubscribable(Subscribable):
                     del self.subscriptions[key]
 
 
-class PolledSubscribable(Subscribable):
+class PolledSubscribable(Subscribable[T, Upd]):
     """
     Represents a value that changes by independently from the server, so it is polled to observe changes.
     """
 
     def __init__(self) -> None:
         super(PolledSubscribable, self).__init__()
-        self.intervals = asyncio.Queue()
-        self.timeouts = set()
+        self.intervals = asyncio.Queue()  # type: asyncio.Queue
+        self.timeouts = set()  # type: Set[float]
         self._registered = False
 
-    async def poll(self):
+    async def poll(self) -> T:
         raise NotImplementedError()  # pragma: no cover
 
-    async def register(self, server):
+    async def register(self, server: HedgehogServer) -> None:
         if not self._registered:
-            async def do_poll():
+            async def do_poll() -> None:
                 await self.streamer.send(await self.poll())
             # do_poll is wrapped in partial so that it's treated as a regular (not async) function;
             # we want to yield the awaitable, not its result
             await server.register(polling_subscription_input(functools.partial(do_poll), self.intervals))
             self._registered = True
 
-    async def subscribe(self, server, ident, subscription):
+    async def subscribe(self, server: HedgehogServer, ident: Header, subscription: Subscription) -> None:
         await self.register(server)
 
         # TODO incomplete
@@ -213,7 +225,7 @@ class PolledSubscribable(Subscribable):
 
         if subscription.subscribe:
             if key not in self.subscriptions:
-                async def do_subscribe():
+                async def do_subscribe() -> AsyncIterator[Awaitable[None]]:
                     updates = streamcontext(self.streamer.subscribe(subscription.timeout / 1000))
                     updates |= pipe.map(lambda value:
                                         server.send_async(ident, self.compose_update(server, ident, subscription, value)))
@@ -223,7 +235,7 @@ class PolledSubscribable(Subscribable):
                     self.timeouts.add(subscription.timeout / 1000)
                     await self.intervals.put(min(self.timeouts))
 
-                    return updates
+                    return cast(AsyncIterator[Awaitable[None]], updates)
 
                 handle = self.subscriptions[key] = SubscriptionHandle(do_subscribe)
             else:

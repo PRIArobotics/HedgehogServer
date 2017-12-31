@@ -14,8 +14,8 @@ HandlerDecorator = Callable[[Type[Message]], Callable[[HandlerFunction], Handler
 def command_handlers() -> Tuple[Dict[Type[Message], HandlerFunction], HandlerDecorator]:
     _handlers = {}  # type: Dict[Type[Message], HandlerFunction]
 
-    def command(msg: Type[Message]):
-        def decorator(func: HandlerFunction):
+    def command(msg: Type[Message]) -> Callable[[HandlerFunction], HandlerFunction]:
+        def decorator(func: HandlerFunction) -> HandlerFunction:
             _handlers[msg] = func
             return func
         return decorator

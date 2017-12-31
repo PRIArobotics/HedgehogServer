@@ -1,4 +1,4 @@
-from typing import Any, Dict, Tuple, Type
+from typing import cast, Any, Dict, Tuple, Type
 
 import itertools
 import math
@@ -30,35 +30,35 @@ class _HWHandler(object):
 
 
 class _IOHandler(_HWHandler):
-    def __command_subscribable(self) -> subscription.TriggeredSubscribable:
+    def __command_subscribable(self) -> subscription.TriggeredSubscribable[int, io.CommandUpdate]:
         outer_self = self
 
-        class Subs(subscription.TriggeredSubscribable):
-            def compose_update(self, server: HedgehogServer, ident: Header, subscription: Subscription, flags: int):
+        class Subs(subscription.TriggeredSubscribable[int, io.CommandUpdate]):
+            def compose_update(self, server, ident, subscription, flags):
                 return io.CommandUpdate(outer_self.port, flags, subscription)
 
         return Subs()
 
-    def __analog_subscribable(self) -> subscription.PolledSubscribable:
+    def __analog_subscribable(self) -> subscription.PolledSubscribable[int, analog.Update]:
         outer_self = self
 
-        class Subs(subscription.PolledSubscribable):
+        class Subs(subscription.PolledSubscribable[int, analog.Update]):
             async def poll(self):
                 return await outer_self.analog_value
 
-            def compose_update(self, server: HedgehogServer, ident: Header, subscription: Subscription, value: int):
+            def compose_update(self, server, ident, subscription, value):
                 return analog.Update(outer_self.port, value, subscription)
 
         return Subs()
 
-    def __digital_subscribable(self) -> subscription.PolledSubscribable:
+    def __digital_subscribable(self) -> subscription.PolledSubscribable[bool, digital.Update]:
         outer_self = self
 
-        class Subs(subscription.PolledSubscribable):
+        class Subs(subscription.PolledSubscribable[bool, digital.Update]):
             async def poll(self):
                 return await outer_self.digital_value
 
-            def compose_update(self, server: HedgehogServer, ident: Header, subscription: Subscription, value: bool):
+            def compose_update(self, server, ident, subscription, value):
                 return digital.Update(outer_self.port, value, subscription)
 
         return Subs()
@@ -73,7 +73,8 @@ class _IOHandler(_HWHandler):
 
     async def action(self, flags: int) -> None:
         await self.adapter.set_io_state(self.port, flags)
-        await self.subscribables[io.CommandSubscribe].update(flags)
+        await cast(subscription.TriggeredSubscribable[int, io.CommandUpdate],
+                   self.subscribables[io.CommandSubscribe]).update(flags)
         self.command = flags,
 
     @property
@@ -86,24 +87,24 @@ class _IOHandler(_HWHandler):
 
 
 class _MotorHandler(_HWHandler):
-    def __command_subscribable(self) -> subscription.TriggeredSubscribable:
+    def __command_subscribable(self) -> subscription.TriggeredSubscribable[Tuple[int, int], motor.CommandUpdate]:
         outer_self = self
 
-        class Subs(subscription.TriggeredSubscribable):
-            def compose_update(self, server: HedgehogServer, ident: Header, subscription: Subscription, command: Tuple[int, int]):
+        class Subs(subscription.TriggeredSubscribable[Tuple[int, int], motor.CommandUpdate]):
+            def compose_update(self, server, ident, subscription, command):
                 state, amount = command
                 return motor.CommandUpdate(outer_self.port, state, amount, subscription)
 
         return Subs()
 
-    def __state_subscribable(self) -> subscription.PolledSubscribable:
+    def __state_subscribable(self) -> subscription.PolledSubscribable[Tuple[int, int], motor.StateUpdate]:
         outer_self = self
 
-        class Subs(subscription.PolledSubscribable):
+        class Subs(subscription.PolledSubscribable[Tuple[int, int], motor.StateUpdate]):
             async def poll(self):
                 return await outer_self.state
 
-            def compose_update(self, server: HedgehogServer, ident: Header, subscription: Subscription, state: Tuple[int, int]):
+            def compose_update(self, server, ident, subscription, state):
                 velocity, position = state
                 return motor.StateUpdate(outer_self.port, velocity, position, subscription)
 
@@ -126,7 +127,8 @@ class _MotorHandler(_HWHandler):
 
     async def action(self, state: int, amount: int, reached_state: int, relative: int, absolute: int) -> None:
         await self.adapter.set_motor(self.port, state, amount, reached_state, relative, absolute)
-        await self.subscribables[motor.CommandSubscribe].update((state, amount))
+        await cast(subscription.TriggeredSubscribable[Tuple[int, int], motor.CommandUpdate],
+                   self.subscribables[motor.CommandSubscribe]).update((state, amount))
         self.command = state, amount
 
     async def set_position(self, position: int) -> None:
@@ -138,11 +140,11 @@ class _MotorHandler(_HWHandler):
 
 
 class _ServoHandler(_HWHandler):
-    def __command_subscribable(self) -> subscription.TriggeredSubscribable:
+    def __command_subscribable(self) -> subscription.TriggeredSubscribable[Tuple[int, int], servo.CommandUpdate]:
         outer_self = self
 
-        class Subs(subscription.TriggeredSubscribable):
-            def compose_update(self, server: HedgehogServer, ident: Header, subscription: Subscription, command: Tuple[bool, int]):
+        class Subs(subscription.TriggeredSubscribable[Tuple[int, int], servo.CommandUpdate]):
+            def compose_update(self, server, ident, subscription, command):
                 active, position = command
                 return servo.CommandUpdate(outer_self.port, active, position, subscription)
 
@@ -157,14 +159,15 @@ class _ServoHandler(_HWHandler):
 
     async def action(self, active: bool, position: int) -> None:
         await self.adapter.set_servo(self.port, active, position if active else 0)
-        await self.subscribables[servo.CommandSubscribe].update((active, position))
+        await cast(subscription.TriggeredSubscribable[Tuple[int, int], servo.CommandUpdate],
+                   self.subscribables[servo.CommandSubscribe]).update((active, position))
         self.command = active, position
 
 
 class HardwareHandler(CommandHandler):
     _handlers, _command = command_handlers()
 
-    def __init__(self, adapter):
+    def __init__(self, adapter: HardwareAdapter) -> None:
         super().__init__()
         self.adapter = adapter
         # TODO hard-coded number of ports

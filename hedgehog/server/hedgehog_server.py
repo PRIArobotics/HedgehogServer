@@ -1,4 +1,4 @@
-from typing import Any, AsyncGenerator, Callable, Coroutine, Dict, Type
+from typing import Any, AsyncIterator, Awaitable, Callable, Coroutine, Dict, Type
 
 import asyncio
 import logging
@@ -6,10 +6,7 @@ import traceback
 import zmq.asyncio
 from aiostream import pipe, streamcontext
 from hedgehog.utils.asyncio import Actor, stream_from_queue
-from hedgehog.utils.zmq.poller import Poller
-from hedgehog.utils.zmq.socket import SocketLike
-from hedgehog.utils.zmq.timer import Timer
-from hedgehog.protocol import ServerSide, Header, RawMessage, Message
+from hedgehog.protocol import ServerSide, Header, RawMessage, Message, RawPayload
 from hedgehog.protocol.async_sockets import DealerRouterSocket
 from hedgehog.protocol.errors import HedgehogCommandError, UnsupportedCommandError, FailedCommandError
 
@@ -27,7 +24,7 @@ class HedgehogServer(Actor):
         self.handlers = handlers
         self.socket = None  # type: DealerRouterSocket
 
-    async def register(self, stream: AsyncGenerator[Coroutine[Any, Any, Any], Any]) -> None:
+    async def register(self, stream: AsyncIterator[Awaitable[None]]) -> None:
         await self.cmd_pipe.send((b'REG', stream))
 
     async def send_async(self, ident: Header, *msgs: Message) -> None:
@@ -35,8 +32,8 @@ class HedgehogServer(Actor):
             logger.debug("Send update:     %s", msg)
         await self.socket.send_msgs(ident, msgs)
 
-    async def _requests(self):
-        async def handle_msg(ident, msg_raw):
+    async def _requests(self) -> AsyncIterator[Awaitable[None]]:
+        async def handle_msg(ident: Header, msg_raw: RawMessage) -> RawMessage:
             try:
                 msg = ServerSide.parse(msg_raw)
                 logger.debug("Receive command: %s", msg)
@@ -56,21 +53,21 @@ class HedgehogServer(Actor):
             logger.debug("Send reply:      %s", result)
             return ServerSide.serialize(result)
 
-        async def request_handler(ident, msgs_raw):
+        async def request_handler(ident: Header, msgs_raw: RawPayload) -> None:
             await self.socket.send_msgs_raw(ident, [await handle_msg(ident, msg) for msg in msgs_raw])
 
         while True:
             ident, msgs_raw = await self.socket.recv_msgs_raw()
             yield request_handler(ident, msgs_raw)
 
-    async def run(self, cmd_pipe, evt_pipe):
+    async def run(self, cmd_pipe, evt_pipe) -> None:
         self.socket = DealerRouterSocket(self.ctx, zmq.ROUTER, side=ServerSide)
         self.socket.bind(self.endpoint)
         await evt_pipe.send(b'$START')
 
-        stream_queue = asyncio.Queue()
+        stream_queue = asyncio.Queue()  # type: asyncio.Queue
 
-        async def commands():
+        async def commands() -> AsyncIterator[tuple]:
             while True:
                 cmd = await cmd_pipe.recv()
                 yield (cmd,) if isinstance(cmd, bytes) else cmd

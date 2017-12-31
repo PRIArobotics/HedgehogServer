@@ -1,3 +1,5 @@
+from typing import List
+
 import time
 from hedgehog.platform import Controller
 from hedgehog.protocol.errors import FailedCommandError
@@ -72,17 +74,17 @@ class SerialHardwareAdapter(HardwareAdapter):
         self.serial = self.controller.serial
         self.controller.reset(True)
 
-    async def repeatable_command(self, cmd, reply_code=OK, tries=3):
-        for i in range(tries):
+    async def repeatable_command(self, cmd: List[int], reply_code: int=OK, tries: int=3) -> List[int]:
+        for i in range(tries - 1):
             try:
                 return await self.command(cmd, reply_code=reply_code)
             except TruncatedcommandError:
-                if i == tries - 1:
-                    raise
+                pass
+        return await self.command(cmd, reply_code=reply_code)
 
-    async def command(self, cmd, reply_code=OK):
-        async def read_command():
-            cmd = self.serial.read()
+    async def command(self, cmd: List[int], reply_code: int=OK) -> List[int]:
+        async def read_command() -> List[int]:
+            cmd = self.serial.read()  # type: bytes
             if cmd[0] in _cmd_lengths:
                 length = _cmd_lengths[cmd[0]]
                 if length > 1:
@@ -125,6 +127,7 @@ class SerialHardwareAdapter(HardwareAdapter):
                 raise FailedCommandError("unsupported motor power/velocity")
             elif reply[0] == INVALID_VALUE and cmd[0] == SERVO:
                 raise FailedCommandError("unsupported servo position")
+            raise FailedCommandError("unknown hardware controller response")
 
     async def set_io_state(self, port, flags):
         await self.repeatable_command([IO_STATE, port, flags])

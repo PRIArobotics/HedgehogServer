@@ -1,16 +1,18 @@
-from typing import Dict
+from typing import AsyncIterator, Awaitable, Dict
 
 import asyncio.subprocess
 
 from hedgehog.protocol.errors import FailedCommandError
 from hedgehog.protocol.messages import ack, process, motor
-from hedgehog.server.handlers import CommandHandler, command_handlers
+
+from . import CommandHandler, command_handlers
+from ..hardware import HardwareAdapter
 
 
 class ProcessHandler(CommandHandler):
     _handlers, _command = command_handlers()
 
-    def __init__(self, adapter):
+    def __init__(self, adapter: HardwareAdapter) -> None:
         super().__init__()
         self._processes = {}  # type: Dict[int, asyncio.subprocess.Process]
         self.adapter = adapter
@@ -27,7 +29,7 @@ class ProcessHandler(CommandHandler):
         pid = proc.pid
         self._processes[pid] = proc
 
-        async def proc_events():
+        async def proc_events() -> AsyncIterator[Awaitable[None]]:
 
             streams = [(process.STDOUT, proc.stdout), (process.STDERR, proc.stderr)]
             tasks = {fileno: asyncio.ensure_future(file.read(4096)) for fileno, file in streams}
