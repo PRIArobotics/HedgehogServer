@@ -2,10 +2,12 @@ from typing import AsyncIterator, Awaitable, Dict
 
 import asyncio.subprocess
 
+from functools import partial
 from hedgehog.protocol.errors import FailedCommandError
 from hedgehog.protocol.messages import ack, process, motor
 
 from . import CommandHandler, command_handlers
+from ..hedgehog_server import EventStream
 from ..hardware import HardwareAdapter
 
 
@@ -29,7 +31,7 @@ class ProcessHandler(CommandHandler):
         pid = proc.pid
         self._processes[pid] = proc
 
-        async def proc_events() -> AsyncIterator[Awaitable[None]]:
+        async def proc_events() -> EventStream:
 
             streams = [(process.STDOUT, proc.stdout), (process.STDERR, proc.stderr)]
             tasks = {fileno: asyncio.ensure_future(file.read(4096)) for fileno, file in streams}
@@ -44,21 +46,21 @@ class ProcessHandler(CommandHandler):
                         task = tasks[fileno]
                         if task in done:
                             chunk = task.result()
-                            yield server.send_async(ident, process.StreamUpdate(pid, fileno, chunk))
+                            yield partial(server.send_async, ident, process.StreamUpdate(pid, fileno, chunk))
                             if chunk != b'':
                                 tasks[fileno] = asyncio.ensure_future(file.read(4096))
                             else:
                                 del tasks[fileno]
 
-            yield server.send_async(ident, process.ExitUpdate(pid, await proc.wait()))
+            yield partial(server.send_async, ident, process.ExitUpdate(pid, await proc.wait()))
             del self._processes[pid]
 
-            # # turn off all actuators
-            # # TODO hard coded number of ports
-            # for port in range(4):
-            #     yield self.adapter.set_motor(port, motor.POWER, 0)
-            # for port in range(4):
-            #     yield self.adapter.set_servo(port, False, 0)
+            # turn off all actuators
+            # TODO hard coded number of ports
+            for port in range(4):
+                yield partial(self.adapter.set_motor, port, motor.POWER, 0)
+            for port in range(4):
+                yield partial(self.adapter.set_servo, port, False, 0)
 
         await server.register(proc_events())
         return process.ExecuteReply(pid)

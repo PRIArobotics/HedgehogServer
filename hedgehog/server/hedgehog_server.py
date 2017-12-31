@@ -5,6 +5,7 @@ import logging
 import traceback
 import zmq.asyncio
 from aiostream import pipe, streamcontext
+from functools import partial
 from hedgehog.utils.asyncio import Actor, stream_from_queue
 from hedgehog.protocol import ServerSide, Header, RawMessage, Message, RawPayload
 from hedgehog.protocol.async_sockets import DealerRouterSocket
@@ -13,6 +14,7 @@ from hedgehog.protocol.errors import HedgehogCommandError, UnsupportedCommandErr
 
 # TODO importing this from .handlers does not work...
 HandlerCallback = Callable[['HedgehogServer', Header, Message], Awaitable[Message]]
+EventStream = AsyncIterator[Callable[[], Awaitable[None]]]
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +26,7 @@ class HedgehogServer(Actor):
         self.handlers = handlers
         self.socket = None  # type: DealerRouterSocket
 
-    async def register(self, stream: AsyncIterator[Awaitable[None]]) -> None:
+    async def register(self, stream: EventStream) -> None:
         await self.cmd_pipe.send((b'REG', stream))
 
     async def send_async(self, ident: Header, *msgs: Message) -> None:
@@ -32,7 +34,7 @@ class HedgehogServer(Actor):
             logger.debug("Send update:     %s", msg)
         await self.socket.send_msgs(ident, msgs)
 
-    async def _requests(self) -> AsyncIterator[Awaitable[None]]:
+    async def _requests(self) -> EventStream:
         async def handle_msg(ident: Header, msg_raw: RawMessage) -> RawMessage:
             try:
                 msg = ServerSide.parse(msg_raw)
@@ -58,7 +60,7 @@ class HedgehogServer(Actor):
 
         while True:
             ident, msgs_raw = await self.socket.recv_msgs_raw()
-            yield request_handler(ident, msgs_raw)
+            yield partial(request_handler, ident, msgs_raw)
 
     async def run(self, cmd_pipe, evt_pipe) -> None:
         self.socket = DealerRouterSocket(self.ctx, zmq.ROUTER, side=ServerSide)
@@ -82,7 +84,7 @@ class HedgehogServer(Actor):
 
                 if cmd == b'EVENT':
                     awaitable, = payload
-                    await awaitable
+                    await awaitable()
                 elif cmd == b'REG':
                     stream, = payload
                     await stream_queue.put(streamcontext(stream) | pipe.map(lambda item: (b'EVENT', item)))

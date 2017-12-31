@@ -1,7 +1,7 @@
 from typing import cast, AsyncIterator, Awaitable, Callable, Dict, Generic, List, Optional, Set, Tuple, TypeVar, Union
 
 import asyncio
-import functools
+from functools import partial
 from aiostream import pipe, stream, streamcontext
 
 from hedgehog.protocol import Header
@@ -9,7 +9,7 @@ from hedgehog.protocol.proto.subscription_pb2 import Subscription
 from hedgehog.protocol.errors import FailedCommandError
 from hedgehog.utils.asyncio import stream_from_queue
 
-from .hedgehog_server import HedgehogServer
+from .hedgehog_server import HedgehogServer, EventStream
 
 
 T = TypeVar('T')
@@ -135,15 +135,14 @@ class Subscribable(Generic[T, Upd]):
 
 
 class SubscriptionHandle(object):
-    def __init__(self, do_subscribe: Callable[[], Awaitable[AsyncIterator[Awaitable[None]]]]) -> None:
+    def __init__(self, do_subscribe: Callable[[], Awaitable[EventStream]]) -> None:
         self._do_subscribe = do_subscribe
         self.count = 0
-        self._updates = None  # type: AsyncIterator[Awaitable[None]]
+        self._updates = None  # type: EventStream
 
     async def increment(self) -> None:
         if self.count == 0:
             self._updates = await self._do_subscribe()
-            # await self._do_subscribe()
         self.count += 1
 
     async def decrement(self) -> None:
@@ -170,13 +169,13 @@ class TriggeredSubscribable(Subscribable[T, Upd]):
 
         if subscription.subscribe:
             if key not in self.subscriptions:
-                async def do_subscribe() -> AsyncIterator[Awaitable[None]]:
+                async def do_subscribe() -> EventStream:
                     updates = streamcontext(self.streamer.subscribe(subscription.timeout / 1000))
-                    updates |= pipe.map(lambda value:
-                                        server.send_async(ident, self.compose_update(server, ident, subscription, value)))
-                    updates = streamcontext(updates)
-                    await server.register(updates)
-                    return cast(AsyncIterator[Awaitable[None]], updates)
+                    updates |= pipe.map(lambda value: partial(server.send_async, ident,
+                                                              self.compose_update(server, ident, subscription, value)))
+                    events = cast(EventStream, streamcontext(updates))
+                    await server.register(events)
+                    return events
                 handle = self.subscriptions[key] = SubscriptionHandle(do_subscribe)
 
             else:
@@ -212,9 +211,11 @@ class PolledSubscribable(Subscribable[T, Upd]):
         if not self._registered:
             async def do_poll() -> None:
                 await self.streamer.send(await self.poll())
-            # do_poll is wrapped in partial so that it's treated as a regular (not async) function;
-            # we want to yield the awaitable, not its result
-            await server.register(polling_subscription_input(functools.partial(do_poll), self.intervals))
+
+            events = stream_from_queue(self.intervals) | pipe.switchmap(
+                lambda interval: stream.never() if interval < 0 else stream.repeat(do_poll, interval=interval))
+
+            await server.register(events)
             self._registered = True
 
     async def subscribe(self, server: HedgehogServer, ident: Header, subscription: Subscription) -> None:
@@ -225,17 +226,17 @@ class PolledSubscribable(Subscribable[T, Upd]):
 
         if subscription.subscribe:
             if key not in self.subscriptions:
-                async def do_subscribe() -> AsyncIterator[Awaitable[None]]:
+                async def do_subscribe() -> EventStream:
                     updates = streamcontext(self.streamer.subscribe(subscription.timeout / 1000))
-                    updates |= pipe.map(lambda value:
-                                        server.send_async(ident, self.compose_update(server, ident, subscription, value)))
-                    updates = streamcontext(updates)
-                    await server.register(updates)
+                    updates |= pipe.map(lambda value: partial(server.send_async, ident,
+                                                              self.compose_update(server, ident, subscription, value)))
+                    events = cast(EventStream, streamcontext(updates))
+                    await server.register(events)
 
                     self.timeouts.add(subscription.timeout / 1000)
                     await self.intervals.put(min(self.timeouts))
 
-                    return cast(AsyncIterator[Awaitable[None]], updates)
+                    return events
 
                 handle = self.subscriptions[key] = SubscriptionHandle(do_subscribe)
             else:
