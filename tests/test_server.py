@@ -1,7 +1,7 @@
 from typing import Any, Callable, Dict, List, Tuple, Type, Union
 
 import pytest
-from hedgehog.utils.test_utils import event_loop, assertTimeout, assertImmediate, assertPassed
+from hedgehog.utils.test_utils import event_loop, zmq_aio_ctx, assertTimeout, assertImmediate, assertPassed
 
 import zmq.asyncio
 import signal
@@ -28,34 +28,31 @@ def handler(adapter: HardwareAdapter=None) -> handlers.HandlerCallbackDict:
     return handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
 
 
-@async_context_manager
-async def connectSimulatorReq(adapter: HardwareAdapter=None):
-    handlers = handler(adapter)
+@pytest.fixture
+def hardware_adapter():
+    return MockedHardwareAdapter()
 
-    ctx = zmq.asyncio.Context()
-    async with HedgehogServer(ctx, 'inproc://controller', handlers):
-        socket = ReqSocket(ctx, zmq.REQ, side=ClientSide)
+
+@pytest.fixture
+async def conn_req(zmq_aio_ctx: zmq.asyncio.Context, hardware_adapter: HardwareAdapter):
+    async with HedgehogServer(zmq_aio_ctx, 'inproc://controller', handler(hardware_adapter)):
+        socket = ReqSocket(zmq_aio_ctx, zmq.REQ, side=ClientSide)
         socket.connect('inproc://controller')
 
         yield socket
 
         socket.close()
-    ctx.term()
 
 
-@async_context_manager
-async def connectSimulatorDealer(adapter: HardwareAdapter=None):
-    handlers = handler(adapter)
-
-    ctx = zmq.asyncio.Context()
-    async with HedgehogServer(ctx, 'inproc://controller', handlers):
-        socket = DealerRouterSocket(ctx, zmq.DEALER, side=ClientSide)
+@pytest.fixture
+async def conn_dealer(zmq_aio_ctx: zmq.asyncio.Context, hardware_adapter: HardwareAdapter):
+    async with HedgehogServer(zmq_aio_ctx, 'inproc://controller', handler(hardware_adapter)):
+        socket = DealerRouterSocket(zmq_aio_ctx, zmq.DEALER, side=ClientSide)
         socket.connect('inproc://controller')
 
         yield socket
 
         socket.close()
-    ctx.term()
 
 
 def assertMsgEqual(msg: Message, msg_class: Type[Message], **kwargs) -> None:
@@ -109,371 +106,362 @@ async def assertReplyDealer(socket, req: Message,
 
 
 @pytest.mark.asyncio
-async def test_multipart():
-    async with connectSimulatorReq() as socket:
-        with assertImmediate():
-            await socket.send_msgs([analog.Request(0), digital.Request(0)])
-            update = await socket.recv_msgs()
-        assert update[0] == analog.Reply(0, 0)
-        assert update[1] == digital.Reply(0, False)
+async def test_multipart(conn_req):
+    with assertImmediate():
+        await conn_req.send_msgs([analog.Request(0), digital.Request(0)])
+        update = await conn_req.recv_msgs()
+    assert update[0] == analog.Reply(0, 0)
+    assert update[1] == digital.Reply(0, False)
 
 
 @pytest.mark.asyncio
-async def test_unsupported():
-    async with connectSimulatorReq(HardwareAdapter()) as socket:
-        await assertReplyReq(socket, io.Action(0, io.INPUT_PULLDOWN), ack.UNSUPPORTED_COMMAND)
-        await assertReplyReq(socket, analog.Request(0), ack.UNSUPPORTED_COMMAND)
-        await assertReplyReq(socket, digital.Request(0), ack.UNSUPPORTED_COMMAND)
-        await assertReplyReq(socket, motor.Action(0, motor.POWER), ack.UNSUPPORTED_COMMAND)
-        await assertReplyReq(socket, motor.StateRequest(0), ack.UNSUPPORTED_COMMAND)
-        await assertReplyReq(socket, motor.SetPositionAction(0, 0), ack.UNSUPPORTED_COMMAND)
-        await assertReplyReq(socket, servo.Action(0, True, 0), ack.UNSUPPORTED_COMMAND)
+@pytest.mark.parametrize('hardware_adapter', [HardwareAdapter()])
+async def test_unsupported(conn_req):
+    await assertReplyReq(conn_req, io.Action(0, io.INPUT_PULLDOWN), ack.UNSUPPORTED_COMMAND)
+    await assertReplyReq(conn_req, analog.Request(0), ack.UNSUPPORTED_COMMAND)
+    await assertReplyReq(conn_req, digital.Request(0), ack.UNSUPPORTED_COMMAND)
+    await assertReplyReq(conn_req, motor.Action(0, motor.POWER), ack.UNSUPPORTED_COMMAND)
+    await assertReplyReq(conn_req, motor.StateRequest(0), ack.UNSUPPORTED_COMMAND)
+    await assertReplyReq(conn_req, motor.SetPositionAction(0, 0), ack.UNSUPPORTED_COMMAND)
+    await assertReplyReq(conn_req, servo.Action(0, True, 0), ack.UNSUPPORTED_COMMAND)
 
 
 @pytest.mark.asyncio
-async def test_io():
-    async with connectSimulatorDealer() as socket:
-        # ### io.CommandRequest
+async def test_io(conn_dealer):
+    # ### io.CommandRequest
 
-        await assertReplyDealer(socket, io.CommandRequest(0), ack.FAILED_COMMAND)
+    await assertReplyDealer(conn_dealer, io.CommandRequest(0), ack.FAILED_COMMAND)
 
-        # ### io.Action
+    # ### io.Action
 
-        await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
+    await assertReplyDealer(conn_dealer, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
 
-        # send an invalid command
-        action = io.Action(0, 0)
-        action.flags = io.OUTPUT | io.PULLDOWN
-        await assertReplyDealer(socket, action, ack.INVALID_COMMAND)
+    # send an invalid command
+    action = io.Action(0, 0)
+    action.flags = io.OUTPUT | io.PULLDOWN
+    await assertReplyDealer(conn_dealer, action, ack.INVALID_COMMAND)
 
-        # ### io.CommandRequest
+    # ### io.CommandRequest
 
-        await assertReplyDealer(socket, io.CommandRequest(0), io.CommandReply(0, io.INPUT_PULLDOWN))
+    await assertReplyDealer(conn_dealer, io.CommandRequest(0), io.CommandReply(0, io.INPUT_PULLDOWN))
 
-        # ### io.CommandSubscribe
+    # ### io.CommandSubscribe
 
-        sub = Subscription()
-        sub.subscribe = False
-        await assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.FAILED_COMMAND)
+    sub = Subscription()
+    sub.subscribe = False
+    await assertReplyDealer(conn_dealer, io.CommandSubscribe(0, sub), ack.FAILED_COMMAND)
 
-        sub = Subscription()
-        sub.subscribe = True
-        await assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
+    sub = Subscription()
+    sub.subscribe = True
+    await assertReplyDealer(conn_dealer, io.CommandSubscribe(0, sub), ack.Acknowledgement())
 
-        await assertTimeout(socket.recv_multipart(), 1)
+    await assertTimeout(conn_dealer.recv_multipart(), 1)
 
-        with assertImmediate():
-            await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
+    with assertImmediate():
+        await assertReplyDealer(conn_dealer, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
 
-            _, response = await socket.recv_msg()
-            assert response == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
+        _, response = await conn_dealer.recv_msg()
+        assert response == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
 
-        with assertImmediate():
-            await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLUP), ack.Acknowledgement())
+    with assertImmediate():
+        await assertReplyDealer(conn_dealer, io.Action(0, io.INPUT_PULLUP), ack.Acknowledgement())
 
-            _, response = await socket.recv_msg()
-            assert response == io.CommandUpdate(0, io.INPUT_PULLUP, sub)
+        _, response = await conn_dealer.recv_msg()
+        assert response == io.CommandUpdate(0, io.INPUT_PULLUP, sub)
 
-        sub = Subscription()
-        sub.subscribe = False
-        await assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
+    sub = Subscription()
+    sub.subscribe = False
+    await assertReplyDealer(conn_dealer, io.CommandSubscribe(0, sub), ack.Acknowledgement())
 
 
 @pytest.mark.asyncio
-async def test_command_subscription():
-    async with connectSimulatorDealer() as socket:
-        sub = Subscription()
-        sub.subscribe = True
-        sub.timeout = 1000
+async def test_command_subscription(conn_dealer):
+    sub = Subscription()
+    sub.subscribe = True
+    sub.timeout = 1000
 
-        unsub = Subscription()
-        unsub.subscribe = False
-        unsub.timeout = 1000
+    unsub = Subscription()
+    unsub.subscribe = False
+    unsub.timeout = 1000
 
-        # original subscription
-        await assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
+    # original subscription
+    await assertReplyDealer(conn_dealer, io.CommandSubscribe(0, sub), ack.Acknowledgement())
 
-        # check there is no update, even after a time
-        await assertTimeout(socket.recv_multipart(), 2)
+    # check there is no update, even after a time
+    await assertTimeout(conn_dealer.recv_multipart(), 2)
 
-        # check immediate update
-        with assertImmediate():
-            # send a first command to get an update
-            await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
+    # check immediate update
+    with assertImmediate():
+        # send a first command to get an update
+        await assertReplyDealer(conn_dealer, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
 
-            _, response = await socket.recv_msg()
-            assert response == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
+        _, response = await conn_dealer.recv_msg()
+        assert response == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
 
-        # send another command that does not actually change the value
-        await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
+    # send another command that does not actually change the value
+    await assertReplyDealer(conn_dealer, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
 
-        # check there is no update, even after a time
-        await assertTimeout(socket.recv_multipart(), 2)
+    # check there is no update, even after a time
+    await assertTimeout(conn_dealer.recv_multipart(), 2)
 
-        # check immediate update (as time has passed)
-        with assertImmediate():
-            # change command value
-            await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLUP), ack.Acknowledgement())
-
-            _, response = await socket.recv_msg()
-            assert response == io.CommandUpdate(0, io.INPUT_PULLUP, sub)
-
-        # check update is not immediately
-        with assertPassed(1):
-            # change command value
-            await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
-
-            _, response = await socket.recv_msg()
-            assert response == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
-
-        # FIXME no immediate update
-        # # check update is not immediately
-        # with assertPassed(1):
-        #     # add extra subscription
-        #     await assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
-        #
-        #     _, response = await socket.recv_msg()
-        #     assert response == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
-        #
-        # # cancel extra subscription
-        # await assertReplyDealer(socket, io.CommandSubscribe(0, unsub), ack.Acknowledgement())
-
-        # check update is not immediately
-        with assertPassed(1):
-            # change command value
-            await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLUP), ack.Acknowledgement())
-
-            _, response = await socket.recv_msg()
-            assert response == io.CommandUpdate(0, io.INPUT_PULLUP, sub)
-
-        # cancel original subscription
-        await assertReplyDealer(socket, io.CommandSubscribe(0, unsub), ack.Acknowledgement())
-
+    # check immediate update (as time has passed)
+    with assertImmediate():
         # change command value
-        await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
+        await assertReplyDealer(conn_dealer, io.Action(0, io.INPUT_PULLUP), ack.Acknowledgement())
 
-        # check there is no update, even after a time
-        await assertTimeout(socket.recv_multipart(), 2)
+        _, response = await conn_dealer.recv_msg()
+        assert response == io.CommandUpdate(0, io.INPUT_PULLUP, sub)
+
+    # check update is not immediately
+    with assertPassed(1):
+        # change command value
+        await assertReplyDealer(conn_dealer, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
+
+        _, response = await conn_dealer.recv_msg()
+        assert response == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
+
+    # FIXME no immediate update
+    # # check update is not immediately
+    # with assertPassed(1):
+    #     # add extra subscription
+    #     await assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
+    #
+    #     _, response = await socket.recv_msg()
+    #     assert response == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
+    #
+    # # cancel extra subscription
+    # await assertReplyDealer(socket, io.CommandSubscribe(0, unsub), ack.Acknowledgement())
+
+    # check update is not immediately
+    with assertPassed(1):
+        # change command value
+        await assertReplyDealer(conn_dealer, io.Action(0, io.INPUT_PULLUP), ack.Acknowledgement())
+
+        _, response = await conn_dealer.recv_msg()
+        assert response == io.CommandUpdate(0, io.INPUT_PULLUP, sub)
+
+    # cancel original subscription
+    await assertReplyDealer(conn_dealer, io.CommandSubscribe(0, unsub), ack.Acknowledgement())
+
+    # change command value
+    await assertReplyDealer(conn_dealer, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
+
+    # check there is no update, even after a time
+    await assertTimeout(conn_dealer.recv_multipart(), 2)
 
 
 @pytest.mark.asyncio
-async def test_analog():
-    async with connectSimulatorDealer() as socket:
-        # ### analog.Request
+async def test_analog(conn_dealer):
+    # ### analog.Request
 
-        await assertReplyDealer(socket, analog.Request(0), analog.Reply(0, 0))
+    await assertReplyDealer(conn_dealer, analog.Request(0), analog.Reply(0, 0))
 
-        # ### analog.Subscribe
+    # ### analog.Subscribe
 
-        sub = Subscription()
-        sub.subscribe = False
-        sub.timeout = 1000
-        await assertReplyDealer(socket, analog.Subscribe(0, sub), ack.FAILED_COMMAND)
+    sub = Subscription()
+    sub.subscribe = False
+    sub.timeout = 1000
+    await assertReplyDealer(conn_dealer, analog.Subscribe(0, sub), ack.FAILED_COMMAND)
 
-        with assertImmediate():
-            sub = Subscription()
-            sub.subscribe = True
-            sub.timeout = 1000
-            await assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
-
-            _, response = await socket.recv_msg()
-            assert response == analog.Update(0, 0, sub)
-
-        sub = Subscription()
-        sub.subscribe = False
-        sub.timeout = 1000
-        await assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
-
-
-@pytest.mark.asyncio
-async def test_sensor_subscription():
-    adapter = MockedHardwareAdapter()
-    adapter.set_analog(0, 0.5, 100)
-    adapter.set_analog(0, 3, 0)
-
-    async with connectSimulatorDealer(adapter) as socket:
+    with assertImmediate():
         sub = Subscription()
         sub.subscribe = True
         sub.timeout = 1000
+        await assertReplyDealer(conn_dealer, analog.Subscribe(0, sub), ack.Acknowledgement())
 
-        unsub = Subscription()
-        unsub.subscribe = False
-        unsub.timeout = 1000
+        _, response = await conn_dealer.recv_msg()
+        assert response == analog.Update(0, 0, sub)
 
-        # check immediate update
-        with assertImmediate():
-            # original subscription
-            await assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
-
-            _, response = await socket.recv_msg()
-            assert response == analog.Update(0, 0, sub)
-
-        # check the next update comes after one second, even though the change occurs earlier
-        with assertPassed(1):
-            _, response = await socket.recv_msg()
-            assert response == analog.Update(0, 100, sub)
-
-        # check the next update comes after two seconds, as the value didn't change earlier
-        with assertPassed(2):
-            _, response = await socket.recv_msg()
-            assert response == analog.Update(0, 0, sub)
-
-        # FIXME no update at all
-        # # add extra subscription
-        # await assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
-        #
-        # # check immediate update
-        # _, response = await socket.recv_msg()
-        # assert response == analog.Update(0, 0, sub)
-        #
-        # # cancel extra subscription
-        # await assertReplyDealer(socket, analog.Subscribe(0, unsub), ack.Acknowledgement())
-
-        # cancel original subscription
-        await assertReplyDealer(socket, analog.Subscribe(0, unsub), ack.Acknowledgement())
-
-        # check there is no update, even after a time
-        await assertTimeout(socket.recv_multipart(), 2)
+    sub = Subscription()
+    sub.subscribe = False
+    sub.timeout = 1000
+    await assertReplyDealer(conn_dealer, analog.Subscribe(0, sub), ack.Acknowledgement())
 
 
 @pytest.mark.asyncio
-async def test_digital():
-    async with connectSimulatorDealer() as socket:
-        # ### digital.Request
+async def test_sensor_subscription(conn_dealer, hardware_adapter):
+    hardware_adapter.set_analog(0, 0.5, 100)
+    hardware_adapter.set_analog(0, 3, 0)
 
-        await assertReplyDealer(socket, digital.Request(0), digital.Reply(0, False))
+    sub = Subscription()
+    sub.subscribe = True
+    sub.timeout = 1000
 
-        # ### digital.Subscribe
+    unsub = Subscription()
+    unsub.subscribe = False
+    unsub.timeout = 1000
 
-        sub = Subscription()
-        sub.subscribe = False
-        sub.timeout = 1000
-        await assertReplyDealer(socket, digital.Subscribe(0, sub), ack.FAILED_COMMAND)
+    # check immediate update
+    with assertImmediate():
+        # original subscription
+        await assertReplyDealer(conn_dealer, analog.Subscribe(0, sub), ack.Acknowledgement())
 
-        with assertImmediate():
-            sub = Subscription()
-            sub.subscribe = True
-            sub.timeout = 1000
-            await assertReplyDealer(socket, digital.Subscribe(0, sub), ack.Acknowledgement())
+        _, response = await conn_dealer.recv_msg()
+        assert response == analog.Update(0, 0, sub)
 
-            _, response = await socket.recv_msg()
-            assert response == digital.Update(0, False, sub)
+    # check the next update comes after one second, even though the change occurs earlier
+    with assertPassed(1):
+        _, response = await conn_dealer.recv_msg()
+        assert response == analog.Update(0, 100, sub)
 
-        sub = Subscription()
-        sub.subscribe = False
-        sub.timeout = 1000
-        await assertReplyDealer(socket, digital.Subscribe(0, sub), ack.Acknowledgement())
+    # check the next update comes after two seconds, as the value didn't change earlier
+    with assertPassed(2):
+        _, response = await conn_dealer.recv_msg()
+        assert response == analog.Update(0, 0, sub)
 
+    # FIXME no update at all
+    # # add extra subscription
+    # await assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
+    #
+    # # check immediate update
+    # _, response = await socket.recv_msg()
+    # assert response == analog.Update(0, 0, sub)
+    #
+    # # cancel extra subscription
+    # await assertReplyDealer(socket, analog.Subscribe(0, unsub), ack.Acknowledgement())
 
-@pytest.mark.asyncio
-async def test_motor():
-    async with connectSimulatorDealer() as socket:
-        # ### motor.CommandRequest
+    # cancel original subscription
+    await assertReplyDealer(conn_dealer, analog.Subscribe(0, unsub), ack.Acknowledgement())
 
-        await assertReplyDealer(socket, motor.CommandRequest(0), ack.FAILED_COMMAND)
-
-        # ### motor.Action
-
-        await assertReplyDealer(socket, motor.Action(0, motor.POWER), ack.Acknowledgement())
-
-        # send an invalid command
-        action = motor.Action(0, motor.BRAKE)
-        action.relative = 100
-        await assertReplyDealer(socket, action, ack.INVALID_COMMAND)
-
-        # ### motor.CommandRequest
-
-        await assertReplyDealer(socket, motor.CommandRequest(0), motor.CommandReply(0, motor.POWER, 0))
-
-        # ### motor.StateRequest
-
-        await assertReplyDealer(socket, motor.StateRequest(0), motor.StateReply(0, 0, 0))
-
-        # ### motor.SetPositionAction
-
-        await assertReplyDealer(socket, motor.SetPositionAction(0, 0), ack.Acknowledgement())
-
-        # ### motor.CommandSubscribe
-
-        sub = Subscription()
-        sub.subscribe = False
-        sub.timeout = 1000
-        await assertReplyDealer(socket, motor.CommandSubscribe(0, sub), ack.FAILED_COMMAND)
-
-        # FIXME no immediate update
-        # with assertImmediate():
-        #     sub = Subscription()
-        #     sub.subscribe = True
-        #     sub.timeout = 1000
-        #     await assertReplyDealer(socket, motor.CommandSubscribe(0, sub), ack.Acknowledgement())
-        #
-        #     _, response = await socket.recv_msg()
-        #     assert response == motor.CommandUpdate(0, motor.POWER, 0, sub)
-        #
-        # sub = Subscription()
-        # sub.subscribe = False
-        # sub.timeout = 1000
-        # await assertReplyDealer(socket, motor.CommandSubscribe(0, sub), ack.Acknowledgement())
-        #
-        # ### motor.StateSubscribe
-
-        # FIXME
-        # sub = Subscription()
-        # sub.subscribe = False
-        # sub.timeout = 1000
-        # await assertReplyDealer(socket, motor.StateSubscribe(0, sub), ack.FAILED_COMMAND)
-        #
-        # with assertImmediate():
-        #     sub = Subscription()
-        #     sub.subscribe = True
-        #     sub.timeout = 1000
-        #     await assertReplyDealer(socket, motor.StateSubscribe(0, sub), ack.Acknowledgement())
-        #
-        #     _, response = await socket.recv_msg()
-        #     assert response == motor.StateUpdate(0, 0, 0, sub)
-        #
-        # sub = Subscription()
-        # sub.subscribe = False
-        # sub.timeout = 1000
-        # await assertReplyDealer(socket, motor.StateSubscribe(0, sub), ack.Acknowledgement())
+    # check there is no update, even after a time
+    await assertTimeout(conn_dealer.recv_multipart(), 2)
 
 
 @pytest.mark.asyncio
-async def test_servo():
-    async with connectSimulatorDealer() as socket:
-        # ### servo.CommandRequest
+async def test_digital(conn_dealer):
+    # ### digital.Request
 
-        await assertReplyDealer(socket, servo.CommandRequest(0), ack.FAILED_COMMAND)
+    await assertReplyDealer(conn_dealer, digital.Request(0), digital.Reply(0, False))
 
-        # ### servo.Action
+    # ### digital.Subscribe
 
-        await assertReplyDealer(socket, servo.Action(0, True, 0), ack.Acknowledgement())
+    sub = Subscription()
+    sub.subscribe = False
+    sub.timeout = 1000
+    await assertReplyDealer(conn_dealer, digital.Subscribe(0, sub), ack.FAILED_COMMAND)
 
-        # ### servo.CommandRequest
-
-        await assertReplyDealer(socket, servo.CommandRequest(0), servo.CommandReply(0, True, 0))
-
-        # ### servo.CommandSubscribe
-
+    with assertImmediate():
         sub = Subscription()
-        sub.subscribe = False
-        sub.timeout = 10
-        await assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.FAILED_COMMAND)
+        sub.subscribe = True
+        sub.timeout = 1000
+        await assertReplyDealer(conn_dealer, digital.Subscribe(0, sub), ack.Acknowledgement())
 
-        # FIXME no immediate update
-        # with assertImmediate():
-        #     sub = Subscription()
-        #     sub.subscribe = True
-        #     sub.timeout = 10
-        #     await assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.Acknowledgement())
-        #
-        #     _, response = await socket.recv_msg()
-        #     assert response == servo.CommandUpdate(0, True, 0, sub)
-        #
-        # sub = Subscription()
-        # sub.subscribe = False
-        # sub.timeout = 10
-        # await assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.Acknowledgement())
+        _, response = await conn_dealer.recv_msg()
+        assert response == digital.Update(0, False, sub)
+
+    sub = Subscription()
+    sub.subscribe = False
+    sub.timeout = 1000
+    await assertReplyDealer(conn_dealer, digital.Subscribe(0, sub), ack.Acknowledgement())
+
+
+@pytest.mark.asyncio
+async def test_motor(conn_dealer):
+    # ### motor.CommandRequest
+
+    await assertReplyDealer(conn_dealer, motor.CommandRequest(0), ack.FAILED_COMMAND)
+
+    # ### motor.Action
+
+    await assertReplyDealer(conn_dealer, motor.Action(0, motor.POWER), ack.Acknowledgement())
+
+    # send an invalid command
+    action = motor.Action(0, motor.BRAKE)
+    action.relative = 100
+    await assertReplyDealer(conn_dealer, action, ack.INVALID_COMMAND)
+
+    # ### motor.CommandRequest
+
+    await assertReplyDealer(conn_dealer, motor.CommandRequest(0), motor.CommandReply(0, motor.POWER, 0))
+
+    # ### motor.StateRequest
+
+    await assertReplyDealer(conn_dealer, motor.StateRequest(0), motor.StateReply(0, 0, 0))
+
+    # ### motor.SetPositionAction
+
+    await assertReplyDealer(conn_dealer, motor.SetPositionAction(0, 0), ack.Acknowledgement())
+
+    # ### motor.CommandSubscribe
+
+    sub = Subscription()
+    sub.subscribe = False
+    sub.timeout = 1000
+    await assertReplyDealer(conn_dealer, motor.CommandSubscribe(0, sub), ack.FAILED_COMMAND)
+
+    # FIXME no immediate update
+    # with assertImmediate():
+    #     sub = Subscription()
+    #     sub.subscribe = True
+    #     sub.timeout = 1000
+    #     await assertReplyDealer(socket, motor.CommandSubscribe(0, sub), ack.Acknowledgement())
+    #
+    #     _, response = await socket.recv_msg()
+    #     assert response == motor.CommandUpdate(0, motor.POWER, 0, sub)
+    #
+    # sub = Subscription()
+    # sub.subscribe = False
+    # sub.timeout = 1000
+    # await assertReplyDealer(socket, motor.CommandSubscribe(0, sub), ack.Acknowledgement())
+    #
+    # ### motor.StateSubscribe
+
+    # FIXME
+    # sub = Subscription()
+    # sub.subscribe = False
+    # sub.timeout = 1000
+    # await assertReplyDealer(socket, motor.StateSubscribe(0, sub), ack.FAILED_COMMAND)
+    #
+    # with assertImmediate():
+    #     sub = Subscription()
+    #     sub.subscribe = True
+    #     sub.timeout = 1000
+    #     await assertReplyDealer(socket, motor.StateSubscribe(0, sub), ack.Acknowledgement())
+    #
+    #     _, response = await socket.recv_msg()
+    #     assert response == motor.StateUpdate(0, 0, 0, sub)
+    #
+    # sub = Subscription()
+    # sub.subscribe = False
+    # sub.timeout = 1000
+    # await assertReplyDealer(socket, motor.StateSubscribe(0, sub), ack.Acknowledgement())
+
+
+@pytest.mark.asyncio
+async def test_servo(conn_dealer):
+    # ### servo.CommandRequest
+
+    await assertReplyDealer(conn_dealer, servo.CommandRequest(0), ack.FAILED_COMMAND)
+
+    # ### servo.Action
+
+    await assertReplyDealer(conn_dealer, servo.Action(0, True, 0), ack.Acknowledgement())
+
+    # ### servo.CommandRequest
+
+    await assertReplyDealer(conn_dealer, servo.CommandRequest(0), servo.CommandReply(0, True, 0))
+
+    # ### servo.CommandSubscribe
+
+    sub = Subscription()
+    sub.subscribe = False
+    sub.timeout = 10
+    await assertReplyDealer(conn_dealer, servo.CommandSubscribe(0, sub), ack.FAILED_COMMAND)
+
+    # FIXME no immediate update
+    # with assertImmediate():
+    #     sub = Subscription()
+    #     sub.subscribe = True
+    #     sub.timeout = 10
+    #     await assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.Acknowledgement())
+    #
+    #     _, response = await socket.recv_msg()
+    #     assert response == servo.CommandUpdate(0, True, 0, sub)
+    #
+    # sub = Subscription()
+    # sub.subscribe = False
+    # sub.timeout = 10
+    # await assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.Acknowledgement())
 
 
 def handle_streams() -> Callable[[process.StreamUpdate], Dict[int, bytes]]:
@@ -498,107 +486,103 @@ def handle_streams() -> Callable[[process.StreamUpdate], Dict[int, bytes]]:
 
 
 @pytest.mark.asyncio
-async def test_process_echo():
-    async with connectSimulatorDealer() as socket:
-        response = await assertReplyDealer(socket, process.ExecuteAction('echo', 'asdf'),
-                                           process.ExecuteReply)  # type: process.ExecuteReply
-        pid = response.pid
+async def test_process_echo(conn_dealer):
+    response = await assertReplyDealer(conn_dealer, process.ExecuteAction('echo', 'asdf'),
+                                       process.ExecuteReply)  # type: process.ExecuteReply
+    pid = response.pid
 
-        stream_handler = handle_streams()
-        output = None
+    stream_handler = handle_streams()
+    output = None
 
-        async def handle():
-            nonlocal output
-            _, msg = await socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
-            assertMsgEqual(msg, process.StreamUpdate, pid=pid)
-            output = stream_handler(msg)
+    async def handle():
+        nonlocal output
+        _, msg = await conn_dealer.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
+        assertMsgEqual(msg, process.StreamUpdate, pid=pid)
+        output = stream_handler(msg)
 
-        while output is None:
-            await handle()
-
-        _, msg = await socket.recv_msg()
-        assert msg == process.ExitUpdate(pid, 0)
-
-        assert output[process.STDOUT] == b'asdf\n'
-        assert output[process.STDERR] == b''
-
-
-@pytest.mark.asyncio
-async def test_process_cat():
-    async with connectSimulatorDealer() as socket:
-        response = await assertReplyDealer(socket, process.ExecuteAction('cat'),
-                                           process.ExecuteReply)  # type: process.ExecuteReply
-        pid = response.pid
-
-        stream_handler = handle_streams()
-        output = None
-
-        async def handle():
-            nonlocal output
-            _, msg = await socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
-            assertMsgEqual(msg, process.StreamUpdate, pid=pid)
-            output = stream_handler(msg)
-
-        await assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b'asdf'), ack.Acknowledgement())
+    while output is None:
         await handle()
-        await assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b''), ack.Acknowledgement())
 
-        while output is None:
-            await handle()
+    _, msg = await conn_dealer.recv_msg()
+    assert msg == process.ExitUpdate(pid, 0)
 
-        _, msg = await socket.recv_msg()
-        assert msg == process.ExitUpdate(pid, 0)
-
-        assert output[process.STDOUT] == b'asdf'
-        assert output[process.STDERR] == b''
+    assert output[process.STDOUT] == b'asdf\n'
+    assert output[process.STDERR] == b''
 
 
 @pytest.mark.asyncio
-async def test_process_pwd():
-    async with connectSimulatorDealer() as socket:
-        response = await assertReplyDealer(socket, process.ExecuteAction('pwd', working_dir='/'),
-                                           process.ExecuteReply)  # type: process.ExecuteReply
-        pid = response.pid
+async def test_process_cat(conn_dealer):
+    response = await assertReplyDealer(conn_dealer, process.ExecuteAction('cat'),
+                                       process.ExecuteReply)  # type: process.ExecuteReply
+    pid = response.pid
 
-        stream_handler = handle_streams()
-        output = None
+    stream_handler = handle_streams()
+    output = None
 
-        async def handle():
-            nonlocal output
-            _, msg = await socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
-            assertMsgEqual(msg, process.StreamUpdate, pid=pid)
-            output = stream_handler(msg)
+    async def handle():
+        nonlocal output
+        _, msg = await conn_dealer.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
+        assertMsgEqual(msg, process.StreamUpdate, pid=pid)
+        output = stream_handler(msg)
 
-        while output is None:
-            await handle()
+    await assertReplyDealer(conn_dealer, process.StreamAction(pid, process.STDIN, b'asdf'), ack.Acknowledgement())
+    await handle()
+    await assertReplyDealer(conn_dealer, process.StreamAction(pid, process.STDIN, b''), ack.Acknowledgement())
 
-        _, msg = await socket.recv_msg()
-        assert msg == process.ExitUpdate(pid, 0)
+    while output is None:
+        await handle()
 
-        assert output[process.STDOUT] == b'/\n'
-        assert output[process.STDERR] == b''
+    _, msg = await conn_dealer.recv_msg()
+    assert msg == process.ExitUpdate(pid, 0)
+
+    assert output[process.STDOUT] == b'asdf'
+    assert output[process.STDERR] == b''
 
 
 @pytest.mark.asyncio
-async def test_process_sleep():
-    async with connectSimulatorDealer() as socket:
-        response = await assertReplyDealer(socket, process.ExecuteAction('sleep', '1'),
-                                           process.ExecuteReply)  # type: process.ExecuteReply
-        pid = response.pid
+async def test_process_pwd(conn_dealer):
+    response = await assertReplyDealer(conn_dealer, process.ExecuteAction('pwd', working_dir='/'),
+                                       process.ExecuteReply)  # type: process.ExecuteReply
+    pid = response.pid
 
-        stream_handler = handle_streams()
-        output = None
+    stream_handler = handle_streams()
+    output = None
 
-        async def handle():
-            nonlocal output
-            _, msg = await socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
-            assertMsgEqual(msg, process.StreamUpdate, pid=pid)
-            output = stream_handler(msg)
+    async def handle():
+        nonlocal output
+        _, msg = await conn_dealer.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
+        assertMsgEqual(msg, process.StreamUpdate, pid=pid)
+        output = stream_handler(msg)
 
-        await assertReplyDealer(socket, process.SignalAction(pid, signal.SIGINT), ack.Acknowledgement())
+    while output is None:
+        await handle()
 
-        while output is None:
-            await handle()
+    _, msg = await conn_dealer.recv_msg()
+    assert msg == process.ExitUpdate(pid, 0)
 
-        _, msg = await socket.recv_msg()
-        assert msg == process.ExitUpdate(pid, -signal.SIGINT)
+    assert output[process.STDOUT] == b'/\n'
+    assert output[process.STDERR] == b''
+
+
+@pytest.mark.asyncio
+async def test_process_sleep(conn_dealer):
+    response = await assertReplyDealer(conn_dealer, process.ExecuteAction('sleep', '1'),
+                                       process.ExecuteReply)  # type: process.ExecuteReply
+    pid = response.pid
+
+    stream_handler = handle_streams()
+    output = None
+
+    async def handle():
+        nonlocal output
+        _, msg = await conn_dealer.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
+        assertMsgEqual(msg, process.StreamUpdate, pid=pid)
+        output = stream_handler(msg)
+
+    await assertReplyDealer(conn_dealer, process.SignalAction(pid, signal.SIGINT), ack.Acknowledgement())
+
+    while output is None:
+        await handle()
+
+    _, msg = await conn_dealer.recv_msg()
+    assert msg == process.ExitUpdate(pid, -signal.SIGINT)
