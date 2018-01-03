@@ -54,7 +54,7 @@ setup(
         # TODO adding extras for existing requirement does not work
         'dev': ['pytest', 'pytest-runner', 'pytest-asyncio', 'pytest-cov'],
         #'raspberry': ['hedgehog-platform[raspberry]'],
-        'raspberry': ['RPi.GPIO', 'pyserial'],
+        'raspberry': ['RPi.GPIO', 'pyserial-asyncio'],
     },
 
     # package_data={

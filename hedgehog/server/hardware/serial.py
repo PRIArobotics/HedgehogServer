@@ -1,5 +1,8 @@
-from typing import List
+from typing import List, Tuple
 
+import asyncio
+import serial
+import serial_asyncio
 import time
 from hedgehog.platform import Controller
 from hedgehog.protocol.errors import FailedCommandError
@@ -67,12 +70,29 @@ class TruncatedcommandError(FailedCommandError):
     pass
 
 
+async def open_serial_connection(ser: serial.Serial, *,
+                                 loop: asyncio.AbstractEventLoop=None, limit: int=asyncio.streams._DEFAULT_LIMIT
+                                 ) -> Tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+    if loop is None:
+        loop = asyncio.get_event_loop()
+
+    reader = asyncio.StreamReader(limit=limit, loop=loop)
+    protocol = asyncio.StreamReaderProtocol(reader, loop=loop)
+    transport = serial_asyncio.SerialTransport(loop, protocol, ser)
+    writer = asyncio.StreamWriter(transport, protocol, reader, loop)
+    return reader, writer
+
+
 class SerialHardwareAdapter(HardwareAdapter):
     def __init__(self, motor_state_update_cb=None):
         super().__init__(motor_state_update_cb=motor_state_update_cb)
         self.controller = Controller()
-        self.serial = self.controller.serial
+        self.reader = None  # type: asyncio.StreamReader
+        self.writer = None  # type: asyncio.StreamWriter
         self.controller.reset(True)
+
+    async def open(self):
+        self.reader, self.writer = await open_serial_connection(self.controller.serial)
 
     async def repeatable_command(self, cmd: List[int], reply_code: int=OK, tries: int=3) -> List[int]:
         for i in range(tries - 1):
@@ -84,21 +104,21 @@ class SerialHardwareAdapter(HardwareAdapter):
 
     async def command(self, cmd: List[int], reply_code: int=OK) -> List[int]:
         async def read_command() -> List[int]:
-            cmd = self.serial.read()  # type: bytes
+            cmd = await self.reader.read(1)
             if cmd[0] in _cmd_lengths:
                 length = _cmd_lengths[cmd[0]]
                 if length > 1:
-                    cmd += self.serial.read(length - 1)
+                    cmd += await self.reader.read(length - 1)
             else:
-                cmd += self.serial.read()
+                cmd += await self.reader.read(1)
                 length = cmd[1] + 2
                 if length > 2:
-                    cmd += self.serial.read(length - 2)
+                    cmd += await self.reader.read(length - 2)
             if len(cmd) != length:
                 raise TruncatedcommandError("HWC sent a truncated response")
             return list(cmd)
 
-        self.serial.write(bytes(cmd))
+        self.writer.write(bytes(cmd))
         reply = await read_command()
         while reply[0] not in _replies | _errors:
             # TODO do something with the update
@@ -109,9 +129,9 @@ class SerialHardwareAdapter(HardwareAdapter):
             return reply
         else:
             if reply[0] == UNKNOWN_OPCODE:
-                self.serial.flushOutput()
-                time.sleep(0.02)
-                self.serial.flushInput()
+                self.controller.serial.flushOutput()
+                await asyncio.sleep(0.02)
+                self.controller.serial.flushInput()
                 raise FailedCommandError("opcode unknown to the HWC; connection was reset")
             elif reply[0] == INVALID_OPCODE:
                 raise FailedCommandError("opcode not supported")
