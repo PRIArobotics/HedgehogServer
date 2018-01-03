@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 class HedgehogServer(Actor):
     def __init__(self, ctx: zmq.asyncio.Context, endpoint: str, handlers: Dict[Type[Message], HandlerCallback]) -> None:
+        super(HedgehogServer, self).__init__()
         self.ctx = ctx
         self.endpoint = endpoint
         self.handlers = handlers
