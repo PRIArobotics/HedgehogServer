@@ -19,7 +19,7 @@ from hedgehog.server.hardware.mocked import MockedHardwareAdapter
 
 
 # Pytest fixtures
-event_loop
+event_loop, zmq_aio_ctx
 
 
 def handler(adapter: HardwareAdapter=None) -> handlers.HandlerCallbackDict:
