@@ -64,37 +64,35 @@ class HedgehogServer(Actor):
             yield partial(request_handler, ident, msgs_raw)
 
     async def run(self, cmd_pipe, evt_pipe) -> None:
-        self.socket = DealerRouterSocket(self.ctx, zmq.ROUTER, side=ServerSide)
-        self.socket.bind(self.endpoint)
-        await evt_pipe.send(b'$START')
+        with DealerRouterSocket(self.ctx, zmq.ROUTER, side=ServerSide) as self.socket:
+            self.socket.bind(self.endpoint)
+            await evt_pipe.send(b'$START')
 
-        stream_queue = asyncio.Queue()  # type: asyncio.Queue
+            stream_queue = asyncio.Queue()  # type: asyncio.Queue
 
-        async def commands() -> AsyncIterator[tuple]:
-            while True:
-                cmd = await cmd_pipe.recv()
-                yield (cmd,) if isinstance(cmd, bytes) else cmd
+            async def commands() -> AsyncIterator[tuple]:
+                while True:
+                    cmd = await cmd_pipe.recv()
+                    yield (cmd,) if isinstance(cmd, bytes) else cmd
 
-        await stream_queue.put(commands())
-        await self.register(self._requests())
+            await stream_queue.put(commands())
+            await self.register(self._requests())
 
-        events = stream_from_queue(stream_queue) | pipe.flatten()
-        async with events.stream() as streamer:
-            async for cmd, *payload in streamer:
-                begin = asyncio.get_event_loop().time()
+            events = stream_from_queue(stream_queue) | pipe.flatten()
+            async with events.stream() as streamer:
+                async for cmd, *payload in streamer:
+                    begin = asyncio.get_event_loop().time()
 
-                if cmd == b'EVENT':
-                    awaitable, = payload
-                    await awaitable()
-                elif cmd == b'REG':
-                    stream, = payload
-                    await stream_queue.put(streamcontext(stream) | pipe.map(lambda item: (b'EVENT', item)))
-                elif cmd == b'$TERM':
-                    break
+                    if cmd == b'EVENT':
+                        awaitable, = payload
+                        await awaitable()
+                    elif cmd == b'REG':
+                        stream, = payload
+                        await stream_queue.put(streamcontext(stream) | pipe.map(lambda item: (b'EVENT', item)))
+                    elif cmd == b'$TERM':
+                        break
 
-                end = asyncio.get_event_loop().time()
-                if end - begin > 0.1:
-                    logger.warning("long running (%.1f ms) handler on server loop: %s %s",
-                                   (end-begin) * 1000, cmd, payload)
-
-        self.socket.close()
+                    end = asyncio.get_event_loop().time()
+                    if end - begin > 0.1:
+                        logger.warning("long running (%.1f ms) handler on server loop: %s %s",
+                                       (end-begin) * 1000, cmd, payload)
