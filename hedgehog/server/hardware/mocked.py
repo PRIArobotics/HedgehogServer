@@ -55,7 +55,7 @@ class MockedHardwareAdapter(HardwareAdapter):
         self._digitals[port].set(time, value)
 
     async def get_digital(self, port):
-        return self._analogs[port].get(default=False)
+        return self._digitals[port].get(default=False)
 
     async def set_motor(self, port, state, amount=0, reached_state=POWER, relative=None, absolute=None):
         # TODO set motor action
