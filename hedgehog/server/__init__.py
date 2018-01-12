@@ -1,4 +1,5 @@
 import argparse
+import asyncio
 import configparser
 import logging
 import logging.config
@@ -6,7 +7,7 @@ import os.path
 import socket
 import subprocess
 import time
-import zmq
+import zmq.asyncio
 from contextlib import suppress
 from pyre import zhelper
 
@@ -135,33 +136,40 @@ def launch(hardware):
 
 
 def start(hardware, name=None, port=0, services={'hedgehog_server'}):
-    ctx = zmq.Context.instance()
+    ctx = zmq.asyncio.Context.instance()
 
     adapter = hardware()
     handler = handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
 
-    server = HedgehogServer(ctx, 'tcp://*:{}'.format(port), handler)
-    with server:
-        logger.info("{} started on {}".format(name, server.socket.last_endpoint.decode('utf-8')))
+    async def run():
+        # TODO SIGINT handling
 
-        # TODO clean way to exit
-        while True:
-            logger.info("Starting Node for discovery...")
+        async with HedgehogServer(ctx, 'tcp://*:{}'.format(port), handler) as server:
+            await server
 
-            node = ServiceNode(ctx, name)
-            with node:
-                for service in services:
-                    node.join(service)
-                    node.add_service(service, server.socket)
+    asyncio.get_event_loop().run_until_complete(run())
 
-                while True:
-                    command, *args = node.evt_pipe.recv_multipart()
-                    if command == b'BEACON TERM':
-                        logger.info("Beacon terminated (network gone?). Retry in 3 seconds...")
-                        time.sleep(3)
-                        node.restart_beacon()
-                    if command == b'$TERM':
-                        break
-
-            logger.info("Node terminated. Retry in 3 seconds...")
-            time.sleep(3)
+    # with server:
+    #     logger.info("{} started on {}".format(name, server.socket.last_endpoint.decode('utf-8')))
+    #
+    #     # TODO clean way to exit
+    #     while True:
+    #         logger.info("Starting Node for discovery...")
+    #
+    #         node = ServiceNode(ctx, name)
+    #         with node:
+    #             for service in services:
+    #                 node.join(service)
+    #                 node.add_service(service, server.socket)
+    #
+    #             while True:
+    #                 command, *args = node.evt_pipe.recv_multipart()
+    #                 if command == b'BEACON TERM':
+    #                     logger.info("Beacon terminated (network gone?). Retry in 3 seconds...")
+    #                     time.sleep(3)
+    #                     node.restart_beacon()
+    #                 if command == b'$TERM':
+    #                     break
+    #
+    #         logger.info("Node terminated. Retry in 3 seconds...")
+    #         time.sleep(3)
