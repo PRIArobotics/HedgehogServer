@@ -4,6 +4,7 @@ import configparser
 import logging
 import logging.config
 import os.path
+import signal
 import socket
 import subprocess
 import time
@@ -145,6 +146,13 @@ def start(hardware, name=None, port=0, services={'hedgehog_server'}):
         # TODO SIGINT handling
 
         async with HedgehogServer(ctx, 'tcp://*:{}'.format(port), handler) as server:
+            loop = asyncio.get_event_loop()
+
+            def sigint_handler():
+                print("stop server")
+                loop.create_task(server.stop())
+
+            loop.add_signal_handler(signal.SIGINT, sigint_handler)
             await server
 
     asyncio.get_event_loop().run_until_complete(run())
