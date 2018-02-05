@@ -17,7 +17,6 @@ from . import handlers
 from .hedgehog_server import HedgehogServer
 from .handlers.hardware import HardwareHandler
 from .handlers.process import ProcessHandler
-from .hardware.serial import SerialHardwareAdapter
 
 logger = logging.getLogger(__name__)
 
