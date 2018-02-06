@@ -1,11 +1,12 @@
-from typing import Any, Callable, Dict, Tuple, Type
+import functools
+from typing import Awaitable, Callable, Dict, Tuple, Type
 
 from hedgehog.protocol import Header, Message
-from ..hedgehog_server import HedgehogServerActor
+from ..hedgehog_server import HedgehogServer
 
 
-HandlerFunction = Callable[['CommandHandler', HedgehogServerActor, Header, Message], Message]
-HandlerCallback = Callable[[HedgehogServerActor, Header, Message], Message]
+HandlerFunction = Callable[['CommandHandler', HedgehogServer, Header, Message], Awaitable[Message]]
+HandlerCallback = Callable[[HedgehogServer, Header, Message], Awaitable[Message]]
 HandlerCallbackDict = Dict[Type[Message], HandlerCallback]
 HandlerDecorator = Callable[[Type[Message]], Callable[[HandlerFunction], HandlerFunction]]
 
@@ -13,8 +14,8 @@ HandlerDecorator = Callable[[Type[Message]], Callable[[HandlerFunction], Handler
 def command_handlers() -> Tuple[Dict[Type[Message], HandlerFunction], HandlerDecorator]:
     _handlers = {}  # type: Dict[Type[Message], HandlerFunction]
 
-    def command(msg: Type[Message]):
-        def decorator(func: HandlerFunction):
+    def command(msg: Type[Message]) -> Callable[[HandlerFunction], HandlerFunction]:
+        def decorator(func: HandlerFunction) -> HandlerFunction:
             _handlers[msg] = func
             return func
         return decorator
@@ -26,7 +27,7 @@ class CommandHandler(object):
 
     def __init__(self) -> None:
         self.handlers = {
-            key: handler.__get__(self)
+            key: functools.partial(handler, self)
             for key, handler in self._handlers.items()
         }  # type: Dict[Type[Message], HandlerCallback]
 
