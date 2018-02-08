@@ -17,6 +17,7 @@ from . import handlers
 from .hedgehog_server import HedgehogServer
 from .handlers.hardware import HardwareHandler
 from .handlers.process import ProcessHandler
+from .hardware.serial import SerialHardwareAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -138,11 +139,12 @@ def launch(hardware):
 def start(hardware, name=None, port=0, services={'hedgehog_server'}):
     ctx = zmq.asyncio.Context.instance()
 
-    adapter = hardware()
-    handler = handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
-
     async def run():
-        # TODO SIGINT handling
+        adapter = hardware()
+        handler = handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
+
+        if isinstance(adapter, SerialHardwareAdapter):
+            await adapter.open()
 
         async with HedgehogServer(ctx, 'tcp://*:{}'.format(port), handler) as server:
             loop = asyncio.get_event_loop()
