@@ -17,7 +17,6 @@ from . import handlers
 from .hedgehog_server import HedgehogServer
 from .handlers.hardware import HardwareHandler
 from .handlers.process import ProcessHandler
-from .hardware.serial import SerialHardwareAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -143,8 +142,13 @@ def start(hardware, name=None, port=0, services={'hedgehog_server'}):
         adapter = hardware()
         handler = handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
 
-        if isinstance(adapter, SerialHardwareAdapter):
-            await adapter.open()
+        try:
+            from .hardware.serial import SerialHardwareAdapter
+        except ImportError:
+            pass
+        else:
+            if isinstance(adapter, SerialHardwareAdapter):
+                await adapter.open()
 
         async with HedgehogServer(ctx, 'tcp://*:{}'.format(port), handler) as server:
             loop = asyncio.get_event_loop()
