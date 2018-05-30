@@ -91,7 +91,7 @@ class SerialHardwareAdapter(HardwareAdapter):
         self.writer = None  # type: asyncio.StreamWriter
         self.controller.reset(True)
 
-    async def open(self):
+    async def __aenter__(self):
         self.reader, self.writer = await open_serial_connection(self.controller.serial)
 
     async def repeatable_command(self, cmd: List[int], reply_code: int=OK, tries: int=3) -> List[int]:

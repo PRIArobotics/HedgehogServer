@@ -142,15 +142,7 @@ def start(hardware, name=None, port=0, services={'hedgehog_server'}):
         adapter = hardware()
         handler = handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
 
-        try:
-            from .hardware.serial import SerialHardwareAdapter
-        except ImportError:
-            pass
-        else:
-            if isinstance(adapter, SerialHardwareAdapter):
-                await adapter.open()
-
-        async with HedgehogServer(ctx, 'tcp://*:{}'.format(port), handler) as server:
+        async with adapter, HedgehogServer(ctx, 'tcp://*:{}'.format(port), handler) as server:
             loop = asyncio.get_event_loop()
 
             def sigint_handler():
