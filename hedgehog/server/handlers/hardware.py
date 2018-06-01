@@ -1,13 +1,10 @@
 from typing import cast, Any, Dict, Tuple, Type
 
 import itertools
-import math
-import time
 from hedgehog.protocol import Header, Message
 from hedgehog.protocol.errors import FailedCommandError, UnsupportedCommandError
 from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo
 from hedgehog.protocol.proto.subscription_pb2 import Subscription
-from hedgehog.utils.zmq.timer import TimerDefinition
 
 from . import CommandHandler, command_handlers
 from .. import subscription

@@ -5,7 +5,6 @@ from hedgehog.utils.test_utils import event_loop, zmq_aio_ctx, assertTimeout, as
 
 import zmq.asyncio
 import signal
-from aiostream.context_utils import async_context_manager
 
 from hedgehog.protocol import ClientSide
 from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, process
