@@ -1,4 +1,4 @@
-from typing import cast, AsyncIterator, Awaitable, Callable, Dict, Generic, List, Optional, Set, Tuple, TypeVar, Union
+from typing import cast, AsyncIterator, Awaitable, Callable, Dict, Generic, List, Optional, Set, Tuple, TypeVar
 
 import asyncio
 from functools import partial
@@ -9,7 +9,7 @@ from hedgehog.protocol.proto.subscription_pb2 import Subscription
 from hedgehog.protocol.errors import FailedCommandError
 from hedgehog.utils.asyncio import stream_from_queue
 
-from .hedgehog_server import HedgehogServer, EventStream
+from .hedgehog_server import HedgehogServer, Job
 
 
 T = TypeVar('T')
@@ -116,10 +116,10 @@ class Subscribable(Generic[T, Upd]):
 
 
 class SubscriptionHandle(object):
-    def __init__(self, do_subscribe: Callable[[], Awaitable[EventStream]]) -> None:
+    def __init__(self, do_subscribe: Callable[[], Awaitable[AsyncIterator[Job]]]) -> None:
         self._do_subscribe = do_subscribe
         self.count = 0
-        self._updates = None  # type: EventStream
+        self._updates = None  # type: AsyncIterator[Job]
 
     async def increment(self) -> None:
         if self.count == 0:
@@ -150,12 +150,12 @@ class TriggeredSubscribable(Subscribable[T, Upd]):
 
         if subscription.subscribe:
             if key not in self.subscriptions:
-                async def do_subscribe() -> EventStream:
+                async def do_subscribe() -> AsyncIterator[Job]:
                     updates = streamcontext(self.streamer.subscribe(subscription.timeout / 1000))
                     updates |= pipe.map(lambda value: partial(server.send_async, ident,
                                                               self.compose_update(server, ident, subscription, value)))
-                    events = cast(EventStream, streamcontext(updates))
-                    await server.register(events)
+                    events = cast(AsyncIterator[Job], streamcontext(updates))
+                    server.add_job_stream(events)
                     return events
                 handle = self.subscriptions[key] = SubscriptionHandle(do_subscribe)
 
@@ -196,7 +196,7 @@ class PolledSubscribable(Subscribable[T, Upd]):
             events = stream_from_queue(self.intervals) | pipe.switchmap(
                 lambda interval: stream.never() if interval < 0 else stream.repeat(do_poll, interval=interval))
 
-            await server.register(events)
+            server.add_job_stream(events)
             self._registered = True
 
     async def subscribe(self, server: HedgehogServer, ident: Header, subscription: Subscription) -> None:
@@ -207,12 +207,12 @@ class PolledSubscribable(Subscribable[T, Upd]):
 
         if subscription.subscribe:
             if key not in self.subscriptions:
-                async def do_subscribe() -> EventStream:
+                async def do_subscribe() -> AsyncIterator[Job]:
                     updates = streamcontext(self.streamer.subscribe(subscription.timeout / 1000))
                     updates |= pipe.map(lambda value: partial(server.send_async, ident,
                                                               self.compose_update(server, ident, subscription, value)))
-                    events = cast(EventStream, streamcontext(updates))
-                    await server.register(events)
+                    events = cast(AsyncIterator[Job], streamcontext(updates))
+                    server.add_job_stream(events)
 
                     self.timeouts.add(subscription.timeout / 1000)
                     await self.intervals.put(min(self.timeouts))

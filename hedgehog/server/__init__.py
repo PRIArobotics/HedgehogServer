@@ -106,7 +106,7 @@ def start(hardware, port=0):
         adapter = hardware()
         handler = handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
 
-        async with adapter, HedgehogServer(ctx, 'tcp://*:{}'.format(port), handler) as server:
+        async with adapter, HedgehogServer.start(ctx, 'tcp://*:{}'.format(port), handler) as server:
             loop = asyncio.get_event_loop()
 
             def sigint_handler():
@@ -114,6 +114,6 @@ def start(hardware, port=0):
                 loop.create_task(server.stop())
 
             loop.add_signal_handler(signal.SIGINT, sigint_handler)
-            await server
+            await server.result()
 
     asyncio.get_event_loop().run_until_complete(run())

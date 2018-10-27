@@ -34,7 +34,7 @@ def hardware_adapter():
 
 @pytest.fixture
 async def conn_req(zmq_aio_ctx: zmq.asyncio.Context, hardware_adapter: HardwareAdapter):
-    async with hardware_adapter, HedgehogServer(zmq_aio_ctx, 'inproc://controller', handler(hardware_adapter)):
+    async with hardware_adapter, HedgehogServer.start(zmq_aio_ctx, 'inproc://controller', handler(hardware_adapter)):
         socket = ReqSocket(zmq_aio_ctx, zmq.REQ, side=ClientSide)
         socket.connect('inproc://controller')
 
@@ -45,7 +45,7 @@ async def conn_req(zmq_aio_ctx: zmq.asyncio.Context, hardware_adapter: HardwareA
 
 @pytest.fixture
 async def conn_dealer(zmq_aio_ctx: zmq.asyncio.Context, hardware_adapter: HardwareAdapter):
-    async with hardware_adapter, HedgehogServer(zmq_aio_ctx, 'inproc://controller', handler(hardware_adapter)):
+    async with hardware_adapter, HedgehogServer.start(zmq_aio_ctx, 'inproc://controller', handler(hardware_adapter)):
         socket = DealerRouterSocket(zmq_aio_ctx, zmq.DEALER, side=ClientSide)
         socket.connect('inproc://controller')
 

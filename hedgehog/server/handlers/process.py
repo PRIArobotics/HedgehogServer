@@ -1,4 +1,4 @@
-from typing import AsyncIterator, Awaitable, Dict
+from typing import AsyncIterator, Dict
 
 import asyncio.subprocess
 
@@ -7,7 +7,7 @@ from hedgehog.protocol.errors import FailedCommandError
 from hedgehog.protocol.messages import ack, process, motor
 
 from . import CommandHandler, command_handlers
-from ..hedgehog_server import EventStream
+from ..hedgehog_server import Job
 from ..hardware import HardwareAdapter
 
 
@@ -31,7 +31,7 @@ class ProcessHandler(CommandHandler):
         pid = proc.pid
         self._processes[pid] = proc
 
-        async def proc_events() -> EventStream:
+        async def proc_events() -> AsyncIterator[Job]:
 
             streams = [(process.STDOUT, proc.stdout), (process.STDERR, proc.stderr)]
             tasks = {fileno: asyncio.ensure_future(file.read(4096)) for fileno, file in streams}
@@ -62,7 +62,7 @@ class ProcessHandler(CommandHandler):
             for port in range(4):
                 yield partial(self.adapter.set_servo, port, False, 0)
 
-        await server.register(proc_events())
+        server.add_job_stream(proc_events())
         return process.ExecuteReply(pid)
 
     @_command(process.StreamAction)
