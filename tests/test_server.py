@@ -267,7 +267,7 @@ async def test_io(conn_dealer):
 
     # send an invalid command
     action = io.Action(0, 0)
-    action.flags = io.OUTPUT | io.PULLDOWN
+    object.__setattr__(action, 'flags', io.OUTPUT | io.PULLDOWN)
     await assertReplyDealer(conn_dealer, action, ack.INVALID_COMMAND)
 
     # ### io.CommandRequest
@@ -496,7 +496,7 @@ async def test_motor(conn_dealer):
 
     # send an invalid command
     action = motor.Action(0, motor.BRAKE)
-    action.relative = 100
+    object.__setattr__(action, 'relative', 100)
     await assertReplyDealer(conn_dealer, action, ack.INVALID_COMMAND)
 
     # ### motor.CommandRequest
