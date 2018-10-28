@@ -1,7 +1,7 @@
 from typing import Any, Callable, Dict, List, Tuple, Type, Union
 
 import pytest
-from hedgehog.utils.test_utils import event_loop, zmq_aio_ctx, assertTimeout, assertImmediate, assertPassed
+from hedgehog.utils.test_utils import event_loop, zmq_aio_ctx, check_caplog, assertTimeout, assertImmediate, assertPassed
 
 import asyncio
 import zmq.asyncio
@@ -19,7 +19,8 @@ from hedgehog.server.hardware.mocked import MockedHardwareAdapter
 
 
 # Pytest fixtures
-event_loop, zmq_aio_ctx
+event_loop, zmq_aio_ctx, check_caplog
+pytestmark = pytest.mark.usefixtures('check_caplog')
 
 
 def handler(adapter: HardwareAdapter=None) -> handlers.HandlerCallbackDict:
@@ -113,7 +114,7 @@ async def test_server_unknown_command(zmq_aio_ctx: zmq.asyncio.Context):
 
 
 @pytest.mark.asyncio
-async def test_server_faulty_job_stream(caplog, zmq_aio_ctx: zmq.asyncio.Context):
+async def test_server_faulty_job_stream(caplog, check_caplog, zmq_aio_ctx: zmq.asyncio.Context):
     async def handler_callback(server, ident, msg):
         async def job_stream():
             raise Exception
@@ -132,10 +133,11 @@ async def test_server_faulty_job_stream(caplog, zmq_aio_ctx: zmq.asyncio.Context
 
     records = [record for record in caplog.records if record.levelname == 'ERROR']
     assert len(records) == 1 and "Job iterator raised an exception" in records[0].message
+    check_caplog.expected.update(records)
 
 
 @pytest.mark.asyncio
-async def test_server_faulty_job(caplog, zmq_aio_ctx: zmq.asyncio.Context):
+async def test_server_faulty_job(caplog, check_caplog, zmq_aio_ctx: zmq.asyncio.Context):
     async def handler_callback(server, ident, msg):
         async def job_stream():
             async def job():
@@ -156,10 +158,11 @@ async def test_server_faulty_job(caplog, zmq_aio_ctx: zmq.asyncio.Context):
 
     records = [record for record in caplog.records if record.levelname == 'ERROR']
     assert len(records) == 1 and "Job raised an exception" in records[0].message
+    check_caplog.expected.update(records)
 
 
 @pytest.mark.asyncio
-async def test_server_slow_job(caplog, zmq_aio_ctx: zmq.asyncio.Context):
+async def test_server_slow_job(caplog, check_caplog, zmq_aio_ctx: zmq.asyncio.Context):
     async def handler_callback(server, ident, msg):
         async def job_stream():
             async def job():
@@ -182,6 +185,7 @@ async def test_server_slow_job(caplog, zmq_aio_ctx: zmq.asyncio.Context):
     assert len(records) == 2 \
            and "Long running job on server loop" in records[0].message \
            and "Long running job finished after 200.0 ms" in records[1].message
+    check_caplog.expected.update(records)
 
 
 @pytest.mark.asyncio
@@ -195,7 +199,7 @@ async def test_server_no_handler(zmq_aio_ctx: zmq.asyncio.Context):
 
 
 @pytest.mark.asyncio
-async def test_server_faulty_handler(caplog, zmq_aio_ctx: zmq.asyncio.Context):
+async def test_server_faulty_handler(caplog, check_caplog, zmq_aio_ctx: zmq.asyncio.Context):
     async def handler_callback(server, ident, msg):
         raise Exception
 
@@ -208,6 +212,7 @@ async def test_server_faulty_handler(caplog, zmq_aio_ctx: zmq.asyncio.Context):
 
     records = [record for record in caplog.records if record.levelname == 'ERROR']
     assert len(records) == 1 and "Uncaught exception in command handler" in records[0].message
+    check_caplog.expected.update(records)
 
 
 @pytest.mark.asyncio
@@ -215,7 +220,7 @@ async def test_server_cancel_in_job(zmq_aio_ctx: zmq.asyncio.Context):
     async def handler_callback(server, ident, msg):
         async def job_stream():
             async def job():
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(0.1)
 
             yield job
 
@@ -228,7 +233,7 @@ async def test_server_cancel_in_job(zmq_aio_ctx: zmq.asyncio.Context):
             socket.connect('inproc://controller')
 
             await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.OK)
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.05)
             socket.close()
 
             await server.cancel()
@@ -616,27 +621,27 @@ def handle_streams() -> Callable[[process.StreamUpdate], Dict[int, bytes]]:
 
 @pytest.mark.asyncio
 async def test_process_echo(conn_dealer):
-    response = await assertReplyDealer(conn_dealer, process.ExecuteAction('echo', 'asdf'),
-                                       process.ExecuteReply)  # type: process.ExecuteReply
-    pid = response.pid
+        response = await assertReplyDealer(conn_dealer, process.ExecuteAction('echo', 'asdf'),
+                                           process.ExecuteReply)  # type: process.ExecuteReply
+        pid = response.pid
 
-    stream_handler = handle_streams()
-    output = None
+        stream_handler = handle_streams()
+        output = None
 
-    async def handle():
-        nonlocal output
-        _, msg = await conn_dealer.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
-        assertMsgEqual(msg, process.StreamUpdate, pid=pid)
-        output = stream_handler(msg)
+        async def handle():
+            nonlocal output
+            _, msg = await conn_dealer.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
+            assertMsgEqual(msg, process.StreamUpdate, pid=pid)
+            output = stream_handler(msg)
 
-    while output is None:
-        await handle()
+        while output is None:
+            await handle()
 
-    _, msg = await conn_dealer.recv_msg()
-    assert msg == process.ExitUpdate(pid, 0)
+        _, msg = await conn_dealer.recv_msg()
+        assert msg == process.ExitUpdate(pid, 0)
 
-    assert output[process.STDOUT] == b'asdf\n'
-    assert output[process.STDERR] == b''
+        assert output[process.STDOUT] == b'asdf\n'
+        assert output[process.STDERR] == b''
 
 
 @pytest.mark.asyncio
