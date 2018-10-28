@@ -1,38 +1,32 @@
 import functools
-from typing import Awaitable, Callable, Dict, Tuple, Type
+from typing import Awaitable, Callable, Dict, Type
 
 from hedgehog.protocol import Header, Message
+from hedgehog.utils import SimpleDecorator, Registry
 from ..hedgehog_server import HedgehogServer
 
 
 HandlerFunction = Callable[['CommandHandler', HedgehogServer, Header, Message], Awaitable[Message]]
 HandlerCallback = Callable[[HedgehogServer, Header, Message], Awaitable[Message]]
 HandlerCallbackDict = Dict[Type[Message], HandlerCallback]
-HandlerDecorator = Callable[[Type[Message]], Callable[[HandlerFunction], HandlerFunction]]
+HandlerDecorator = Callable[[Type[Message]], SimpleDecorator[HandlerFunction]]
 
 
-def command_handlers() -> Tuple[Dict[Type[Message], HandlerFunction], HandlerDecorator]:
-    _handlers = {}  # type: Dict[Type[Message], HandlerFunction]
-
-    def command(msg: Type[Message]) -> Callable[[HandlerFunction], HandlerFunction]:
-        def decorator(func: HandlerFunction) -> HandlerFunction:
-            _handlers[msg] = func
-            return func
-        return decorator
-    return _handlers, command
+CommandRegistry = Registry[Type[Message], HandlerFunction]
 
 
 class CommandHandler(object):
-    _handlers = None  # type: Dict[Type[Message], HandlerFunction]
+    _commands = None  # type: CommandRegistry
 
-    def __init__(self) -> None:
-        self.handlers = {
+    @property
+    def handlers(self) -> HandlerCallbackDict:
+        return {
             key: functools.partial(handler, self)
-            for key, handler in self._handlers.items()
-        }  # type: Dict[Type[Message], HandlerCallback]
+            for key, handler in self._commands.items()
+        }
 
 
-def to_dict(*handlers: CommandHandler) -> HandlerCallbackDict:
+def merge(*handlers: CommandHandler) -> HandlerCallbackDict:
     result = {}  # type: HandlerCallbackDict
     for handler in handlers:
         dups = result.keys() & handler.handlers.keys()

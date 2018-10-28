@@ -25,7 +25,7 @@ event_loop, zmq_aio_ctx
 def handler(adapter: HardwareAdapter=None) -> handlers.HandlerCallbackDict:
     if adapter is None:
         adapter = MockedHardwareAdapter()
-    return handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
+    return handlers.merge(HardwareHandler(adapter), ProcessHandler(adapter))
 
 
 @pytest.fixture

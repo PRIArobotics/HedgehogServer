@@ -6,20 +6,20 @@ from functools import partial
 from hedgehog.protocol.errors import FailedCommandError
 from hedgehog.protocol.messages import ack, process, motor
 
-from . import CommandHandler, command_handlers
+from . import CommandHandler, CommandRegistry
 from ..hedgehog_server import Job
 from ..hardware import HardwareAdapter
 
 
 class ProcessHandler(CommandHandler):
-    _handlers, _command = command_handlers()
+    _commands = CommandRegistry()
 
     def __init__(self, adapter: HardwareAdapter) -> None:
         super().__init__()
         self._processes = {}  # type: Dict[int, asyncio.subprocess.Process]
         self.adapter = adapter
 
-    @_command(process.ExecuteAction)
+    @_commands.register(process.ExecuteAction)
     async def process_execute_action(self, server, ident, msg):
         proc = await asyncio.create_subprocess_exec(
             *msg.args,
@@ -65,7 +65,7 @@ class ProcessHandler(CommandHandler):
         server.add_job_stream(proc_events())
         return process.ExecuteReply(pid)
 
-    @_command(process.StreamAction)
+    @_commands.register(process.StreamAction)
     async def process_stream_action(self, server, ident, msg):
         # check whether the process has already finished
         if msg.pid in self._processes:
@@ -81,7 +81,7 @@ class ProcessHandler(CommandHandler):
         else:
             raise FailedCommandError("no process with pid {}".format(msg.pid))
 
-    @_command(process.SignalAction)
+    @_commands.register(process.SignalAction)
     async def process_signal_action(self, server, ident, msg):
         # check whether the process has already finished
         if msg.pid in self._processes:

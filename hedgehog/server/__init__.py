@@ -104,7 +104,7 @@ def start(hardware, port=0):
 
     async def run():
         adapter = hardware()
-        handler = handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
+        handler = handlers.merge(HardwareHandler(adapter), ProcessHandler(adapter))
 
         async with adapter, HedgehogServer.start(ctx, 'tcp://*:{}'.format(port), handler) as server:
             loop = asyncio.get_event_loop()

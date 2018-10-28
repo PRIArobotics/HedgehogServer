@@ -1,4 +1,4 @@
-from typing import cast, Any, Dict, Tuple, Type
+from typing import cast, Dict, Tuple, Type
 
 import itertools
 from hedgehog.protocol import Header, Message
@@ -6,7 +6,7 @@ from hedgehog.protocol.errors import FailedCommandError, UnsupportedCommandError
 from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo
 from hedgehog.protocol.proto.subscription_pb2 import Subscription
 
-from . import CommandHandler, command_handlers
+from . import CommandHandler, CommandRegistry
 from .. import subscription
 from ..hardware import HardwareAdapter
 from ..hedgehog_server import HedgehogServer
@@ -162,7 +162,7 @@ class _ServoHandler(_HWHandler):
 
 
 class HardwareHandler(CommandHandler):
-    _handlers, _command = command_handlers()
+    _commands = CommandRegistry()
 
     def __init__(self, adapter: HardwareAdapter) -> None:
         super().__init__()
@@ -174,12 +174,12 @@ class HardwareHandler(CommandHandler):
         # self.motor_cb = {}
         # self.adapter.motor_state_update_cb = self.motor_state_update
 
-    @_command(io.Action)
+    @_commands.register(io.Action)
     async def io_state_action(self, server, ident, msg):
         await self.ios[msg.port].action(msg.flags)
         return ack.Acknowledgement()
 
-    @_command(io.CommandRequest)
+    @_commands.register(io.CommandRequest)
     async def io_command_request(self, server, ident, msg):
         command = self.ios[msg.port].command
         try:
@@ -189,32 +189,32 @@ class HardwareHandler(CommandHandler):
         else:
             return io.CommandReply(msg.port, flags)
 
-    @_command(io.CommandSubscribe)
+    @_commands.register(io.CommandSubscribe)
     async def io_command_subscribe(self, server, ident, msg):
         await self.ios[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
         return ack.Acknowledgement()
 
-    @_command(analog.Request)
+    @_commands.register(analog.Request)
     async def analog_request(self, server, ident, msg):
         value = await self.ios[msg.port].analog_value
         return analog.Reply(msg.port, value)
 
-    @_command(analog.Subscribe)
+    @_commands.register(analog.Subscribe)
     async def analog_command_subscribe(self, server, ident, msg):
         await self.ios[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
         return ack.Acknowledgement()
 
-    @_command(digital.Request)
+    @_commands.register(digital.Request)
     async def digital_request(self, server, ident, msg):
         value = await self.ios[msg.port].digital_value
         return digital.Reply(msg.port, value)
 
-    @_command(digital.Subscribe)
+    @_commands.register(digital.Subscribe)
     async def digital_command_subscribe(self, server, ident, msg):
         await self.ios[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
         return ack.Acknowledgement()
 
-    @_command(motor.Action)
+    @_commands.register(motor.Action)
     async def motor_action(self, server, ident, msg):
         # if msg.relative is not None or msg.absolute is not None:
         #     # this action will end with a state update
@@ -224,7 +224,7 @@ class HardwareHandler(CommandHandler):
         await self.motors[msg.port].action(msg.state, msg.amount, msg.reached_state, msg.relative, msg.absolute)
         return ack.Acknowledgement()
 
-    @_command(motor.CommandRequest)
+    @_commands.register(motor.CommandRequest)
     async def motor_command_request(self, server, ident, msg):
         command = self.motors[msg.port].command
         try:
@@ -234,17 +234,17 @@ class HardwareHandler(CommandHandler):
         else:
             return motor.CommandReply(msg.port, state, amount)
 
-    @_command(motor.CommandSubscribe)
+    @_commands.register(motor.CommandSubscribe)
     async def motor_command_subscribe(self, server, ident, msg):
         await self.motors[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
         return ack.Acknowledgement()
 
-    @_command(motor.StateRequest)
+    @_commands.register(motor.StateRequest)
     async def motor_state_request(self, server, ident, msg):
         velocity, position = await self.motors[msg.port].state
         return motor.StateReply(msg.port, velocity, position)
 
-    @_command(motor.StateSubscribe)
+    @_commands.register(motor.StateSubscribe)
     async def motor_state_subscribe(self, server, ident, msg):
         await self.motors[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
         return ack.Acknowledgement()
@@ -254,17 +254,17 @@ class HardwareHandler(CommandHandler):
     #         self.motor_cb[port](port, state)
     #         del self.motor_cb[port]
 
-    @_command(motor.SetPositionAction)
+    @_commands.register(motor.SetPositionAction)
     async def motor_set_position_action(self, server, ident, msg):
         await self.motors[msg.port].set_position(msg.position)
         return ack.Acknowledgement()
 
-    @_command(servo.Action)
+    @_commands.register(servo.Action)
     async def servo_action(self, server, ident, msg):
         await self.servos[msg.port].action(msg.active, msg.position)
         return ack.Acknowledgement()
 
-    @_command(servo.CommandRequest)
+    @_commands.register(servo.CommandRequest)
     async def servo_command_request(self, server, ident, msg):
         command = self.servos[msg.port].command
         try:
@@ -274,7 +274,7 @@ class HardwareHandler(CommandHandler):
         else:
             return servo.CommandReply(msg.port, active, position)
 
-    @_command(servo.CommandSubscribe)
+    @_commands.register(servo.CommandSubscribe)
     async def servo_command_subscribe(self, server, ident, msg):
         await self.servos[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
         return ack.Acknowledgement()
