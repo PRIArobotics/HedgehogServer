@@ -109,10 +109,10 @@ class Subscribable(Generic[T, Upd]):
         self.subscriptions = {}  # type: Dict[Header, SubscriptionHandle]
 
     def compose_update(self, server: HedgehogServer, ident: Header, subscription: Subscription, value: T) -> Upd:
-        raise NotImplementedError()  # pragma: no cover
+        raise NotImplemented
 
     async def subscribe(self, server: HedgehogServer, ident: Header, subscription: Subscription) -> None:
-        raise NotImplementedError()  # pragma: no cover
+        raise NotImplemented
 
 
 class SubscriptionHandle(object):
@@ -186,7 +186,7 @@ class PolledSubscribable(Subscribable[T, Upd]):
         self._registered = False
 
     async def poll(self) -> T:
-        raise NotImplementedError()  # pragma: no cover
+        raise NotImplemented
 
     async def register(self, server: HedgehogServer) -> None:
         if not self._registered:
