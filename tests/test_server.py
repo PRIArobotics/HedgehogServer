@@ -185,7 +185,7 @@ async def test_server_slow_job(caplog, zmq_aio_ctx: zmq.asyncio.Context):
 
 
 @pytest.mark.asyncio
-async def test_server_no_handler(caplog, zmq_aio_ctx: zmq.asyncio.Context):
+async def test_server_no_handler(zmq_aio_ctx: zmq.asyncio.Context):
     async with HedgehogServer.start(zmq_aio_ctx, 'inproc://controller', {}):
         socket = ReqSocket(zmq_aio_ctx, zmq.REQ, side=ClientSide)
         socket.connect('inproc://controller')
@@ -196,6 +196,22 @@ async def test_server_no_handler(caplog, zmq_aio_ctx: zmq.asyncio.Context):
 
 @pytest.mark.asyncio
 async def test_server_faulty_handler(caplog, zmq_aio_ctx: zmq.asyncio.Context):
+    async def handler_callback(server, ident, msg):
+        raise Exception
+
+    async with HedgehogServer.start(zmq_aio_ctx, 'inproc://controller', {io.Action: handler_callback}):
+        socket = ReqSocket(zmq_aio_ctx, zmq.REQ, side=ClientSide)
+        socket.connect('inproc://controller')
+
+        await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.FAILED_COMMAND)
+        socket.close()
+
+    records = [record for record in caplog.records if record.levelname == 'ERROR']
+    assert len(records) == 1 and "Uncaught exception in command handler" in records[0].message
+
+
+@pytest.mark.asyncio
+async def test_server_cancel_in_job(zmq_aio_ctx: zmq.asyncio.Context):
     async def handler_callback(server, ident, msg):
         async def job_stream():
             async def job():
@@ -216,22 +232,6 @@ async def test_server_faulty_handler(caplog, zmq_aio_ctx: zmq.asyncio.Context):
             socket.close()
 
             await server.cancel()
-
-
-@pytest.mark.asyncio
-async def test_server_cancel_in_job(caplog, zmq_aio_ctx: zmq.asyncio.Context):
-    async def handler_callback(server, ident, msg):
-        raise Exception
-
-    async with HedgehogServer.start(zmq_aio_ctx, 'inproc://controller', {io.Action: handler_callback}):
-        socket = ReqSocket(zmq_aio_ctx, zmq.REQ, side=ClientSide)
-        socket.connect('inproc://controller')
-
-        await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.FAILED_COMMAND)
-        socket.close()
-
-    records = [record for record in caplog.records if record.levelname == 'ERROR']
-    assert len(records) == 1 and "Uncaught exception in command handler" in records[0].message
 
 
 @pytest.mark.asyncio
