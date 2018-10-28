@@ -57,8 +57,8 @@ class HedgehogServer:
                 except HedgehogCommandError:
                     raise
                 except Exception as err:
-                    logger.exception("uncaught exception in command handler")
-                    raise FailedCommandError("uncaught exception: {}".format(repr(err))) from err
+                    logger.exception("Uncaught exception in command handler")
+                    raise FailedCommandError("Uncaught exception: {}".format(repr(err))) from err
             except HedgehogCommandError as err:
                 result = err.to_message()
             logger.debug("Send reply:      %s", result)
@@ -90,7 +90,7 @@ class HedgehogServer:
     async def _run_job(self, job: Job) -> None:
         LONG_RUNNING_DELAY = 0.1
         long_running = asyncio.get_event_loop().call_later(
-            LONG_RUNNING_DELAY, logger.warning, "long running job on server loop: %s", job)
+            LONG_RUNNING_DELAY, logger.warning, "Long running job on server loop: %s", job)
         begin = asyncio.get_event_loop().time()
         try:
             await job()
@@ -102,7 +102,7 @@ class HedgehogServer:
             long_running.cancel()
             end = asyncio.get_event_loop().time()
             if end - begin > LONG_RUNNING_DELAY:
-                logger.warning("long running job finished after %.1f ms: %s", (end - begin) * 1000, job)
+                logger.warning("Long running job finished after %.1f ms: %s", (end - begin) * 1000, job)
 
     async def send_async(self, ident: Header, *msgs: Message) -> None:
         for msg in msgs:
