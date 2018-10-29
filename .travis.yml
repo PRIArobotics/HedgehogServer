@@ -10,7 +10,7 @@ matrix:
 # install other libraries using pip
 install:
   - pip install -U setuptools coveralls
-  - pip install -Ue .[dev]
+  - pip install -Ue .[dev,raspberry]
 
 # command to run tests
 script:
