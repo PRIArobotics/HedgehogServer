@@ -46,14 +46,15 @@ setup(
     # your project is installed. For an analysis of "install_requires" vs pip's
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
-    install_requires=['concurrent-utils', 'hedgehog-protocol', 'hedgehog-utils', 'hedgehog-platform'],
+    install_requires=['concurrent-utils >=0.1, <0.2', 'hedgehog-protocol >=0.7.1, <0.8',
+                      'hedgehog-utils[protobuf,zmq] >=0.6, <0.7', 'hedgehog-platform >=0.2, <0.3'],
 
     # You can install these using the following syntax, for example:
     # $ pip install -e .[dev,test]
     extras_require={
         # TODO adding extras for existing requirement does not work
         'dev': ['pytest', 'pytest-runner', 'pytest-asyncio', 'pytest-cov', 'pytest-timeout', 'mypy'],
-        #'raspberry': ['hedgehog-platform[raspberry]'],
+        #'raspberry': ['hedgehog-platform[raspberry] >=0.2, <0.3'],
         'raspberry': ['RPi.GPIO', 'pyserial-asyncio'],
     },
 
