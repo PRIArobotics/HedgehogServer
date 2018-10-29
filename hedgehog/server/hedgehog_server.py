@@ -130,8 +130,8 @@ class HedgehogServer:
     @classmethod
     @asynccontextmanager
     async def start(cls, ctx: zmq.asyncio.Context, endpoint: str, handlers: Dict[Type[Message], HandlerCallback]) -> Component[None]:
+        component = await start_component(cls(ctx, endpoint, handlers).workload)
         try:
-            component = await start_component(cls(ctx, endpoint, handlers).workload)
             yield component
         finally:
             await component.stop()
