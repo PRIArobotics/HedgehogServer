@@ -3,7 +3,7 @@ from hedgehog.utils.test_utils import event_loop, assertPassed
 
 import asyncio
 from aiostream import stream, streamcontext
-from aiostream.context_utils import async_context_manager
+from contextlib import asynccontextmanager
 
 from hedgehog.server.subscription import SubscriptionStreamer
 
@@ -18,7 +18,7 @@ async def make_stream(pairs):
         yield item
 
 
-@async_context_manager
+@asynccontextmanager
 async def do_stream(subs, _stream):
     async def the_stream():
         async with streamcontext(_stream) as streamer:
