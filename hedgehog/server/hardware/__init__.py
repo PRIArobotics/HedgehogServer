@@ -10,6 +10,12 @@ class HardwareAdapter(object):
     def __init__(self, motor_state_update_cb=None) -> None:
         self.motor_state_update_cb = motor_state_update_cb
 
+    async def __aenter__(self):
+        pass
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
+
     async def set_io_state(self, port: int, flags: int) -> None:
         raise UnsupportedCommandError(messages.io.Action.msg_name())
 

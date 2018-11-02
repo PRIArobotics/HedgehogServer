@@ -19,7 +19,7 @@ with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
 
 setup(
     name='hedgehog-server',
-    version='0.7.0',
+    version='0.8.0',
     description='Hedgehog Robot Controller Server',
     long_description=long_description,
     url="https://github.com/PRIArobotics/HedgehogServer",
@@ -46,14 +46,15 @@ setup(
     # your project is installed. For an analysis of "install_requires" vs pip's
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
-    install_requires=['hedgehog-protocol', 'hedgehog-utils[discovery]', 'hedgehog-platform'],
+    install_requires=['concurrent-utils >=0.2, <0.3', 'hedgehog-protocol >=0.7.1, <0.8',
+                      'hedgehog-utils[protobuf,zmq] >=0.6, <0.7', 'hedgehog-platform >=0.2, <0.3'],
 
     # You can install these using the following syntax, for example:
     # $ pip install -e .[dev,test]
     extras_require={
         # TODO adding extras for existing requirement does not work
-        'dev': ['pytest', 'pytest-runner', 'pytest-asyncio', 'pytest-cov'],
-        #'raspberry': ['hedgehog-platform[raspberry]'],
+        'dev': ['pytest', 'pytest-runner', 'pytest-asyncio', 'pytest-cov', 'pytest-timeout', 'mypy'],
+        #'raspberry': ['hedgehog-platform[raspberry] >=0.2, <0.3'],
         'raspberry': ['RPi.GPIO', 'pyserial-asyncio'],
     },
 

@@ -1,11 +1,11 @@
 from typing import Any, Callable, Dict, List, Tuple, Type, Union
 
 import pytest
-from hedgehog.utils.test_utils import event_loop, zmq_aio_ctx, assertTimeout, assertImmediate, assertPassed
+from hedgehog.utils.test_utils import event_loop, zmq_aio_ctx, check_caplog, assertTimeout, assertImmediate, assertPassed
 
+import asyncio
 import zmq.asyncio
 import signal
-from aiostream.context_utils import async_context_manager
 
 from hedgehog.protocol import ClientSide
 from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, process
@@ -19,13 +19,14 @@ from hedgehog.server.hardware.mocked import MockedHardwareAdapter
 
 
 # Pytest fixtures
-event_loop, zmq_aio_ctx
+event_loop, zmq_aio_ctx, check_caplog
+pytestmark = pytest.mark.usefixtures('check_caplog')
 
 
 def handler(adapter: HardwareAdapter=None) -> handlers.HandlerCallbackDict:
     if adapter is None:
         adapter = MockedHardwareAdapter()
-    return handlers.to_dict(HardwareHandler(adapter), ProcessHandler(adapter))
+    return handlers.merge(HardwareHandler(adapter), ProcessHandler(adapter))
 
 
 @pytest.fixture
@@ -35,7 +36,7 @@ def hardware_adapter():
 
 @pytest.fixture
 async def conn_req(zmq_aio_ctx: zmq.asyncio.Context, hardware_adapter: HardwareAdapter):
-    async with HedgehogServer(zmq_aio_ctx, 'inproc://controller', handler(hardware_adapter)):
+    async with hardware_adapter, HedgehogServer.start(zmq_aio_ctx, 'inproc://controller', handler(hardware_adapter)):
         socket = ReqSocket(zmq_aio_ctx, zmq.REQ, side=ClientSide)
         socket.connect('inproc://controller')
 
@@ -46,7 +47,7 @@ async def conn_req(zmq_aio_ctx: zmq.asyncio.Context, hardware_adapter: HardwareA
 
 @pytest.fixture
 async def conn_dealer(zmq_aio_ctx: zmq.asyncio.Context, hardware_adapter: HardwareAdapter):
-    async with HedgehogServer(zmq_aio_ctx, 'inproc://controller', handler(hardware_adapter)):
+    async with hardware_adapter, HedgehogServer.start(zmq_aio_ctx, 'inproc://controller', handler(hardware_adapter)):
         socket = DealerRouterSocket(zmq_aio_ctx, zmq.DEALER, side=ClientSide)
         socket.connect('inproc://controller')
 
@@ -106,6 +107,139 @@ async def assertReplyDealer(socket, req: Message,
 
 
 @pytest.mark.asyncio
+async def test_server_unknown_command(zmq_aio_ctx: zmq.asyncio.Context):
+    with pytest.raises(ValueError):
+        async with HedgehogServer.start(zmq_aio_ctx, 'inproc://controller', {}) as server:
+            await server.send('unknownCommand')
+
+
+@pytest.mark.asyncio
+async def test_server_faulty_job_stream(caplog, check_caplog, zmq_aio_ctx: zmq.asyncio.Context):
+    async def handler_callback(server, ident, msg):
+        async def job_stream():
+            raise Exception
+            yield
+
+        server.add_job_stream(job_stream())
+        return ack.Acknowledgement()
+
+    async with HedgehogServer.start(zmq_aio_ctx, 'inproc://controller', {io.Action: handler_callback}) as server:
+        socket = ReqSocket(zmq_aio_ctx, zmq.REQ, side=ClientSide)
+        socket.connect('inproc://controller')
+
+        await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.OK)
+        await asyncio.sleep(1)
+        socket.close()
+
+    records = [record for record in caplog.records if record.levelname == 'ERROR']
+    assert len(records) == 1 and "Job iterator raised an exception" in records[0].message
+    check_caplog.expected.update(records)
+
+
+@pytest.mark.asyncio
+async def test_server_faulty_job(caplog, check_caplog, zmq_aio_ctx: zmq.asyncio.Context):
+    async def handler_callback(server, ident, msg):
+        async def job_stream():
+            async def job():
+                raise Exception
+
+            yield job
+
+        server.add_job_stream(job_stream())
+        return ack.Acknowledgement()
+
+    async with HedgehogServer.start(zmq_aio_ctx, 'inproc://controller', {io.Action: handler_callback}):
+        socket = ReqSocket(zmq_aio_ctx, zmq.REQ, side=ClientSide)
+        socket.connect('inproc://controller')
+
+        await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.OK)
+        await asyncio.sleep(1)
+        socket.close()
+
+    records = [record for record in caplog.records if record.levelname == 'ERROR']
+    assert len(records) == 1 and "Job raised an exception" in records[0].message
+    check_caplog.expected.update(records)
+
+
+@pytest.mark.asyncio
+async def test_server_slow_job(caplog, check_caplog, zmq_aio_ctx: zmq.asyncio.Context):
+    async def handler_callback(server, ident, msg):
+        async def job_stream():
+            async def job():
+                await asyncio.sleep(0.2)
+
+            yield job
+
+        server.add_job_stream(job_stream())
+        return ack.Acknowledgement()
+
+    async with HedgehogServer.start(zmq_aio_ctx, 'inproc://controller', {io.Action: handler_callback}):
+        socket = ReqSocket(zmq_aio_ctx, zmq.REQ, side=ClientSide)
+        socket.connect('inproc://controller')
+
+        await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.OK)
+        await asyncio.sleep(1)
+        socket.close()
+
+    records = [record for record in caplog.records if record.levelname == 'WARNING']
+    assert len(records) == 2 \
+           and "Long running job on server loop" in records[0].message \
+           and "Long running job finished after 200.0 ms" in records[1].message
+    check_caplog.expected.update(records)
+
+
+@pytest.mark.asyncio
+async def test_server_no_handler(zmq_aio_ctx: zmq.asyncio.Context):
+    async with HedgehogServer.start(zmq_aio_ctx, 'inproc://controller', {}):
+        socket = ReqSocket(zmq_aio_ctx, zmq.REQ, side=ClientSide)
+        socket.connect('inproc://controller')
+
+        await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.UNSUPPORTED_COMMAND)
+        socket.close()
+
+
+@pytest.mark.asyncio
+async def test_server_faulty_handler(caplog, check_caplog, zmq_aio_ctx: zmq.asyncio.Context):
+    async def handler_callback(server, ident, msg):
+        raise Exception
+
+    async with HedgehogServer.start(zmq_aio_ctx, 'inproc://controller', {io.Action: handler_callback}):
+        socket = ReqSocket(zmq_aio_ctx, zmq.REQ, side=ClientSide)
+        socket.connect('inproc://controller')
+
+        await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.FAILED_COMMAND)
+        socket.close()
+
+    records = [record for record in caplog.records if record.levelname == 'ERROR']
+    assert len(records) == 1 and "Uncaught exception in command handler" in records[0].message
+    check_caplog.expected.update(records)
+
+
+@pytest.mark.asyncio
+async def test_server_cancel_in_job(zmq_aio_ctx: zmq.asyncio.Context):
+    async def handler_callback(server, ident, msg):
+        async def job_stream():
+            async def job():
+                await asyncio.sleep(0.1)
+
+            yield job
+
+        server.add_job_stream(job_stream())
+        return ack.Acknowledgement()
+
+    with pytest.raises(asyncio.CancelledError):
+        async with HedgehogServer.start(zmq_aio_ctx, 'inproc://controller', {io.Action: handler_callback}) as server:
+            socket = ReqSocket(zmq_aio_ctx, zmq.REQ, side=ClientSide)
+            socket.connect('inproc://controller')
+
+            await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.OK)
+            await asyncio.sleep(0.05)
+            socket.close()
+
+            await server.cancel()
+
+
+@pytest.mark.asyncio
 async def test_multipart(conn_req):
     with assertImmediate():
         await conn_req.send_msgs([analog.Request(0), digital.Request(0)])
@@ -138,7 +272,7 @@ async def test_io(conn_dealer):
 
     # send an invalid command
     action = io.Action(0, 0)
-    action.flags = io.OUTPUT | io.PULLDOWN
+    object.__setattr__(action, 'flags', io.OUTPUT | io.PULLDOWN)
     await assertReplyDealer(conn_dealer, action, ack.INVALID_COMMAND)
 
     # ### io.CommandRequest
@@ -367,7 +501,7 @@ async def test_motor(conn_dealer):
 
     # send an invalid command
     action = motor.Action(0, motor.BRAKE)
-    action.relative = 100
+    object.__setattr__(action, 'relative', 100)
     await assertReplyDealer(conn_dealer, action, ack.INVALID_COMMAND)
 
     # ### motor.CommandRequest
@@ -487,27 +621,27 @@ def handle_streams() -> Callable[[process.StreamUpdate], Dict[int, bytes]]:
 
 @pytest.mark.asyncio
 async def test_process_echo(conn_dealer):
-    response = await assertReplyDealer(conn_dealer, process.ExecuteAction('echo', 'asdf'),
-                                       process.ExecuteReply)  # type: process.ExecuteReply
-    pid = response.pid
+        response = await assertReplyDealer(conn_dealer, process.ExecuteAction('echo', 'asdf'),
+                                           process.ExecuteReply)  # type: process.ExecuteReply
+        pid = response.pid
 
-    stream_handler = handle_streams()
-    output = None
+        stream_handler = handle_streams()
+        output = None
 
-    async def handle():
-        nonlocal output
-        _, msg = await conn_dealer.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
-        assertMsgEqual(msg, process.StreamUpdate, pid=pid)
-        output = stream_handler(msg)
+        async def handle():
+            nonlocal output
+            _, msg = await conn_dealer.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
+            assertMsgEqual(msg, process.StreamUpdate, pid=pid)
+            output = stream_handler(msg)
 
-    while output is None:
-        await handle()
+        while output is None:
+            await handle()
 
-    _, msg = await conn_dealer.recv_msg()
-    assert msg == process.ExitUpdate(pid, 0)
+        _, msg = await conn_dealer.recv_msg()
+        assert msg == process.ExitUpdate(pid, 0)
 
-    assert output[process.STDOUT] == b'asdf\n'
-    assert output[process.STDERR] == b''
+        assert output[process.STDOUT] == b'asdf\n'
+        assert output[process.STDERR] == b''
 
 
 @pytest.mark.asyncio

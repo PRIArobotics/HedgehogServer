@@ -1,41 +1,49 @@
-from typing import Any, AsyncIterator, Awaitable, Callable, Coroutine, Dict, Type
+from typing import AsyncIterator, Awaitable, Callable, Dict, Type
 
 import asyncio
 import logging
-import traceback
 import zmq.asyncio
-from aiostream import pipe, streamcontext
+from aiostream import pipe
+from contextlib import asynccontextmanager
 from functools import partial
-from hedgehog.utils.asyncio import Actor, stream_from_queue
+from hedgehog.utils.asyncio import stream_from_queue
 from hedgehog.protocol import ServerSide, Header, RawMessage, Message, RawPayload
 from hedgehog.protocol.async_sockets import DealerRouterSocket
 from hedgehog.protocol.errors import HedgehogCommandError, UnsupportedCommandError, FailedCommandError
 
+from concurrent_utils.pipe import PipeEnd
+from concurrent_utils.component import Component, component_coro_wrapper, start_component
+
 
 # TODO importing this from .handlers does not work...
 HandlerCallback = Callable[['HedgehogServer', Header, Message], Awaitable[Message]]
-EventStream = AsyncIterator[Callable[[], Awaitable[None]]]
+Job = Callable[[], Awaitable[None]]
 
 logger = logging.getLogger(__name__)
 
 
-class HedgehogServer(Actor):
+class HedgehogServer:
+    class Stop(BaseException): pass
+
     def __init__(self, ctx: zmq.asyncio.Context, endpoint: str, handlers: Dict[Type[Message], HandlerCallback]) -> None:
-        super(HedgehogServer, self).__init__()
         self.ctx = ctx
         self.endpoint = endpoint
         self.handlers = handlers
-        self.socket = None  # type: DealerRouterSocket
+        self.socket: zmq.asyncio.Socket = None
+        self._queue = asyncio.Queue()
 
-    async def register(self, stream: EventStream) -> None:
-        await self.cmd_pipe.send((b'REG', stream))
+    async def _commands_job_stream(self, commands: PipeEnd) -> AsyncIterator[Job]:
+        async def stop_server():
+            raise HedgehogServer.Stop
 
-    async def send_async(self, ident: Header, *msgs: Message) -> None:
-        for msg in msgs:
-            logger.debug("Send update:     %s", msg)
-        await self.socket.send_msgs(ident, msgs)
+        while True:
+            command = await commands.recv()
+            if command == Component.COMMAND_STOP:
+                yield stop_server
+            else:
+                raise ValueError(f"unknown command: {command!r}")
 
-    async def _requests(self) -> EventStream:
+    async def _requests_job_stream(self) -> AsyncIterator[Job]:
         async def handle_msg(ident: Header, msg_raw: RawMessage) -> RawMessage:
             try:
                 msg = ServerSide.parse(msg_raw)
@@ -49,8 +57,8 @@ class HedgehogServer(Actor):
                 except HedgehogCommandError:
                     raise
                 except Exception as err:
-                    traceback.print_exc()
-                    raise FailedCommandError("uncaught exception: {}".format(repr(err))) from err
+                    logger.exception("Uncaught exception in command handler")
+                    raise FailedCommandError("Uncaught exception: {}".format(repr(err))) from err
             except HedgehogCommandError as err:
                 result = err.to_message()
             logger.debug("Send reply:      %s", result)
@@ -63,36 +71,67 @@ class HedgehogServer(Actor):
             ident, msgs_raw = await self.socket.recv_msgs_raw()
             yield partial(request_handler, ident, msgs_raw)
 
-    async def run(self, cmd_pipe, evt_pipe) -> None:
+    def add_job_stream(self, async_iter: AsyncIterator[Job]) -> None:
+        async def async_iter_wrapper() -> AsyncIterator[Job]:
+            logger.debug("Added new job iterator: %s", async_iter)
+            try:
+                async for job in async_iter:
+                    yield job
+            except GeneratorExit:
+                logger.debug("Job iterator was stopped: %s", async_iter)
+                raise
+            except Exception:
+                logger.exception("Job iterator raised an exception: %s", async_iter)
+            else:
+                logger.debug("Job iterator finished: %s", async_iter)
+
+        self._queue.put_nowait(async_iter_wrapper())
+
+    async def _run_job(self, job: Job) -> None:
+        LONG_RUNNING_DELAY = 0.1
+        long_running = asyncio.get_event_loop().call_later(
+            LONG_RUNNING_DELAY, logger.warning, "Long running job on server loop: %s", job)
+        begin = asyncio.get_event_loop().time()
+        try:
+            await job()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Job raised an exception: %s", job)
+        finally:
+            long_running.cancel()
+            end = asyncio.get_event_loop().time()
+            if end - begin > LONG_RUNNING_DELAY:
+                logger.warning("Long running job finished after %.1f ms: %s", (end - begin) * 1000, job)
+
+    async def send_async(self, ident: Header, *msgs: Message) -> None:
+        for msg in msgs:
+            logger.debug("Send update:     %s", msg)
+        await self.socket.send_msgs(ident, msgs)
+
+    async def _workload(self, *, commands: PipeEnd, events: PipeEnd) -> None:
         with DealerRouterSocket(self.ctx, zmq.ROUTER, side=ServerSide) as self.socket:
             self.socket.bind(self.endpoint)
-            await evt_pipe.send(b'$START')
+            await events.send(Component.EVENT_START)
 
-            stream_queue = asyncio.Queue()  # type: asyncio.Queue
+            self._queue.put_nowait(self._commands_job_stream(commands))
+            self._queue.put_nowait(self._requests_job_stream())
+            jobs_stream = stream_from_queue(self._queue) | pipe.flatten()
+            async with jobs_stream.stream() as streamer:
+                try:
+                    async for job in streamer:
+                        await self._run_job(job)
+                except HedgehogServer.Stop:
+                    logger.info("Server stopped")
 
-            async def commands() -> AsyncIterator[tuple]:
-                while True:
-                    cmd = await cmd_pipe.recv()
-                    yield (cmd,) if isinstance(cmd, bytes) else cmd
+    async def workload(self, *, commands: PipeEnd, events: PipeEnd) -> None:
+        return await component_coro_wrapper(self._workload, commands=commands, events=events)
 
-            await stream_queue.put(commands())
-            await self.register(self._requests())
-
-            events = stream_from_queue(stream_queue) | pipe.flatten()
-            async with events.stream() as streamer:
-                async for cmd, *payload in streamer:
-                    begin = asyncio.get_event_loop().time()
-
-                    if cmd == b'EVENT':
-                        awaitable, = payload
-                        await awaitable()
-                    elif cmd == b'REG':
-                        stream, = payload
-                        await stream_queue.put(streamcontext(stream) | pipe.map(lambda item: (b'EVENT', item)))
-                    elif cmd == b'$TERM':
-                        break
-
-                    end = asyncio.get_event_loop().time()
-                    if end - begin > 0.1:
-                        logger.warning("long running (%.1f ms) handler on server loop: %s %s",
-                                       (end-begin) * 1000, cmd, payload)
+    @classmethod
+    @asynccontextmanager
+    async def start(cls, ctx: zmq.asyncio.Context, endpoint: str, handlers: Dict[Type[Message], HandlerCallback]) -> Component[None]:
+        component = await start_component(cls(ctx, endpoint, handlers).workload)
+        try:
+            yield component
+        finally:
+            await component.stop()
