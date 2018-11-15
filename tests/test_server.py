@@ -29,15 +29,30 @@ check_caplog
 pytestmark = pytest.mark.usefixtures('check_caplog')
 
 
-def handler(adapter: HardwareAdapter=None) -> handlers.HandlerCallbackDict:
-    if adapter is None:
-        adapter = MockedHardwareAdapter()
-    return handlers.merge(HardwareHandler(adapter), ProcessHandler(adapter))
-
-
 @pytest.fixture
 def hardware_adapter():
     return MockedHardwareAdapter()
+
+
+@pytest.fixture
+def handler_dict(hardware_adapter: HardwareAdapter) -> handlers.HandlerCallbackDict:
+    return handlers.merge(HardwareHandler(hardware_adapter), ProcessHandler(hardware_adapter))
+
+
+@pytest.fixture
+def trio_aio_loop():
+    loop = None
+
+    @asynccontextmanager
+    async def open_loop():
+        nonlocal loop
+        if loop is None:
+            async with trio_asyncio.open_loop() as loop:
+                yield loop
+        else:
+            yield loop
+
+    return open_loop
 
 
 @pytest.fixture
@@ -59,30 +74,11 @@ def zmq_trio_ctx():
 
 
 @pytest.fixture
-def trio_aio_loop():
-    loop = None
-
-    @asynccontextmanager
-    async def open_loop():
-        nonlocal loop
-        if loop is None:
-            async with trio_asyncio.open_loop() as loop:
-                yield loop
-        else:
-            yield loop
-
-    return open_loop
-
-
-@pytest.fixture
-def hedgehog_server(trio_aio_loop, zmq_trio_ctx, hardware_adapter: HardwareAdapter):
+def hedgehog_server(trio_aio_loop, zmq_trio_ctx,
+                    hardware_adapter: HardwareAdapter, handler_dict: handlers.HandlerCallbackDict):
     @asynccontextmanager
     async def start_server(endpoint: str='inproc://controller', *,
-                           handler_dict: handlers.HandlerCallbackDict=None,
-                           hardware_adapter: HardwareAdapter=hardware_adapter):
-        if handler_dict is None:
-            handler_dict = handler(hardware_adapter)
-
+                           handler_dict: handlers.HandlerCallbackDict=handler_dict):
         async with trio_aio_loop(), zmq_trio_ctx() as ctx, hardware_adapter, trio.open_nursery() as nursery:
             server = HedgehogServer(ctx, endpoint, handler_dict)
             await nursery.start(server.run)
@@ -120,12 +116,11 @@ async def client_dealer(trio_aio_loop, zmq_trio_ctx):
 
 
 @pytest.fixture
-async def conn_req(hedgehog_server, client_req, hardware_adapter: HardwareAdapter):
+async def conn_req(hedgehog_server, client_req, handler_dict: handlers.HandlerCallbackDict):
     @asynccontextmanager
     async def connect(endpoint: str='inproc://controller', *,
-                      handler_dict: handlers.HandlerCallbackDict=None,
-                      hardware_adapter: HardwareAdapter=hardware_adapter):
-        async with hedgehog_server(endpoint=endpoint, handler_dict=handler_dict, hardware_adapter=hardware_adapter), \
+                      handler_dict: handlers.HandlerCallbackDict=handler_dict):
+        async with hedgehog_server(endpoint=endpoint, handler_dict=handler_dict), \
                    client_req(endpoint=endpoint) as socket:
             yield socket
 
@@ -133,12 +128,11 @@ async def conn_req(hedgehog_server, client_req, hardware_adapter: HardwareAdapte
 
 
 @pytest.fixture
-async def conn_dealer(hedgehog_server, client_dealer, hardware_adapter: HardwareAdapter):
+async def conn_dealer(hedgehog_server, client_dealer, handler_dict: handlers.HandlerCallbackDict):
     @asynccontextmanager
     async def connect(endpoint: str='inproc://controller', *,
-                      handler_dict: handlers.HandlerCallbackDict=None,
-                      hardware_adapter: HardwareAdapter=hardware_adapter):
-        async with hedgehog_server(endpoint=endpoint, handler_dict=handler_dict, hardware_adapter=hardware_adapter), \
+                      handler_dict: handlers.HandlerCallbackDict=handler_dict):
+        async with hedgehog_server(endpoint=endpoint, handler_dict=handler_dict), \
                    client_dealer(endpoint=endpoint) as socket:
             yield socket
 
