@@ -96,7 +96,7 @@ def hedgehog_server(trio_aio_loop, zmq_trio_ctx, hardware_adapter: HardwareAdapt
 
 
 @pytest.fixture
-async def conn_req(trio_aio_loop, zmq_trio_ctx):
+async def client_req(trio_aio_loop, zmq_trio_ctx):
     @asynccontextmanager
     async def connect(endpoint: str='inproc://controller'):
         async with trio_aio_loop(), zmq_trio_ctx() as ctx:
@@ -108,13 +108,39 @@ async def conn_req(trio_aio_loop, zmq_trio_ctx):
 
 
 @pytest.fixture
-async def conn_dealer(trio_aio_loop, zmq_trio_ctx):
+async def client_dealer(trio_aio_loop, zmq_trio_ctx):
     @asynccontextmanager
     async def connect(endpoint: str='inproc://controller'):
         async with trio_aio_loop(), zmq_trio_ctx() as ctx:
             with DealerRouterSocket(ctx, zmq.DEALER, side=ClientSide) as socket:
                 socket.connect(endpoint)
                 yield socket
+
+    return connect
+
+
+@pytest.fixture
+async def conn_req(hedgehog_server, client_req, hardware_adapter: HardwareAdapter):
+    @asynccontextmanager
+    async def connect(endpoint: str='inproc://controller', *,
+                      handler_dict: handlers.HandlerCallbackDict=None,
+                      hardware_adapter: HardwareAdapter=hardware_adapter):
+        async with hedgehog_server(endpoint=endpoint, handler_dict=handler_dict, hardware_adapter=hardware_adapter), \
+                   client_req(endpoint=endpoint) as socket:
+            yield socket
+
+    return connect
+
+
+@pytest.fixture
+async def conn_dealer(hedgehog_server, client_dealer, hardware_adapter: HardwareAdapter):
+    @asynccontextmanager
+    async def connect(endpoint: str='inproc://controller', *,
+                      handler_dict: handlers.HandlerCallbackDict=None,
+                      hardware_adapter: HardwareAdapter=hardware_adapter):
+        async with hedgehog_server(endpoint=endpoint, handler_dict=handler_dict, hardware_adapter=hardware_adapter), \
+                   client_dealer(endpoint=endpoint) as socket:
+            yield socket
 
     return connect
 
@@ -170,7 +196,7 @@ async def assertReplyDealer(socket, req: Message,
 
 
 @pytest.mark.trio
-async def test_server_faulty_task(caplog, check_caplog, hedgehog_server, conn_req, autojump_clock):
+async def test_server_faulty_task(caplog, check_caplog, conn_req, autojump_clock):
     async def handler_callback(server, ident, msg):
         async def task(*, task_status=trio.TASK_STATUS_IGNORED):
             task_status.started()
@@ -179,7 +205,7 @@ async def test_server_faulty_task(caplog, check_caplog, hedgehog_server, conn_re
         await server.add_task(task)
         return ack.Acknowledgement()
 
-    async with hedgehog_server(handler_dict={io.Action: handler_callback}), conn_req() as socket:
+    async with conn_req(handler_dict={io.Action: handler_callback}) as socket:
         await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.OK)
         await trio.sleep(0.1)
 
@@ -189,7 +215,7 @@ async def test_server_faulty_task(caplog, check_caplog, hedgehog_server, conn_re
 
 
 @pytest.mark.trio
-async def test_server_slow_job(caplog, check_caplog, hedgehog_server, conn_req, autojump_clock):
+async def test_server_slow_job(caplog, check_caplog, conn_req, autojump_clock):
     async def handler_callback(server, ident, msg):
         async def task(*, task_status=trio.TASK_STATUS_IGNORED):
             task_status.started()
@@ -199,7 +225,7 @@ async def test_server_slow_job(caplog, check_caplog, hedgehog_server, conn_req, 
         await server.add_task(task)
         return ack.Acknowledgement()
 
-    async with hedgehog_server(handler_dict={io.Action: handler_callback}), conn_req() as socket:
+    async with conn_req(handler_dict={io.Action: handler_callback}) as socket:
         await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.OK)
         await trio.sleep(0.3)
 
@@ -211,7 +237,7 @@ async def test_server_slow_job(caplog, check_caplog, hedgehog_server, conn_req, 
 
 
 @pytest.mark.trio
-async def test_server_very_slow_job(caplog, check_caplog, hedgehog_server, conn_req, autojump_clock):
+async def test_server_very_slow_job(caplog, check_caplog, conn_req, autojump_clock):
     async def handler_callback(server, ident, msg):
         async def task(*, task_status=trio.TASK_STATUS_IGNORED):
             task_status.started()
@@ -221,7 +247,7 @@ async def test_server_very_slow_job(caplog, check_caplog, hedgehog_server, conn_
         await server.add_task(task)
         return ack.Acknowledgement()
 
-    async with hedgehog_server(handler_dict={io.Action: handler_callback}), conn_req() as socket:
+    async with conn_req(handler_dict={io.Action: handler_callback}) as socket:
         await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.OK)
         await trio.sleep(10.2)
 
@@ -234,7 +260,7 @@ async def test_server_very_slow_job(caplog, check_caplog, hedgehog_server, conn_
 
 
 @pytest.mark.trio
-async def test_server_cancel_in_job(hedgehog_server, conn_req, autojump_clock):
+async def test_server_cancel_in_job(conn_req, autojump_clock):
     async def handler_callback(server, ident, msg):
         async def task(*, task_status=trio.TASK_STATUS_IGNORED):
             task_status.started()
@@ -244,23 +270,23 @@ async def test_server_cancel_in_job(hedgehog_server, conn_req, autojump_clock):
         await server.add_task(task)
         return ack.Acknowledgement()
 
-    async with hedgehog_server(handler_dict={io.Action: handler_callback}), conn_req() as socket:
+    async with conn_req(handler_dict={io.Action: handler_callback}) as socket:
         await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.OK)
         await trio.sleep(0.05)
 
 
 @pytest.mark.trio
-async def test_server_no_handler(hedgehog_server, conn_req, autojump_clock):
-    async with hedgehog_server(handler_dict={}), conn_req() as socket:
+async def test_server_no_handler(conn_req, autojump_clock):
+    async with conn_req(handler_dict={}) as socket:
         await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.UNSUPPORTED_COMMAND)
 
 
 @pytest.mark.trio
-async def test_server_faulty_handler(caplog, check_caplog, hedgehog_server, conn_req, autojump_clock):
+async def test_server_faulty_handler(caplog, check_caplog, conn_req, autojump_clock):
     async def handler_callback(server, ident, msg):
         raise Exception
 
-    async with hedgehog_server(handler_dict={io.Action: handler_callback}), conn_req() as socket:
+    async with conn_req(handler_dict={io.Action: handler_callback}) as socket:
         await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.FAILED_COMMAND)
 
     records = [record for record in caplog.records if record.levelno >= logging.WARNING]
@@ -269,17 +295,17 @@ async def test_server_faulty_handler(caplog, check_caplog, hedgehog_server, conn
 
 
 @pytest.mark.trio
-async def test_server_failing_command(hedgehog_server, conn_req, autojump_clock):
+async def test_server_failing_command(conn_req, autojump_clock):
     async def handler_callback(server, ident, msg):
         raise FailedCommandError
 
-    async with hedgehog_server(handler_dict={io.Action: handler_callback}), conn_req() as socket:
+    async with conn_req(handler_dict={io.Action: handler_callback}) as socket:
         await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.FAILED_COMMAND)
         await trio.sleep(0.05)
 
 
 @pytest.mark.trio
-async def test_server_send_async(hedgehog_server, conn_dealer, autojump_clock):
+async def test_server_send_async(conn_dealer, autojump_clock):
     async def handler_callback(server, ident, msg):
         async def task(*, task_status=trio.TASK_STATUS_IGNORED):
             task_status.started()
@@ -290,7 +316,7 @@ async def test_server_send_async(hedgehog_server, conn_dealer, autojump_clock):
         await server.add_task(task)
         return ack.Acknowledgement()
 
-    async with hedgehog_server(handler_dict={io.Action: handler_callback}), conn_dealer() as socket:
+    async with conn_dealer(handler_dict={io.Action: handler_callback}) as socket:
         await assertReplyDealer(socket, io.Action(0, io.INPUT_FLOATING), ack.OK)
 
         _, update = await socket.recv_msg()
