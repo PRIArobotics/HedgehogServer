@@ -1,18 +1,14 @@
 from typing import AsyncIterator, Awaitable, Callable, Dict, Type
 
-import asyncio
 import logging
-import zmq.asyncio
-from aiostream import pipe
+import trio
+import zmq
 from contextlib import asynccontextmanager
 from functools import partial
-from hedgehog.utils.asyncio import stream_from_queue
+from hedgehog.utils.zmq import trio as zmq_trio
 from hedgehog.protocol import ServerSide, Header, RawMessage, Message, RawPayload
-from hedgehog.protocol.zmq.asyncio import DealerRouterSocket
+from hedgehog.protocol.zmq.trio import DealerRouterSocket
 from hedgehog.protocol.errors import HedgehogCommandError, UnsupportedCommandError, FailedCommandError
-
-from concurrent_utils.pipe import PipeEnd
-from concurrent_utils.component import Component, component_coro_wrapper, start_component
 
 
 # TODO importing this from .handlers does not work...
@@ -23,27 +19,18 @@ logger = logging.getLogger(__name__)
 
 
 class HedgehogServer:
-    class Stop(BaseException): pass
-
-    def __init__(self, ctx: zmq.asyncio.Context, endpoint: str, handlers: Dict[Type[Message], HandlerCallback]) -> None:
+    def __init__(self, ctx: zmq_trio.Context, endpoint: str, handlers: Dict[Type[Message], HandlerCallback]) -> None:
         self.ctx = ctx
+        self._nursery = None
+        self._lock = trio.StrictFIFOLock()
         self.endpoint = endpoint
         self.handlers = handlers
-        self.socket: zmq.asyncio.Socket = None
-        self._queue = asyncio.Queue()
+        self.socket: DealerRouterSocket = None
 
-    async def _commands_job_stream(self, commands: PipeEnd) -> AsyncIterator[Job]:
-        async def stop_server():
-            raise HedgehogServer.Stop
+    def stop(self):
+        self._nursery.cancel_scope.cancel()
 
-        while True:
-            command = await commands.recv()
-            if command == Component.COMMAND_STOP:
-                yield stop_server
-            else:
-                raise ValueError(f"unknown command: {command!r}")
-
-    async def _requests_job_stream(self) -> AsyncIterator[Job]:
+    async def _requests_task(self, *, task_status=trio.TASK_STATUS_IGNORED) -> None:
         async def handle_msg(ident: Header, msg_raw: RawMessage) -> RawMessage:
             try:
                 msg = ServerSide.parse(msg_raw)
@@ -64,74 +51,68 @@ class HedgehogServer:
             logger.debug("Send reply:      %s", result)
             return ServerSide.serialize(result)
 
-        async def request_handler(ident: Header, msgs_raw: RawPayload) -> None:
-            await self.socket.send_msgs_raw(ident, [await handle_msg(ident, msg) for msg in msgs_raw])
-
+        task_status.started()
         while True:
             ident, msgs_raw = await self.socket.recv_msgs_raw()
-            yield partial(request_handler, ident, msgs_raw)
+            async with self.job():
+                await self.socket.send_msgs_raw(ident, [await handle_msg(ident, msg) for msg in msgs_raw])
 
-    def add_job_stream(self, async_iter: AsyncIterator[Job]) -> None:
-        async def async_iter_wrapper() -> AsyncIterator[Job]:
-            logger.debug("Added new job iterator: %s", async_iter)
+    async def add_task(self, async_fn, *args, name=None) -> None:
+        async def async_fn_wrapper(*, task_status=trio.TASK_STATUS_IGNORED) -> None:
+            logger.debug("Added new task: %s", name if name else async_fn)
             try:
-                async for job in async_iter:
-                    yield job
-            except GeneratorExit:
-                logger.debug("Job iterator was stopped: %s", async_iter)
-                raise
+                await async_fn(*args, task_status=task_status)
             except Exception:
-                logger.exception("Job iterator raised an exception: %s", async_iter)
+                logger.exception("Task raised an exception: %s", name if name else async_fn)
             else:
-                logger.debug("Job iterator finished: %s", async_iter)
+                logger.debug("Task finished: %s", name if name else async_fn)
 
-        self._queue.put_nowait(async_iter_wrapper())
+        return await self._nursery.start(async_fn_wrapper)
 
-    async def _run_job(self, job: Job) -> None:
-        LONG_RUNNING_DELAY = 0.1
-        long_running = asyncio.get_event_loop().call_later(
-            LONG_RUNNING_DELAY, logger.warning, "Long running job on server loop: %s", job)
-        begin = asyncio.get_event_loop().time()
-        try:
-            await job()
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("Job raised an exception: %s", job)
-        finally:
-            long_running.cancel()
-            end = asyncio.get_event_loop().time()
-            if end - begin > LONG_RUNNING_DELAY:
-                logger.warning("Long running job finished after %.1f ms: %s", (end - begin) * 1000, job)
+    @asynccontextmanager
+    async def job(self) -> None:
+        LONG_RUNNING_THRESHOLD = 0.1
+        CANCEL_THRESHOLD = 10
+
+        async with self._lock:
+            job = None  # TODO identify the job
+            nursery = None
+            manually_cancelled = False
+            begin = trio.current_time()
+            try:
+                async with trio.open_nursery() as nursery:
+                    nursery.cancel_scope.deadline = begin + CANCEL_THRESHOLD
+
+                    @nursery.start_soon
+                    async def warn_long_running():
+                        await trio.sleep(LONG_RUNNING_THRESHOLD)
+                        logger.warning("Long running job on server loop: %s", job)
+
+                    yield
+
+                    # cancel the warning task
+                    manually_cancelled = True
+                    nursery.cancel_scope.cancel()
+            finally:
+                assert nursery is not None
+
+                end = trio.current_time()
+                if nursery.cancel_scope.cancelled_caught and not manually_cancelled:
+                    logger.error("Long running job cancelled after %.1f ms: %s", (end - begin) * 1000, job)
+                    raise trio.TooSlowError
+                elif end - begin > LONG_RUNNING_THRESHOLD:
+                    logger.warning("Long running job finished after %.1f ms: %s", (end - begin) * 1000, job)
 
     async def send_async(self, ident: Header, *msgs: Message) -> None:
         for msg in msgs:
             logger.debug("Send update:     %s", msg)
         await self.socket.send_msgs(ident, msgs)
 
-    async def _workload(self, *, commands: PipeEnd, events: PipeEnd) -> None:
+    async def run(self, *, task_status=trio.TASK_STATUS_IGNORED):
         with DealerRouterSocket(self.ctx, zmq.ROUTER, side=ServerSide) as self.socket:
-            self.socket.bind(self.endpoint)
-            await events.send(Component.EVENT_START)
+            async with trio.open_nursery() as self._nursery:
+                self.socket.bind(self.endpoint)
+                task_status.started()
 
-            self._queue.put_nowait(self._commands_job_stream(commands))
-            self._queue.put_nowait(self._requests_job_stream())
-            jobs_stream = stream_from_queue(self._queue) | pipe.flatten()
-            async with jobs_stream.stream() as streamer:
-                try:
-                    async for job in streamer:
-                        await self._run_job(job)
-                except HedgehogServer.Stop:
-                    logger.info("Server stopped")
-
-    async def workload(self, *, commands: PipeEnd, events: PipeEnd) -> None:
-        return await component_coro_wrapper(self._workload, commands=commands, events=events)
-
-    @classmethod
-    @asynccontextmanager
-    async def start(cls, ctx: zmq.asyncio.Context, endpoint: str, handlers: Dict[Type[Message], HandlerCallback]) -> Component[None]:
-        component = await start_component(cls(ctx, endpoint, handlers).workload)
-        try:
-            yield component
-        finally:
-            await component.stop()
+                await self._nursery.start(self._requests_task)
+        logger.info("Server stopped")

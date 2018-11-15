@@ -1,25 +1,29 @@
 from typing import Any, Callable, Dict, List, Tuple, Type, Union
 
 import pytest
-from hedgehog.utils.test_utils import event_loop, zmq_aio_ctx, check_caplog, assertTimeout, assertImmediate, assertPassed
+from hedgehog.utils.test_utils import zmq_trio_ctx, check_caplog, assertImmediate, assertPassed
 
-import asyncio
-import zmq.asyncio
+import logging
 import signal
+import trio
+import trio_asyncio
+import zmq.asyncio
 
 from hedgehog.protocol import ClientSide
+from hedgehog.protocol.errors import FailedCommandError
 from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, process
 from hedgehog.protocol.proto.subscription_pb2 import Subscription
-from hedgehog.protocol.zmq.asyncio import ReqSocket, DealerRouterSocket
+from hedgehog.protocol.zmq.trio import ReqSocket, DealerRouterSocket
 from hedgehog.server import handlers, HedgehogServer
 from hedgehog.server.handlers.hardware import HardwareHandler
 from hedgehog.server.handlers.process import ProcessHandler
 from hedgehog.server.hardware import HardwareAdapter
 from hedgehog.server.hardware.mocked import MockedHardwareAdapter
+from hedgehog.utils.zmq import trio as zmq_trio
 
 
 # Pytest fixtures
-event_loop, zmq_aio_ctx, check_caplog
+zmq_trio_ctx, check_caplog
 pytestmark = pytest.mark.usefixtures('check_caplog')
 
 
@@ -35,25 +39,31 @@ def hardware_adapter():
 
 
 @pytest.fixture
-async def conn_req(zmq_aio_ctx: zmq.asyncio.Context, hardware_adapter: HardwareAdapter):
-    async with hardware_adapter, HedgehogServer.start(zmq_aio_ctx, 'inproc://controller', handler(hardware_adapter)):
-        socket = ReqSocket(zmq_aio_ctx, zmq.REQ, side=ClientSide)
-        socket.connect('inproc://controller')
+async def conn_req(zmq_trio_ctx: zmq_trio.Context, hardware_adapter: HardwareAdapter):
+    async with hardware_adapter, trio.open_nursery() as nursery:
+        server = HedgehogServer(zmq_trio_ctx, 'inproc://controller', handler(hardware_adapter))
+        await nursery.start(server.run)
 
-        yield socket
-
-        socket.close()
+        try:
+            with ReqSocket(zmq_trio_ctx, zmq.REQ, side=ClientSide) as socket:
+                socket.connect('inproc://controller')
+                yield socket
+        finally:
+            await server.stop()
 
 
 @pytest.fixture
-async def conn_dealer(zmq_aio_ctx: zmq.asyncio.Context, hardware_adapter: HardwareAdapter):
-    async with hardware_adapter, HedgehogServer.start(zmq_aio_ctx, 'inproc://controller', handler(hardware_adapter)):
-        socket = DealerRouterSocket(zmq_aio_ctx, zmq.DEALER, side=ClientSide)
-        socket.connect('inproc://controller')
+async def conn_dealer(zmq_trio_ctx: zmq_trio.Context, hardware_adapter: HardwareAdapter):
+    async with hardware_adapter, trio.open_nursery() as nursery:
+        server = HedgehogServer(zmq_trio_ctx, 'inproc://controller', handler(hardware_adapter))
+        await nursery.start(server.run)
 
-        yield socket
-
-        socket.close()
+        try:
+            with DealerRouterSocket(zmq_trio_ctx, zmq.DEALER, side=ClientSide) as socket:
+                socket.connect('inproc://controller')
+                yield socket
+        finally:
+            await server.stop()
 
 
 def assertMsgEqual(msg: Message, msg_class: Type[Message], **kwargs) -> None:
@@ -106,137 +116,188 @@ async def assertReplyDealer(socket, req: Message,
     return response
 
 
-@pytest.mark.asyncio
-async def test_server_unknown_command(zmq_aio_ctx: zmq.asyncio.Context):
-    with pytest.raises(ValueError):
-        async with HedgehogServer.start(zmq_aio_ctx, 'inproc://controller', {}) as server:
-            await server.send('unknownCommand')
-
-
-@pytest.mark.asyncio
-async def test_server_faulty_job_stream(caplog, check_caplog, zmq_aio_ctx: zmq.asyncio.Context):
-    async def handler_callback(server, ident, msg):
-        async def job_stream():
-            raise Exception
-            yield
-
-        server.add_job_stream(job_stream())
-        return ack.Acknowledgement()
-
-    async with HedgehogServer.start(zmq_aio_ctx, 'inproc://controller', {io.Action: handler_callback}) as server:
-        socket = ReqSocket(zmq_aio_ctx, zmq.REQ, side=ClientSide)
-        socket.connect('inproc://controller')
-
-        await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.OK)
-        await asyncio.sleep(1)
-        socket.close()
-
-    records = [record for record in caplog.records if record.levelname == 'ERROR']
-    assert len(records) == 1 and "Job iterator raised an exception" in records[0].message
-    check_caplog.expected.update(records)
-
-
-@pytest.mark.asyncio
-async def test_server_faulty_job(caplog, check_caplog, zmq_aio_ctx: zmq.asyncio.Context):
-    async def handler_callback(server, ident, msg):
-        async def job_stream():
-            async def job():
+@pytest.mark.trio
+async def test_server_faulty_task(caplog, check_caplog, zmq_trio_ctx: zmq_trio.Context, autojump_clock):
+    async with trio_asyncio.open_loop(), trio.open_nursery() as nursery:
+        async def handler_callback(server, ident, msg):
+            async def task(*, task_status=trio.TASK_STATUS_IGNORED):
+                task_status.started()
                 raise Exception
 
-            yield job
+            await server.add_task(task)
+            return ack.Acknowledgement()
 
-        server.add_job_stream(job_stream())
-        return ack.Acknowledgement()
+        server = HedgehogServer(zmq_trio_ctx, 'inproc://controller', {io.Action: handler_callback})
+        await nursery.start(server.run)
 
-    async with HedgehogServer.start(zmq_aio_ctx, 'inproc://controller', {io.Action: handler_callback}):
-        socket = ReqSocket(zmq_aio_ctx, zmq.REQ, side=ClientSide)
-        socket.connect('inproc://controller')
+        with ReqSocket(zmq_trio_ctx, zmq.REQ, side=ClientSide) as socket:
+            socket.connect('inproc://controller')
+            await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.OK)
 
-        await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.OK)
-        await asyncio.sleep(1)
-        socket.close()
+        await trio.sleep(0.1)
+        server.stop()
 
-    records = [record for record in caplog.records if record.levelname == 'ERROR']
-    assert len(records) == 1 and "Job raised an exception" in records[0].message
+    records = [record for record in caplog.records if record.levelno >= logging.WARNING]
+    assert len(records) == 1 and "Task raised an exception" in records[0].message
     check_caplog.expected.update(records)
 
 
-@pytest.mark.asyncio
-async def test_server_slow_job(caplog, check_caplog, zmq_aio_ctx: zmq.asyncio.Context):
-    async def handler_callback(server, ident, msg):
-        async def job_stream():
-            async def job():
-                await asyncio.sleep(0.2)
+@pytest.mark.trio
+async def test_server_slow_job(caplog, check_caplog, zmq_trio_ctx: zmq_trio.Context, autojump_clock):
+    async with trio_asyncio.open_loop(), trio.open_nursery() as nursery:
+        async def handler_callback(server, ident, msg):
+            async def task(*, task_status=trio.TASK_STATUS_IGNORED):
+                task_status.started()
+                async with server.job():
+                    await trio.sleep(0.2)
 
-            yield job
+            await server.add_task(task)
+            return ack.Acknowledgement()
 
-        server.add_job_stream(job_stream())
-        return ack.Acknowledgement()
+        server = HedgehogServer(zmq_trio_ctx, 'inproc://controller', {io.Action: handler_callback})
+        await nursery.start(server.run)
 
-    async with HedgehogServer.start(zmq_aio_ctx, 'inproc://controller', {io.Action: handler_callback}):
-        socket = ReqSocket(zmq_aio_ctx, zmq.REQ, side=ClientSide)
-        socket.connect('inproc://controller')
+        with ReqSocket(zmq_trio_ctx, zmq.REQ, side=ClientSide) as socket:
+            socket.connect('inproc://controller')
+            await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.OK)
 
-        await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.OK)
-        await asyncio.sleep(1)
-        socket.close()
+        await trio.sleep(0.3)
+        server.stop()
 
-    records = [record for record in caplog.records if record.levelname == 'WARNING']
+    records = [record for record in caplog.records if record.levelno >= logging.WARNING]
     assert len(records) == 2 \
            and "Long running job on server loop" in records[0].message \
            and "Long running job finished after 200.0 ms" in records[1].message
     check_caplog.expected.update(records)
 
 
-@pytest.mark.asyncio
-async def test_server_no_handler(zmq_aio_ctx: zmq.asyncio.Context):
-    async with HedgehogServer.start(zmq_aio_ctx, 'inproc://controller', {}):
-        socket = ReqSocket(zmq_aio_ctx, zmq.REQ, side=ClientSide)
-        socket.connect('inproc://controller')
+@pytest.mark.trio
+async def test_server_very_slow_job(caplog, check_caplog, zmq_trio_ctx: zmq_trio.Context, autojump_clock):
+    async with trio_asyncio.open_loop(), trio.open_nursery() as nursery:
+        async def handler_callback(server, ident, msg):
+            async def task(*, task_status=trio.TASK_STATUS_IGNORED):
+                task_status.started()
+                async with server.job():
+                    await trio.sleep(10.1)
 
-        await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.UNSUPPORTED_COMMAND)
-        socket.close()
+            await server.add_task(task)
+            return ack.Acknowledgement()
+
+        server = HedgehogServer(zmq_trio_ctx, 'inproc://controller', {io.Action: handler_callback})
+        await nursery.start(server.run)
+
+        with ReqSocket(zmq_trio_ctx, zmq.REQ, side=ClientSide) as socket:
+            socket.connect('inproc://controller')
+            await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.OK)
+
+        await trio.sleep(10.2)
+        server.stop()
+
+    records = [record for record in caplog.records if record.levelno >= logging.WARNING]
+    assert len(records) == 3 \
+           and "Long running job on server loop" in records[0].message \
+           and "Long running job cancelled after 10000.0 ms" in records[1].message \
+           and "Task raised an exception" in records[2].message
+    check_caplog.expected.update(records)
 
 
-@pytest.mark.asyncio
-async def test_server_faulty_handler(caplog, check_caplog, zmq_aio_ctx: zmq.asyncio.Context):
-    async def handler_callback(server, ident, msg):
-        raise Exception
+@pytest.mark.trio
+async def test_server_cancel_in_job(zmq_trio_ctx: zmq_trio.Context, autojump_clock):
+    async with trio_asyncio.open_loop(), trio.open_nursery() as nursery:
+        async def handler_callback(server, ident, msg):
+            async def task(*, task_status=trio.TASK_STATUS_IGNORED):
+                task_status.started()
+                async with server.job():
+                    await trio.sleep(0.1)
 
-    async with HedgehogServer.start(zmq_aio_ctx, 'inproc://controller', {io.Action: handler_callback}):
-        socket = ReqSocket(zmq_aio_ctx, zmq.REQ, side=ClientSide)
-        socket.connect('inproc://controller')
+            await server.add_task(task)
+            return ack.Acknowledgement()
 
-        await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.FAILED_COMMAND)
-        socket.close()
+        server = HedgehogServer(zmq_trio_ctx, 'inproc://controller', {io.Action: handler_callback})
+        await nursery.start(server.run)
 
-    records = [record for record in caplog.records if record.levelname == 'ERROR']
+        with ReqSocket(zmq_trio_ctx, zmq.REQ, side=ClientSide) as socket:
+            socket.connect('inproc://controller')
+            await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.OK)
+
+        await trio.sleep(0.05)
+        server.stop()
+
+
+@pytest.mark.trio
+async def test_server_no_handler(zmq_trio_ctx: zmq_trio.Context, autojump_clock):
+    async with trio_asyncio.open_loop(), trio.open_nursery() as nursery:
+        server = HedgehogServer(zmq_trio_ctx, 'inproc://controller', {})
+        await nursery.start(server.run)
+
+        with ReqSocket(zmq_trio_ctx, zmq.REQ, side=ClientSide) as socket:
+            socket.connect('inproc://controller')
+            await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.UNSUPPORTED_COMMAND)
+
+        server.stop()
+
+
+@pytest.mark.trio
+async def test_server_faulty_handler(caplog, check_caplog, zmq_trio_ctx: zmq_trio.Context, autojump_clock):
+    async with trio_asyncio.open_loop(), trio.open_nursery() as nursery:
+        async def handler_callback(server, ident, msg):
+            raise Exception
+
+        server = HedgehogServer(zmq_trio_ctx, 'inproc://controller', {io.Action: handler_callback})
+        await nursery.start(server.run)
+
+        with ReqSocket(zmq_trio_ctx, zmq.REQ, side=ClientSide) as socket:
+            socket.connect('inproc://controller')
+            await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.FAILED_COMMAND)
+
+        server.stop()
+
+    records = [record for record in caplog.records if record.levelno >= logging.WARNING]
     assert len(records) == 1 and "Uncaught exception in command handler" in records[0].message
     check_caplog.expected.update(records)
 
 
-@pytest.mark.asyncio
-async def test_server_cancel_in_job(zmq_aio_ctx: zmq.asyncio.Context):
-    async def handler_callback(server, ident, msg):
-        async def job_stream():
-            async def job():
-                await asyncio.sleep(0.1)
+@pytest.mark.trio
+async def test_server_failing_command(zmq_trio_ctx: zmq_trio.Context, autojump_clock):
+    async with trio_asyncio.open_loop(), trio.open_nursery() as nursery:
+        async def handler_callback(server, ident, msg):
+            raise FailedCommandError
 
-            yield job
+        server = HedgehogServer(zmq_trio_ctx, 'inproc://controller', {io.Action: handler_callback})
+        await nursery.start(server.run)
 
-        server.add_job_stream(job_stream())
-        return ack.Acknowledgement()
-
-    with pytest.raises(asyncio.CancelledError):
-        async with HedgehogServer.start(zmq_aio_ctx, 'inproc://controller', {io.Action: handler_callback}) as server:
-            socket = ReqSocket(zmq_aio_ctx, zmq.REQ, side=ClientSide)
+        with ReqSocket(zmq_trio_ctx, zmq.REQ, side=ClientSide) as socket:
             socket.connect('inproc://controller')
+            await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.FAILED_COMMAND)
 
-            await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.OK)
-            await asyncio.sleep(0.05)
-            socket.close()
+        await trio.sleep(0.05)
+        server.stop()
 
-            await server.cancel()
+
+@pytest.mark.trio
+async def test_server_send_async(zmq_trio_ctx: zmq_trio.Context, autojump_clock):
+    async with trio_asyncio.open_loop(), trio.open_nursery() as nursery:
+        async def handler_callback(server, ident, msg):
+            async def task(*, task_status=trio.TASK_STATUS_IGNORED):
+                task_status.started()
+                await trio.sleep(0.1)
+                async with server.job():
+                    await server.send_async(ident, io.CommandUpdate(0, io.INPUT_FLOATING, Subscription()))
+
+            await server.add_task(task)
+            return ack.Acknowledgement()
+
+        server = HedgehogServer(zmq_trio_ctx, 'inproc://controller', {io.Action: handler_callback})
+        await nursery.start(server.run)
+
+        with DealerRouterSocket(zmq_trio_ctx, zmq.DEALER, side=ClientSide) as socket:
+            socket.connect('inproc://controller')
+            await assertReplyDealer(socket, io.Action(0, io.INPUT_FLOATING), ack.OK)
+
+            _, update = await socket.recv_msg()
+            assertMsgEqual(update, io.CommandUpdate, port=0, flags=io.INPUT_FLOATING)
+
+        server.stop()
 
 
 @pytest.mark.asyncio
