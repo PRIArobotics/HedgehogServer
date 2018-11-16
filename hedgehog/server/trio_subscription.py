@@ -70,6 +70,42 @@ class BroadcastChannel(Generic[T], trio.abc.AsyncResource):
 
 async def subscription_transform(stream: AsyncIterator[T], timeout: float=None,
         granularity: Callable[[T, T], bool]=None, granularity_timeout: float=None) -> AsyncIterator[T]:
+    """\
+    Implements the stream transformation described `subscription.proto`.
+    The identity transform would be `subscription_transform(stream, granularity=lambda a, b: True)`:
+    no timing behavior is added, and all values are treated as distinct, and thus emitted.
+
+    If `granularity` is not given, values are compared for equality, thus from `[0, 0, 2, 1, 1, 0, 0, 1]`,
+    elements 1, 4, and 6 would be discarded as being duplicates of their previous values.
+    A typical example granularity measure for numbers is a lower bound on value difference,
+    e.g. `lambda a, b: abs(a-b) > THRESHOLD`.
+
+    The `timeout` parameter specifies a minimum time to pass between subsequent emitted values.
+    After the timeout has passed, the most recently received value (if any) will be considered
+    as if it had just arrived on the input stream,
+    and then all subsequent values are considered until the next emission.
+    Suppose the input is [0, 1, 0, 1, 0] and the timeout is just enough to skip one value completely.
+    After emitting `0`, the first `1` is skipped, and the second `0` is not emitted because it's not a new value.
+    The second `1` is emitted; because at that time no timeout is active (the last emission was too long ago.
+    Immediately after the emission the timeout starts again,
+    ignoring the last `0`, reaching the end of the input and terminating the stream even before the timeout expired.
+
+    The `granularity_timeout` parameter specifies a maximum time to pass between subsequent emitted values,
+    as long as there were input values at all.
+    The `granularity` may discard values of the input stream,
+    leading in the most extreme case to no emitted values at all.
+    If a `granularity_timeout` is given, then the most recent input value is emitted after that time,
+    restarting both the ordinary and granularity timeout in the process.
+    Suppose the input is [0, 0, 0, 1, 1, 0, 0] and the granularity timeout is just enough to skip one value completely.
+    After emitting `0` and skipping the next one, another `0` is emitted:
+    although the default granularity discarded the unchanged value, the granularity timeout forces its emission.
+    Then, the first `1` and next `0` are emitted as normal, as changed values appeared before the timeout ran out.
+
+    Suppose the input is [0, 0] and the granularity timeout is so low that it runs out before the second zero.
+    Even though the next value (the second zero) is forced to be emitted as soon as it arrives,
+    the first zero is not emitted twice.
+    It is the last value seen before the granularity timeout ran out, but once emitted it is out of the picture.
+    """
     try:
         if granularity is None:
             granularity = lambda a, b: a != b
@@ -77,9 +113,9 @@ async def subscription_transform(stream: AsyncIterator[T], timeout: float=None,
             granularity_timeout = math.inf
 
         async with trio.open_nursery() as nursery:
-            # has the stream produced a value (or terminated) since last looking?
+            # has the input stream emitted a value (or terminated) since last looking?
             new_value = trio.Event()
-            # what's the last value produced by the stream?
+            # what's the last value emitted by the input stream?
             value = None
 
             @nursery.start_soon
@@ -97,13 +133,13 @@ async def subscription_transform(stream: AsyncIterator[T], timeout: float=None,
             new_value.clear()
 
             while True:
-                # store the latest value for comparison
-                # do that before publishing the value, because value could later change
+                # store the latest value & time for comparison
+                # do that before emitting the value, because the stream's consumer could take its time
                 last_value = value
                 last_value_at = trio.current_time()
                 yield value
 
-                # has there been a value since last publishing one?
+                # has there been a value from the input stream since last emitting one?
                 has_value = False
 
                 # normal operation until the granularity timeout is reached; after that take the first value
@@ -124,11 +160,11 @@ async def subscription_transform(stream: AsyncIterator[T], timeout: float=None,
                             break
 
                 if not has_value:
-                    # we did not once observe a new value on the stream
+                    # we did not once observe a new value on the input stream
                     # the granularity timeout is over, but we still need that one value
                     await new_value.wait()
                     new_value.clear()
-                # now we know there's a value; will be published on the next iteration
+                # now we know there's a value; will be emitted on the next iteration
     finally:
         if hasattr(stream, 'aclose'):
             await stream.aclose()

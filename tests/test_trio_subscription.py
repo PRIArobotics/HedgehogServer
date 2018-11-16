@@ -168,7 +168,7 @@ async def test_trio_subscription_transform(autojump_clock):
     async with stream_helper([]) as s:
         await s.expect_exit_after(0)
 
-    # test that, without arguments, slow consumers don't disrupt the stream
+    # test subscription_transform behavior, taking into account that slow consumers must not disrupt the stream
     async with stream_helper((x, 10) for x in [0, 0, 1, 0, 1, 0, 1, 1, 0, 0]) as s:
         # this won't work, because at this point the generator has not started running,
         # and consequently the task that is reading from the stream in the background has neither
