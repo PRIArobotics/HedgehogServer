@@ -8,11 +8,32 @@ T = TypeVar('T')
 
 
 class BroadcastChannel(Generic[T], trio.abc.AsyncResource):
+    """\
+    Bundles a set of trio channels so that messages are sent to all of them.
+    When a receiver is closed, it is cleanly removed from the broadcast channel on the next send.
+    Be careful about the buffer size chosen when adding a receiver; see `send()` for details.
+    """
+
     def __init__(self) -> None:
         self._send_channels: Set[trio.abc.SendChannel] = set()
         self._stack = AsyncExitStack()
 
     async def send(self, value: T) -> None:
+        """\
+        Sends the value to all receiver channels.
+        Closed receivers are removed the next time a value.'is sent using this method.
+        This method will send to all receivers immediately,
+        but it will block until the message got out to all receivers.
+
+        Suppose you have receivers A and B with buffer size zero, and you send to them:
+
+            await channel.send(1)
+            await channel.send(2)
+
+        If only B is actually reading, then `send(2)` will not be called, because `send(1)` can't finish,
+        meaning the `2` is not delivered to B either.
+        To prevent this, close any receivers that are done, and/or poll receive in a timely manner.
+        """
         broken = set()
 
         async def send(channel):
@@ -30,12 +51,20 @@ class BroadcastChannel(Generic[T], trio.abc.AsyncResource):
         broken.clear()
 
     def add_receiver(self, max_buffer_size) -> trio.abc.ReceiveChannel:
+        """\
+        Adds a receiver to this broadcast channel with the given buffer capacity.
+        The send end of the receiver is closed when the broadcast channel is closed,
+        and if the receive end is closed, it is discarded from the broadcast channel.
+        """
         send, receive = trio.open_memory_channel(max_buffer_size)
         self._stack.push_async_exit(send)
         self._send_channels.add(send)
         return receive
 
     async def aclose(self):
+        """\
+        Closes the broadcast channel, causing all receive channels to stop iteration.
+        """
         await self._stack.aclose()
 
 
