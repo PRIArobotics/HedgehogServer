@@ -49,7 +49,7 @@ class Stream:
 
 
 @pytest.mark.trio
-async def test_trio_subscription_broadcast(autojump_clock):
+async def test_broadcast_channel(autojump_clock):
     with assertPassed(2):
         async with BroadcastChannel() as broadcast, trio.open_nursery() as nursery:
             receive_a = broadcast.add_receiver(10)
@@ -76,6 +76,84 @@ async def test_trio_subscription_broadcast(autojump_clock):
                 async with Stream(receive_b) as s:
                     await s.expect_after(1, 1)
                     # kill the receiver, causes it to be removed from the broadcast channel
+
+
+@pytest.mark.trio
+async def test_broadcast_channel_buffer_full(autojump_clock):
+    with assertPassed(3):
+        async with BroadcastChannel() as broadcast, trio.open_nursery() as nursery:
+            receive_a = broadcast.add_receiver(1)
+            receive_b = broadcast.add_receiver(1)
+            receive_c = broadcast.add_receiver(2)
+
+            @nursery.start_soon
+            async def sender():
+                with assertPassed(0):
+                    await broadcast.send(1)
+                    # time: 0
+                    # A: 1, B: 1, C: 1    # after sending
+                    # A: 1, B: 1, C: _    # after immediate reading
+                with assertPassed(2):
+                    await broadcast.send(2)
+                    # A: 1!, B: 1!, C: 2   # after sending: A, B are full
+                    # A: 1!, B: 1!, C: _   # after immediate reading
+                    # time: 1
+                    # A: 2, B: 1!, C: 2    # A has read; sending to A finishes
+                    # A: _, B: 1!, C: 2    # after immediate reading
+                    # time: 2
+                    # A: _, B: 2, C: 2     # B has read; sending to B finishes
+                    # A: _, B: _, C: 2     # after immediate reading
+                with assertPassed(0):
+                    await broadcast.send(3)
+                    # A: 3, B: 3, C: 23    # after sending: A, B are full
+                    # A: _, B: _, C: 23    # after immediate reading
+                with assertPassed(1):
+                    await broadcast.send(4)
+                    # A: 4, B: 4, C: 23!   # after sending: C full
+                    # A: _, B: _, C: 23!   # after immediate reading
+                    # time: 3
+                    # A: _, B: _, C: 34    # C has read; sending to C finishes
+                    # A: _, B: _, C: 4     # after immediate reading
+                    # A: _, B: _, C: _     # after immediate reading
+                # if this is not closed here, the receiver tasks won't finish,
+                # the nursery won't finish, and thus the BroadcastChannel won't exit on its own
+                await broadcast.aclose()
+
+            @nursery.start_soon
+            async def receiver_a():
+                async with Stream(receive_a) as s:
+                    await trio.sleep(1)
+                    await s.expect_after(0, 1)
+                    await s.expect_after(0, 2)
+                    await s.expect_after(1, 3)
+                    await s.expect_after(0, 4)
+
+                    # wait for the stream to end
+                    await s.expect_exit_after(1)
+
+            @nursery.start_soon
+            async def receiver_b():
+                async with Stream(receive_b) as s:
+                    await trio.sleep(2)
+                    await s.expect_after(0, 1)
+                    await s.expect_after(0, 2)
+                    await s.expect_after(0, 3)
+                    await s.expect_after(0, 4)
+
+                    # wait for the stream to end
+                    await s.expect_exit_after(1)
+
+            @nursery.start_soon
+            async def receiver_c():
+                async with Stream(receive_c) as s:
+                    await s.expect_after(0, 1)
+                    await trio.sleep(3)
+                    await s.expect_after(0, 2)
+                    await s.expect_after(0, 3)
+                    await s.expect_after(0, 4)
+
+                    # wait for the stream to end
+                    await s.expect_exit_after(0)
 
 
 @pytest.mark.trio

@@ -15,12 +15,16 @@ class BroadcastChannel(Generic[T], trio.abc.AsyncResource):
     async def send(self, value: T) -> None:
         broken = set()
 
-        for channel in self._send_channels:
+        async def send(channel):
             try:
                 await channel.send(value)
             except trio.BrokenResourceError:
                 await channel.aclose()
                 broken.add(channel)
+
+        async with trio.open_nursery() as nursery:
+            for channel in self._send_channels:
+                nursery.start_soon(send, channel)
 
         self._send_channels -= broken
         broken.clear()
