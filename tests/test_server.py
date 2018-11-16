@@ -317,25 +317,27 @@ async def test_server_send_async(conn_dealer, autojump_clock):
         assertMsgEqual(update, io.CommandUpdate, port=0, flags=io.INPUT_FLOATING)
 
 
-@pytest.mark.asyncio
-async def test_multipart(conn_req):
-    with assertImmediate():
-        await conn_req.send_msgs([analog.Request(0), digital.Request(0)])
-        update = await conn_req.recv_msgs()
-    assert update[0] == analog.Reply(0, 0)
-    assert update[1] == digital.Reply(0, False)
+@pytest.mark.trio
+async def test_multipart(conn_req, autojump_clock):
+    async with conn_req() as socket:
+        with assertImmediate():
+            await socket.send_msgs([analog.Request(0), digital.Request(0)])
+            a, b = await socket.recv_msgs()
+            assert a == analog.Reply(0, 0)
+            assert b == digital.Reply(0, False)
 
 
-@pytest.mark.asyncio
+@pytest.mark.trio
 @pytest.mark.parametrize('hardware_adapter', [HardwareAdapter()])
-async def test_unsupported(conn_req):
-    await assertReplyReq(conn_req, io.Action(0, io.INPUT_PULLDOWN), ack.UNSUPPORTED_COMMAND)
-    await assertReplyReq(conn_req, analog.Request(0), ack.UNSUPPORTED_COMMAND)
-    await assertReplyReq(conn_req, digital.Request(0), ack.UNSUPPORTED_COMMAND)
-    await assertReplyReq(conn_req, motor.Action(0, motor.POWER), ack.UNSUPPORTED_COMMAND)
-    await assertReplyReq(conn_req, motor.StateRequest(0), ack.UNSUPPORTED_COMMAND)
-    await assertReplyReq(conn_req, motor.SetPositionAction(0, 0), ack.UNSUPPORTED_COMMAND)
-    await assertReplyReq(conn_req, servo.Action(0, True, 0), ack.UNSUPPORTED_COMMAND)
+async def test_unsupported(conn_req, autojump_clock):
+    async with conn_req() as socket:
+        await assertReplyReq(socket, io.Action(0, io.INPUT_PULLDOWN), ack.UNSUPPORTED_COMMAND)
+        await assertReplyReq(socket, analog.Request(0), ack.UNSUPPORTED_COMMAND)
+        await assertReplyReq(socket, digital.Request(0), ack.UNSUPPORTED_COMMAND)
+        await assertReplyReq(socket, motor.Action(0, motor.POWER), ack.UNSUPPORTED_COMMAND)
+        await assertReplyReq(socket, motor.StateRequest(0), ack.UNSUPPORTED_COMMAND)
+        await assertReplyReq(socket, motor.SetPositionAction(0, 0), ack.UNSUPPORTED_COMMAND)
+        await assertReplyReq(socket, servo.Action(0, True, 0), ack.UNSUPPORTED_COMMAND)
 
 
 @pytest.mark.asyncio
