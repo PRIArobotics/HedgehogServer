@@ -10,7 +10,7 @@ import signal
 from hedgehog.protocol import ClientSide
 from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, process
 from hedgehog.protocol.proto.subscription_pb2 import Subscription
-from hedgehog.protocol.async_sockets import ReqSocket, DealerRouterSocket
+from hedgehog.protocol.zmq.asyncio import ReqSocket, DealerRouterSocket
 from hedgehog.server import handlers, HedgehogServer
 from hedgehog.server.handlers.hardware import HardwareHandler
 from hedgehog.server.handlers.process import ProcessHandler

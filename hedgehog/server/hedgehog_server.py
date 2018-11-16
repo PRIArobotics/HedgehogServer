@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from functools import partial
 from hedgehog.utils.asyncio import stream_from_queue
 from hedgehog.protocol import ServerSide, Header, RawMessage, Message, RawPayload
-from hedgehog.protocol.async_sockets import DealerRouterSocket
+from hedgehog.protocol.zmq.asyncio import DealerRouterSocket
 from hedgehog.protocol.errors import HedgehogCommandError, UnsupportedCommandError, FailedCommandError
 
 from concurrent_utils.pipe import PipeEnd
