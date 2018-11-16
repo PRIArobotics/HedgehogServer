@@ -57,7 +57,7 @@ class HedgehogServer:
             async with self.job():
                 await self.socket.send_msgs_raw(ident, [await handle_msg(ident, msg) for msg in msgs_raw])
 
-    async def add_task(self, async_fn, *args, name=None) -> None:
+    async def add_task(self, async_fn, *args, name=None):
         async def async_fn_wrapper(*, task_status=trio.TASK_STATUS_IGNORED) -> None:
             logger.debug("Added new task: %s", name if name else async_fn)
             try:

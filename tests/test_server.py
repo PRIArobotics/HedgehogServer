@@ -699,9 +699,10 @@ def handle_streams() -> Callable[[process.StreamUpdate], Dict[int, bytes]]:
     return send
 
 
-@pytest.mark.asyncio
-async def test_process_echo(conn_dealer):
-        response = await assertReplyDealer(conn_dealer, process.ExecuteAction('echo', 'asdf'),
+@pytest.mark.trio
+async def test_process_echo(conn_dealer, autojump_clock):
+    async with conn_dealer() as socket:
+        response = await assertReplyDealer(socket, process.ExecuteAction('echo', 'asdf'),
                                            process.ExecuteReply)  # type: process.ExecuteReply
         pid = response.pid
 
@@ -710,93 +711,96 @@ async def test_process_echo(conn_dealer):
 
         async def handle():
             nonlocal output
-            _, msg = await conn_dealer.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
+            _, msg = await socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
             assertMsgEqual(msg, process.StreamUpdate, pid=pid)
             output = stream_handler(msg)
 
         while output is None:
             await handle()
 
-        _, msg = await conn_dealer.recv_msg()
+        _, msg = await socket.recv_msg()
         assert msg == process.ExitUpdate(pid, 0)
 
         assert output[process.STDOUT] == b'asdf\n'
         assert output[process.STDERR] == b''
 
 
-@pytest.mark.asyncio
-async def test_process_cat(conn_dealer):
-    response = await assertReplyDealer(conn_dealer, process.ExecuteAction('cat'),
-                                       process.ExecuteReply)  # type: process.ExecuteReply
-    pid = response.pid
+@pytest.mark.trio
+async def test_process_cat(conn_dealer, autojump_clock):
+    async with conn_dealer() as socket:
+        response = await assertReplyDealer(socket, process.ExecuteAction('cat'),
+                                           process.ExecuteReply)  # type: process.ExecuteReply
+        pid = response.pid
 
-    stream_handler = handle_streams()
-    output = None
+        stream_handler = handle_streams()
+        output = None
 
-    async def handle():
-        nonlocal output
-        _, msg = await conn_dealer.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
-        assertMsgEqual(msg, process.StreamUpdate, pid=pid)
-        output = stream_handler(msg)
+        async def handle():
+            nonlocal output
+            _, msg = await socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
+            assertMsgEqual(msg, process.StreamUpdate, pid=pid)
+            output = stream_handler(msg)
 
-    await assertReplyDealer(conn_dealer, process.StreamAction(pid, process.STDIN, b'asdf'), ack.Acknowledgement())
-    await handle()
-    await assertReplyDealer(conn_dealer, process.StreamAction(pid, process.STDIN, b''), ack.Acknowledgement())
-
-    while output is None:
+        await assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b'asdf'), ack.Acknowledgement())
         await handle()
+        await assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b''), ack.Acknowledgement())
 
-    _, msg = await conn_dealer.recv_msg()
-    assert msg == process.ExitUpdate(pid, 0)
+        while output is None:
+            await handle()
 
-    assert output[process.STDOUT] == b'asdf'
-    assert output[process.STDERR] == b''
+        _, msg = await socket.recv_msg()
+        assert msg == process.ExitUpdate(pid, 0)
 
-
-@pytest.mark.asyncio
-async def test_process_pwd(conn_dealer):
-    response = await assertReplyDealer(conn_dealer, process.ExecuteAction('pwd', working_dir='/'),
-                                       process.ExecuteReply)  # type: process.ExecuteReply
-    pid = response.pid
-
-    stream_handler = handle_streams()
-    output = None
-
-    async def handle():
-        nonlocal output
-        _, msg = await conn_dealer.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
-        assertMsgEqual(msg, process.StreamUpdate, pid=pid)
-        output = stream_handler(msg)
-
-    while output is None:
-        await handle()
-
-    _, msg = await conn_dealer.recv_msg()
-    assert msg == process.ExitUpdate(pid, 0)
-
-    assert output[process.STDOUT] == b'/\n'
-    assert output[process.STDERR] == b''
+        assert output[process.STDOUT] == b'asdf'
+        assert output[process.STDERR] == b''
 
 
-@pytest.mark.asyncio
-async def test_process_sleep(conn_dealer):
-    response = await assertReplyDealer(conn_dealer, process.ExecuteAction('sleep', '1'),
-                                       process.ExecuteReply)  # type: process.ExecuteReply
-    pid = response.pid
+@pytest.mark.trio
+async def test_process_pwd(conn_dealer, autojump_clock):
+    async with conn_dealer() as socket:
+        response = await assertReplyDealer(socket, process.ExecuteAction('pwd', working_dir='/'),
+                                           process.ExecuteReply)  # type: process.ExecuteReply
+        pid = response.pid
 
-    stream_handler = handle_streams()
-    output = None
+        stream_handler = handle_streams()
+        output = None
 
-    async def handle():
-        nonlocal output
-        _, msg = await conn_dealer.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
-        assertMsgEqual(msg, process.StreamUpdate, pid=pid)
-        output = stream_handler(msg)
+        async def handle():
+            nonlocal output
+            _, msg = await socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
+            assertMsgEqual(msg, process.StreamUpdate, pid=pid)
+            output = stream_handler(msg)
 
-    await assertReplyDealer(conn_dealer, process.SignalAction(pid, signal.SIGINT), ack.Acknowledgement())
+        while output is None:
+            await handle()
 
-    while output is None:
-        await handle()
+        _, msg = await socket.recv_msg()
+        assert msg == process.ExitUpdate(pid, 0)
 
-    _, msg = await conn_dealer.recv_msg()
-    assert msg == process.ExitUpdate(pid, -signal.SIGINT)
+        assert output[process.STDOUT] == b'/\n'
+        assert output[process.STDERR] == b''
+
+
+@pytest.mark.trio
+async def test_process_sleep(conn_dealer, autojump_clock):
+    async with conn_dealer() as socket:
+        response = await assertReplyDealer(socket, process.ExecuteAction('sleep', '1'),
+                                           process.ExecuteReply)  # type: process.ExecuteReply
+        pid = response.pid
+
+        stream_handler = handle_streams()
+        output = None
+
+        async def handle():
+            nonlocal output
+            _, msg = await socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
+            assertMsgEqual(msg, process.StreamUpdate, pid=pid)
+            output = stream_handler(msg)
+
+        await assertReplyDealer(socket, process.SignalAction(pid, signal.SIGINT), ack.Acknowledgement())
+
+        while output is None:
+            await handle()
+
+        _, msg = await socket.recv_msg()
+        assert msg == process.ExitUpdate(pid, -signal.SIGINT)
