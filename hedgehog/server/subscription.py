@@ -1,15 +1,15 @@
-from typing import cast, AsyncIterator, Awaitable, Callable, Dict, Generic, List, Optional, Set, Tuple, TypeVar
+from typing import AsyncIterator, Awaitable, Callable, Dict, Generic, List, Optional, Set, Tuple, TypeVar
 
 import asyncio
+import trio
 from functools import partial
-from aiostream import pipe, stream, streamcontext
 
 from hedgehog.protocol import Header
 from hedgehog.protocol.proto.subscription_pb2 import Subscription
 from hedgehog.protocol.errors import FailedCommandError
-from hedgehog.utils.asyncio import stream_from_queue
 
-from .hedgehog_server import HedgehogServer, Job
+from .hedgehog_server import HedgehogServer
+from .trio_subscription import BroadcastChannel, subscription_transform
 
 
 T = TypeVar('T')
@@ -32,75 +32,17 @@ class SubscriptionStreamer(Generic[T]):
     _EOF = object()
 
     def __init__(self) -> None:
-        self._queues = []  # type: List[asyncio.Queue]
+        self.broadcast = BroadcastChannel()
 
     async def send(self, item: T) -> None:
-        for queue in self._queues:
-            await queue.put(item)
+        await self.broadcast.send(item)
 
     async def close(self) -> None:
-        for queue in self._queues:
-            await queue.put(self._EOF)
+        await self.broadcast.aclose()
 
     def subscribe(self, timeout: float=None,
                   granularity: Callable[[T, T], bool]=None, granularity_timeout: float=None) -> AsyncIterator[T]:
-        def sleep(timeout: Optional[float]) -> Optional[asyncio.Future]:
-            return asyncio.ensure_future(asyncio.sleep(timeout)) if timeout is not None else None
-
-        if granularity is None:
-            granularity = lambda a, b: a != b
-
-        queue = asyncio.Queue()  # type: asyncio.Queue
-        self._queues.append(queue)
-
-        async def _stream() -> AsyncIterator[T]:
-            t_item = asyncio.ensure_future(queue.get())  # type: Optional[asyncio.Future]
-            t_timeout = None  # type: Optional[asyncio.Future]
-            t_granularity_timeout = None  # type: Optional[asyncio.Future]
-
-            old_value = None  # type: Optional[Tuple[T]]
-            new_value = None  # type: Optional[Tuple[T]]
-
-            try:
-                while t_item is not None or (new_value is not None and
-                                             (t_timeout is not None or t_granularity_timeout is not None)):
-                    done, pending = await asyncio.wait(
-                        [t for t in (t_item, t_timeout, t_granularity_timeout) if t is not None],
-                        return_when=asyncio.FIRST_COMPLETED)
-
-                    if t_item in done:
-                        result = t_item.result()
-                        if result is not self._EOF:
-                            new_value = (result,)
-                            t_item = asyncio.ensure_future(queue.get())
-                        else:
-                            t_item = None
-
-                    if t_timeout in done:
-                        t_timeout = None
-
-                    if t_granularity_timeout in done:
-                        t_granularity_timeout = None
-
-                    if new_value is not None and t_timeout is None:
-                        granularity_check = old_value is None or granularity(old_value[0], new_value[0])
-                        granularity_timeout_check = granularity_timeout is not None and t_granularity_timeout is None
-                        if granularity_check or granularity_timeout_check:
-                            if t_granularity_timeout is not None:
-                                t_granularity_timeout.cancel()
-                            t_timeout = sleep(timeout)
-                            t_granularity_timeout = sleep(granularity_timeout)
-
-                            yield new_value[0]
-                            old_value = new_value
-                            new_value = None
-            finally:
-                for t in (t_item, t_timeout, t_granularity_timeout):
-                    if t is not None:
-                        t.cancel()
-                self._queues.remove(queue)
-
-        return _stream()
+        return subscription_transform(self.broadcast.add_receiver(10), timeout, granularity, granularity_timeout)
 
 
 class Subscribable(Generic[T, Upd]):
@@ -116,21 +58,27 @@ class Subscribable(Generic[T, Upd]):
 
 
 class SubscriptionHandle(object):
-    def __init__(self, do_subscribe: Callable[[], Awaitable[AsyncIterator[Job]]]) -> None:
-        self._do_subscribe = do_subscribe
+    def __init__(self, server: HedgehogServer, update_sender) -> None:
         self.count = 0
-        self._updates = None  # type: AsyncIterator[Job]
+        self.server = server
+        self._update_sender = update_sender
+        self._scope = None
+
+    async def _update_task(self, *, task_status=trio.TASK_STATUS_IGNORED):
+        with trio.open_cancel_scope() as scope:
+            task_status.started(scope)
+            await self._update_sender()
 
     async def increment(self) -> None:
         if self.count == 0:
-            self._updates = await self._do_subscribe()
+            self._scope = await self.server.add_task(self._update_task)
         self.count += 1
 
     async def decrement(self) -> None:
         self.count -= 1
         if self.count == 0:
-            await self._updates.aclose()  # type: ignore
-            self._updates = None
+            self._scope.cancel()
+            self._scope = None
 
 
 class TriggeredSubscribable(Subscribable[T, Upd]):
@@ -144,21 +92,19 @@ class TriggeredSubscribable(Subscribable[T, Upd]):
     async def update(self, value: T) -> None:
         await self.streamer.send(value)
 
+    async def _update_sender(self, server: HedgehogServer, ident: Header, subscription: Subscription):
+        async for value in self.streamer.subscribe(subscription.timeout / 1000):
+            async with server.job():
+                await server.send_async(ident, self.compose_update(server, ident, subscription, value))
+
     async def subscribe(self, server: HedgehogServer, ident: Header, subscription: Subscription) -> None:
         # TODO incomplete
         key = (ident, subscription.timeout)
 
         if subscription.subscribe:
             if key not in self.subscriptions:
-                async def do_subscribe() -> AsyncIterator[Job]:
-                    updates = streamcontext(self.streamer.subscribe(subscription.timeout / 1000))
-                    updates |= pipe.map(lambda value: partial(server.send_async, ident,
-                                                              self.compose_update(server, ident, subscription, value)))
-                    events = cast(AsyncIterator[Job], streamcontext(updates))
-                    server.add_job_stream(events)
-                    return events
-                handle = self.subscriptions[key] = SubscriptionHandle(do_subscribe)
-
+                update_sender = partial(self._update_sender, server, ident, subscription)
+                handle = self.subscriptions[key] = SubscriptionHandle(server, update_sender)
             else:
                 handle = self.subscriptions[key]
 
@@ -181,23 +127,51 @@ class PolledSubscribable(Subscribable[T, Upd]):
 
     def __init__(self) -> None:
         super(PolledSubscribable, self).__init__()
-        self.intervals = asyncio.Queue()  # type: asyncio.Queue
+        self.intervals: trio.abc.SendChannel = None
         self.timeouts = set()  # type: Set[float]
-        self._registered = False
+
+    @property
+    def _registered(self):
+        return self.intervals is not None
 
     async def poll(self) -> T:
         raise NotImplemented
 
+    async def _poll_task(self, *, task_status=trio.TASK_STATUS_IGNORED):
+        self.intervals, intervals = trio.open_memory_channel(0)
+        task_status.started()
+
+        async with trio.open_nursery() as nursery:
+            async def poller(interval, *, task_status=trio.TASK_STATUS_IGNORED):
+                with trio.open_cancel_scope() as scope:
+                    task_status.started(scope)
+                    while True:
+                        await self.streamer.send(await self.poll())
+                        await trio.sleep(interval)
+
+            @nursery.start_soon
+            async def read_interval():
+                current_interval = -1
+                current_scope = None
+                async for interval in intervals:
+                    # cancel the old polling task
+                    if interval != current_interval and current_scope is not None:
+                        current_scope.cancel()
+                        current_scope = None
+
+                    # start new polling task
+                    current_interval = interval
+                    if current_interval >= 0:
+                        current_scope = await nursery.start(poller, current_interval)
+
+    async def _update_sender(self, server: HedgehogServer, ident: Header, subscription: Subscription):
+        async for value in self.streamer.subscribe(subscription.timeout / 1000):
+            async with server.job():
+                await server.send_async(ident, self.compose_update(server, ident, subscription, value))
+
     async def register(self, server: HedgehogServer) -> None:
         if not self._registered:
-            async def do_poll() -> None:
-                await self.streamer.send(await self.poll())
-
-            events = stream_from_queue(self.intervals) | pipe.switchmap(
-                lambda interval: stream.never() if interval < 0 else stream.repeat(do_poll, interval=interval))
-
-            server.add_job_stream(events)
-            self._registered = True
+            await server.add_task(self._poll_task)
 
     async def subscribe(self, server: HedgehogServer, ident: Header, subscription: Subscription) -> None:
         await self.register(server)
@@ -207,19 +181,11 @@ class PolledSubscribable(Subscribable[T, Upd]):
 
         if subscription.subscribe:
             if key not in self.subscriptions:
-                async def do_subscribe() -> AsyncIterator[Job]:
-                    updates = streamcontext(self.streamer.subscribe(subscription.timeout / 1000))
-                    updates |= pipe.map(lambda value: partial(server.send_async, ident,
-                                                              self.compose_update(server, ident, subscription, value)))
-                    events = cast(AsyncIterator[Job], streamcontext(updates))
-                    server.add_job_stream(events)
+                self.timeouts.add(subscription.timeout / 1000)
+                await self.intervals.send(min(self.timeouts))
 
-                    self.timeouts.add(subscription.timeout / 1000)
-                    await self.intervals.put(min(self.timeouts))
-
-                    return events
-
-                handle = self.subscriptions[key] = SubscriptionHandle(do_subscribe)
+                update_sender = partial(self._update_sender, server, ident, subscription)
+                handle = self.subscriptions[key] = SubscriptionHandle(server, update_sender)
             else:
                 handle = self.subscriptions[key]
 
@@ -233,6 +199,6 @@ class PolledSubscribable(Subscribable[T, Upd]):
                 await handle.decrement()
                 if handle.count == 0:
                     self.timeouts.remove(subscription.timeout / 1000)
-                    await self.intervals.put(min(self.timeouts, default=-1))
+                    await self.intervals.send(min(self.timeouts, default=-1))
 
                     del self.subscriptions[key]
