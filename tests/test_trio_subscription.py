@@ -5,7 +5,7 @@ from hedgehog.utils.test_utils import assertPassed
 
 import trio
 
-from hedgehog.server.trio_subscription import BroadcastChannel, subscription_transform
+from hedgehog.server.subscription import BroadcastChannel, subscription_transform
 
 
 async def stream(*items: Tuple[any, float]):
