@@ -5,7 +5,7 @@ from hedgehog.utils.test_utils import assertPassed
 
 import trio
 import trio_asyncio
-from aiostream import stream as aio_stream, streamcontext
+from aiostream import streamcontext
 from contextlib import asynccontextmanager
 
 from hedgehog.server.subscription import BroadcastChannel, subscription_transform, SubscriptionStreamer
@@ -57,7 +57,12 @@ class Stream:
         if exit:
             assert False, f"exit after {duration}s; expected: {value} after {delay}s"
         else:
-            assert (duration, actual) == (delay, value), f"{actual} after {duration}s; expected: {value} after {delay}s"
+            if isinstance(value, set):
+                assert actual in value and duration == delay, \
+                    f"{actual} after {duration}s; expected: one of {value} after {delay}s"
+            else:
+                assert actual == value and duration == delay, \
+                    f"{actual} after {duration}s; expected: {value} after {delay}s"
 
     async def expect_exit_after(self, delay):
         exit, duration, actual = await self._result()
@@ -65,6 +70,21 @@ class Stream:
             assert duration == delay, f"exit after {duration}s; expected: exit after {delay}s"
         else:
             assert False, f"{actual} after {duration}s; expected: exit after {delay}s"
+
+    async def expect(self, value):
+        exit, duration, actual = await self._result()
+        if exit:
+            assert False, f"exit after {duration}s; expected: {value}"
+        else:
+            if isinstance(value, set):
+                assert actual in value, f"{actual} after {duration}s; expected: one of {value}"
+            else:
+                assert actual == value, f"{actual} after {duration}s; expected: {value}"
+
+    async def expect_exit(self):
+        exit, duration, actual = await self._result()
+        if not exit:
+            assert False, f"{actual} after {duration}s; expected: exit"
 
 
 @asynccontextmanager
@@ -84,20 +104,10 @@ async def do_stream(subs, _stream):
 async def assert_stream(tim_seq, out_seq, _stream):
     assert len(out_seq) == len(tim_seq)
 
-    async with aio_stream.enumerate(_stream).stream() as streamer:
-        i = -1
-        begin = trio.current_time()
-        async for i, item in streamer:
-            exp = out_seq[i]
-            if isinstance(exp, set):
-                assert item in exp
-            else:
-                assert item == exp
-
-            end = trio.current_time()
-            assert end - begin == tim_seq[i]
-            begin = end
-        assert i == len(out_seq) - 1
+    async with Stream(_stream) as s:
+        for delay, value in zip(tim_seq, out_seq):
+            await s.expect_after(delay, value)
+        await s.expect_exit()
 
 
 @pytest.mark.trio
@@ -367,7 +377,13 @@ async def test_subscription_streamer_cancel(autojump_clock):
 
     subs = SubscriptionStreamer()
     async with do_stream(subs, stream(*in_seq)):
+        async def the_stream():
+            s = subs.subscribe(3, None, None)
+            for i in range(3):
+                yield await s.__anext__()
+            await s.aclose()
+
         with assertPassed(sum(tim_seq)):
             await assert_stream(
                 tim_seq, out_seq,
-                streamcontext(subs.subscribe(3, None, None))[:3])
+                the_stream())
