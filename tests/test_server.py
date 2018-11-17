@@ -1,7 +1,6 @@
 from typing import Any, Callable, Dict, List, Tuple, Type, Union
 
 import pytest
-import pytest_trio
 from hedgehog.utils.test_utils import check_caplog, assertImmediate, assertPassed, assertTimeoutTrio
 
 import logging
@@ -21,7 +20,6 @@ from hedgehog.server.handlers.hardware import HardwareHandler
 from hedgehog.server.handlers.process import ProcessHandler
 from hedgehog.server.hardware import HardwareAdapter
 from hedgehog.server.hardware.mocked import MockedHardwareAdapter
-from hedgehog.utils.zmq import trio as zmq_trio
 
 
 # Pytest fixtures
@@ -405,7 +403,7 @@ async def test_command_subscription(conn_dealer, autojump_clock):
         await assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
 
         # check there is no update, even after a time
-        async with assertTimeoutTrio(2):
+        with assertTimeoutTrio(2):
             await socket.recv_multipart()
 
         # check immediate update
@@ -420,7 +418,7 @@ async def test_command_subscription(conn_dealer, autojump_clock):
         await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
 
         # check there is no update, even after a time
-        async with assertTimeoutTrio(2):
+        with assertTimeoutTrio(2):
             await socket.recv_multipart()
 
         # check immediate update (as time has passed)
@@ -466,7 +464,7 @@ async def test_command_subscription(conn_dealer, autojump_clock):
         await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
 
         # check there is no update, even after a time
-        async with assertTimeoutTrio(2):
+        with assertTimeoutTrio(2):
             await socket.recv_multipart()
 
 
@@ -546,7 +544,7 @@ async def test_sensor_subscription(conn_dealer, hardware_adapter, autojump_clock
         await assertReplyDealer(socket, analog.Subscribe(0, unsub), ack.Acknowledgement())
 
         # check there is no update, even after a time
-        async with assertTimeoutTrio(2):
+        with assertTimeoutTrio(2):
             await socket.recv_multipart()
 
 
