@@ -36,6 +36,7 @@ async def stream(*items: Tuple[any, float]):
 class Stream:
     def __init__(self, stream):
         self.stream = stream
+        self.index = -1
 
     async def __aenter__(self):
         return self
@@ -50,41 +51,42 @@ class Stream:
         except StopAsyncIteration:
             exit, value = True, None
         end = trio.current_time()
-        return exit, end - begin, value
+        self.index += 1
+        return self.index, exit, end - begin, value
 
     async def expect_after(self, delay, value):
-        exit, duration, actual = await self._result()
+        index, exit, duration, actual = await self._result()
         if exit:
-            assert False, f"exit after {duration}s; expected: {value} after {delay}s"
+            assert False, f"#{index}: exit after {duration}s; expected: {value} after {delay}s"
         else:
             if isinstance(value, set):
                 assert actual in value and duration == delay, \
-                    f"{actual} after {duration}s; expected: one of {value} after {delay}s"
+                    f"#{index}: {actual} after {duration}s; expected: one of {value} after {delay}s"
             else:
                 assert actual == value and duration == delay, \
-                    f"{actual} after {duration}s; expected: {value} after {delay}s"
+                    f"#{index}: {actual} after {duration}s; expected: {value} after {delay}s"
 
     async def expect_exit_after(self, delay):
-        exit, duration, actual = await self._result()
+        index, exit, duration, actual = await self._result()
         if exit:
-            assert duration == delay, f"exit after {duration}s; expected: exit after {delay}s"
+            assert duration == delay, f"#{index}: exit after {duration}s; expected: exit after {delay}s"
         else:
-            assert False, f"{actual} after {duration}s; expected: exit after {delay}s"
+            assert False, f"#{index}: {actual} after {duration}s; expected: exit after {delay}s"
 
     async def expect(self, value):
-        exit, duration, actual = await self._result()
+        index, exit, duration, actual = await self._result()
         if exit:
-            assert False, f"exit after {duration}s; expected: {value}"
+            assert False, f"#{index}: exit after {duration}s; expected: {value}"
         else:
             if isinstance(value, set):
-                assert actual in value, f"{actual} after {duration}s; expected: one of {value}"
+                assert actual in value, f"#{index}: {actual} after {duration}s; expected: one of {value}"
             else:
-                assert actual == value, f"{actual} after {duration}s; expected: {value}"
+                assert actual == value, f"#{index}: {actual} after {duration}s; expected: {value}"
 
     async def expect_exit(self):
-        exit, duration, actual = await self._result()
+        index, exit, duration, actual = await self._result()
         if not exit:
-            assert False, f"{actual} after {duration}s; expected: exit"
+            assert False, f"#{index}: {actual} after {duration}s; expected: exit"
 
 
 @asynccontextmanager
@@ -330,53 +332,53 @@ async def test_subscription_transform(autojump_clock):
 
 @pytest.mark.trio
 async def test_subscription_streamer(trio_aio_loop, autojump_clock):
-    in_seq = [(value, 2) for value in range(0, 7+1)]
-    tim_seq = [2, 3, 3, 3, 3, 3]
+    in_seq = [(value, 10) for value in range(0, 7+1)]
     out_seq = [0, 1, {2, 3}, 4, {5, 6}, 7]
+    tim_seq = [10, 15, 15, 15, 15, 15]
 
     async with do_stream(in_seq) as subs:
         with assertPassed(sum(tim_seq)):
             await assert_stream(
                 tim_seq, out_seq,
-                subs.subscribe(3, None, None))
+                subs.subscribe(15, None, None))
 
 
 @pytest.mark.trio
 async def test_subscription_streamer_granularity(autojump_clock):
-    in_seq = [(value, 2) for value in [0, 1, 2, 1, 2, 1, 1, 0]]
-    tim_seq = [2, 4, 9, 9]
+    in_seq = [(value, 10) for value in [0, 1, 2, 1, 2, 1, 1, 0]]
     out_seq = [0, 2, 1, 0]
+    tim_seq = [10, 20, 45, 45]
 
     async with do_stream(in_seq) as subs:
         with assertPassed(sum(tim_seq)):
             await assert_stream(
                 tim_seq, out_seq,
-                subs.subscribe(3, lambda a, b: abs(a - b) > 1, 9))
+                subs.subscribe(15, lambda a, b: abs(a - b) > 1, 45))
 
 
 @pytest.mark.trio
 async def test_subscription_streamer_delayed_subscribe(autojump_clock):
-    in_seq = [(value, 2) for value in range(0, 7+1)]
-    tim_seq = [1, 3, 3, 3, 3]
+    in_seq = [(value, 10) for value in range(0, 7+1)]
     out_seq = [2, 3, {4, 5}, 6, 7]
+    tim_seq = [5, 15, 15, 15, 15]
 
     async with do_stream(in_seq) as subs:
-        await trio.sleep(5)
+        await trio.sleep(25)
         with assertPassed(sum(tim_seq)):
             await assert_stream(
                 tim_seq, out_seq,
-                subs.subscribe(3, None, None))
+                subs.subscribe(15, None, None))
 
 
 @pytest.mark.trio
 async def test_subscription_streamer_cancel(autojump_clock):
-    in_seq = [(value, 2) for value in range(0, 7+1)]
-    tim_seq = [2, 3, 3]
+    in_seq = [(value, 10) for value in range(0, 7+1)]
     out_seq = [0, 1, {2, 3}]
+    tim_seq = [10, 15, 15]
 
     async with do_stream(in_seq) as subs:
         async def the_stream():
-            s = subs.subscribe(3, None, None)
+            s = subs.subscribe(15, None, None)
             for i in range(3):
                 yield await s.__anext__()
             await s.aclose()
