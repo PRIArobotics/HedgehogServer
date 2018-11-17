@@ -88,16 +88,18 @@ class Stream:
 
 
 @asynccontextmanager
-async def do_stream(subs, _stream):
+async def do_stream(items):
     async with trio.open_nursery() as nursery:
+        subs = SubscriptionStreamer()
+
         @nursery.start_soon
         async def the_stream():
-            async with streamcontext(_stream) as streamer:
+            async with streamcontext(stream(*items)) as streamer:
                 async for item in streamer:
                     await subs.send(item)
             await subs.close()
 
-        yield
+        yield subs
         nursery.cancel_scope.cancel()
 
 
@@ -332,8 +334,7 @@ async def test_subscription_streamer(trio_aio_loop, autojump_clock):
     tim_seq = [2, 3, 3, 3, 3, 3]
     out_seq = [0, 1, {2, 3}, 4, {5, 6}, 7]
 
-    subs = SubscriptionStreamer()
-    async with do_stream(subs, stream(*in_seq)):
+    async with do_stream(in_seq) as subs:
         with assertPassed(sum(tim_seq)):
             await assert_stream(
                 tim_seq, out_seq,
@@ -346,8 +347,7 @@ async def test_subscription_streamer_granularity(autojump_clock):
     tim_seq = [2, 4, 9, 9]
     out_seq = [0, 2, 1, 0]
 
-    subs = SubscriptionStreamer()
-    async with do_stream(subs, stream(*in_seq)):
+    async with do_stream(in_seq) as subs:
         with assertPassed(sum(tim_seq)):
             await assert_stream(
                 tim_seq, out_seq,
@@ -360,8 +360,7 @@ async def test_subscription_streamer_delayed_subscribe(autojump_clock):
     tim_seq = [1, 3, 3, 3, 3]
     out_seq = [2, 3, {4, 5}, 6, 7]
 
-    subs = SubscriptionStreamer()
-    async with do_stream(subs, stream(*in_seq)):
+    async with do_stream(in_seq) as subs:
         await trio.sleep(5)
         with assertPassed(sum(tim_seq)):
             await assert_stream(
@@ -375,8 +374,7 @@ async def test_subscription_streamer_cancel(autojump_clock):
     tim_seq = [2, 3, 3]
     out_seq = [0, 1, {2, 3}]
 
-    subs = SubscriptionStreamer()
-    async with do_stream(subs, stream(*in_seq)):
+    async with do_stream(in_seq) as subs:
         async def the_stream():
             s = subs.subscribe(3, None, None)
             for i in range(3):
