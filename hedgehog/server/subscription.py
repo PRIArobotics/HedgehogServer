@@ -137,6 +137,8 @@ async def _skipping_stream(stream: AsyncIterator[T]):
             finally:
                 if hasattr(stream, 'aclose'):
                     await stream.aclose()
+                else:  # pragma: nocover
+                    pass
 
         async def anext():
             nonlocal has_value, eof, value
@@ -155,7 +157,7 @@ async def _skipping_stream(stream: AsyncIterator[T]):
                 return value, False
             elif eof:
                 return None, True
-            else:
+            else:  # pragma: nocover
                 assert False
 
         yield anext

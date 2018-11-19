@@ -30,7 +30,8 @@ def trio_aio_loop():
 async def stream(*items: Tuple[any, float]):
     for value, delay in items:
         await trio.sleep(delay)
-        yield value
+        if value is not None:
+            yield value
 
 
 class Stream:
@@ -263,14 +264,14 @@ async def test_subscription_transform(autojump_clock):
 
 @pytest.mark.trio
 async def test_subscription_transform_timeout(autojump_clock):
-    async with stream_from_subscription_transform(((x, 10) for x in [0, 0, 0, 0, 1, 0, 1, 0, 0, 0]),
+    async with stream_from_subscription_transform(((x, 10) for x in [0, 0, 0, 0, 1, 0, 1, 0, None, None, None, None]),
                                                   timeout=31) as s:
         await s.expect_after(10, 0)
         await trio.sleep(25)
         await s.expect_after(15, 1)
         await s.expect_after(31, 0)
-        # as soon as the last value arrives, the stream terminates
-        await s.expect_exit_after(19)
+        # as soon as the input stream ends (later thant the timeout), the stream terminates
+        await s.expect_exit_after(39)
 
 
 @pytest.mark.trio
@@ -287,7 +288,7 @@ async def test_subscription_transform_timeout2(autojump_clock):
 
 @pytest.mark.trio
 async def test_subscription_transform_granularity_timeout(autojump_clock):
-    async with stream_from_subscription_transform(((x, 10) for x in [0, 0, 0, 0, 1, 0, 1, 1, 0, 0]),
+    async with stream_from_subscription_transform(((x, 10) for x in [0, 0, 0, 0, 1, 0, 1, 1, 0, None, None, None, None]),
                                                   granularity_timeout=31) as s:
         await s.expect_after(10, 0)
         await trio.sleep(35)
@@ -296,9 +297,8 @@ async def test_subscription_transform_granularity_timeout(autojump_clock):
         await trio.sleep(25)
         await s.expect_after(6, 1)
         await s.expect_after(9, 0)
-        # this value is emitted after the granularity timeout, then the stream immediately terminates
-        await s.expect_after(31, 0)
-        await s.expect_exit_after(0)
+        # as soon as the input stream ends (later thant the granularity timeout), the stream terminates
+        await s.expect_exit_after(40)
 
 
 @pytest.mark.trio
