@@ -230,11 +230,14 @@ async def test_broadcast_channel_buffer_full(autojump_clock):
 
 
 @pytest.mark.trio
-async def test_subscription_transform(autojump_clock):
+async def test_subscription_transform_empty(autojump_clock):
     # test that empty streams are handled properly
     async with stream_from_subscription_transform([]) as s:
         await s.expect_exit_after(0)
 
+
+@pytest.mark.trio
+async def test_subscription_transform(autojump_clock):
     # test subscription_transform behavior, taking into account that slow consumers must not disrupt the stream
     async with stream_from_subscription_transform((x, 10) for x in [0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1]) as s:
         # this won't work, because at this point the generator has not started running,
@@ -257,6 +260,9 @@ async def test_subscription_transform(autojump_clock):
         await s.expect_after(20, 1)
         await s.expect_exit_after(0)
 
+
+@pytest.mark.trio
+async def test_subscription_transform_timeout(autojump_clock):
     async with stream_from_subscription_transform(((x, 10) for x in [0, 0, 0, 0, 1, 0, 1, 0, 0, 0]),
                                                   timeout=31) as s:
         await s.expect_after(10, 0)
@@ -266,6 +272,9 @@ async def test_subscription_transform(autojump_clock):
         # as soon as the last value arrives, the stream terminates
         await s.expect_exit_after(19)
 
+
+@pytest.mark.trio
+async def test_subscription_transform_timeout2(autojump_clock):
     async with stream_from_subscription_transform(((x, 10) for x in [0, 0, 0, 0, 1, 0, 1, 1, 0]),
                                                   timeout=31) as s:
         await s.expect_after(10, 0)
@@ -275,6 +284,9 @@ async def test_subscription_transform(autojump_clock):
         await s.expect_after(31, 0)
         await s.expect_exit_after(0)
 
+
+@pytest.mark.trio
+async def test_subscription_transform_granularity_timeout(autojump_clock):
     async with stream_from_subscription_transform(((x, 10) for x in [0, 0, 0, 0, 1, 0, 1, 1, 0, 0]),
                                                   granularity_timeout=31) as s:
         await s.expect_after(10, 0)
@@ -288,6 +300,9 @@ async def test_subscription_transform(autojump_clock):
         await s.expect_after(31, 0)
         await s.expect_exit_after(0)
 
+
+@pytest.mark.trio
+async def test_subscription_transform_timeout_granularity_timeout(autojump_clock):
     async with stream_from_subscription_transform(((x, 10) for x in [0, 0, 0, 0, 1, 0, 1, 1, 0, 0]),
                                                   timeout=21, granularity_timeout=31) as s:
         await s.expect_after(10, 0)
@@ -300,6 +315,9 @@ async def test_subscription_transform(autojump_clock):
         await s.expect_after(31, 0)
         await s.expect_exit_after(0)
 
+
+@pytest.mark.trio
+async def test_subscription_transform_granularity(autojump_clock):
     async with stream_from_subscription_transform(((x, 10) for x in [0, 1, 1, 0, 2, 0, 3, 2, 1, 4, 4]),
                                                   granularity=lambda a, b: abs(a - b) >= 2) as s:
         await s.expect_after(10, 0)
@@ -311,6 +329,9 @@ async def test_subscription_transform(autojump_clock):
         # as soon as the last value arrives, the stream terminates
         await s.expect_exit_after(10)
 
+
+@pytest.mark.trio
+async def test_subscription_transform_granularity_granularity_timeout(autojump_clock):
     async with stream_from_subscription_transform(((x, 10) for x in [0, 1, 1, 0, 2, 1, 3, 2, 1, 4, 4]),
                                                   granularity=lambda a, b: abs(a - b) >= 2, granularity_timeout=21) as s:
         await s.expect_after(10, 0)
@@ -323,6 +344,9 @@ async def test_subscription_transform(autojump_clock):
         await s.expect_after(21, 4)
         await s.expect_exit_after(0)
 
+
+@pytest.mark.trio
+async def test_subscription_transform_timeout_granularity(autojump_clock):
     async with stream_from_subscription_transform(((x, 10) for x in [0, 1, 1, 0, 2, 0, 4, 2, 1, 4, 2, 3, 3]),
                                                   timeout=21, granularity=lambda a, b: abs(a - b) >= 2) as s:
         await s.expect_after(10, 0)
@@ -333,6 +357,9 @@ async def test_subscription_transform(autojump_clock):
         # as soon as the last value arrives, the stream terminates
         await s.expect_exit_after(10)
 
+
+@pytest.mark.trio
+async def test_subscription_transform_timeout_granularity_granularity_timeout(autojump_clock):
     async with stream_from_subscription_transform(((x, 10) for x in [0, 1, 1, 0, 1, 0, 4, 2, 1, 4, 2, 3, 3]),
                                                   timeout=21, granularity=lambda a, b: abs(a - b) >= 2, granularity_timeout=41) as s:
         await s.expect_after(10, 0)
