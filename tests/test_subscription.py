@@ -90,7 +90,7 @@ class Stream:
 
 
 @asynccontextmanager
-async def do_stream(items):
+async def subscription_streamer(items):
     async with trio.open_nursery() as nursery:
         subs = SubscriptionStreamer()
 
@@ -103,6 +103,13 @@ async def do_stream(items):
 
         yield subs
         nursery.cancel_scope.cancel()
+
+
+def stream_from_subscription_transform(items, timeout=None, granularity=None, granularity_timeout=None):
+    in_stream = stream(*items)
+    out_stream = subscription_transform(
+        in_stream, timeout=timeout, granularity=granularity, granularity_timeout=granularity_timeout)
+    return Stream(out_stream)
 
 
 async def assert_stream(tim_seq, out_seq, _stream):
@@ -224,18 +231,12 @@ async def test_broadcast_channel_buffer_full(autojump_clock):
 
 @pytest.mark.trio
 async def test_subscription_transform(autojump_clock):
-    def stream_helper(items, timeout=None, granularity=None, granularity_timeout=None):
-        in_stream = stream(*items)
-        out_stream = subscription_transform(
-            in_stream, timeout=timeout, granularity=granularity, granularity_timeout=granularity_timeout)
-        return Stream(out_stream)
-
     # test that empty streams are handled properly
-    async with stream_helper([]) as s:
+    async with stream_from_subscription_transform([]) as s:
         await s.expect_exit_after(0)
 
     # test subscription_transform behavior, taking into account that slow consumers must not disrupt the stream
-    async with stream_helper((x, 10) for x in [0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1]) as s:
+    async with stream_from_subscription_transform((x, 10) for x in [0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1]) as s:
         # this won't work, because at this point the generator has not started running,
         # and consequently the task that is reading from the stream in the background has neither
         # await trio.sleep(5)
@@ -256,8 +257,8 @@ async def test_subscription_transform(autojump_clock):
         await s.expect_after(20, 1)
         await s.expect_exit_after(0)
 
-    async with stream_helper(((x, 10) for x in [0, 0, 0, 0, 1, 0, 1, 0, 0, 0]),
-                             timeout=31) as s:
+    async with stream_from_subscription_transform(((x, 10) for x in [0, 0, 0, 0, 1, 0, 1, 0, 0, 0]),
+                                                  timeout=31) as s:
         await s.expect_after(10, 0)
         await trio.sleep(25)
         await s.expect_after(15, 1)
@@ -265,8 +266,8 @@ async def test_subscription_transform(autojump_clock):
         # as soon as the last value arrives, the stream terminates
         await s.expect_exit_after(19)
 
-    async with stream_helper(((x, 10) for x in [0, 0, 0, 0, 1, 0, 1, 1, 0]),
-                             timeout=31) as s:
+    async with stream_from_subscription_transform(((x, 10) for x in [0, 0, 0, 0, 1, 0, 1, 1, 0]),
+                                                  timeout=31) as s:
         await s.expect_after(10, 0)
         await trio.sleep(55)
         await s.expect_after(5, 1)
@@ -274,8 +275,8 @@ async def test_subscription_transform(autojump_clock):
         await s.expect_after(31, 0)
         await s.expect_exit_after(0)
 
-    async with stream_helper(((x, 10) for x in [0, 0, 0, 0, 1, 0, 1, 1, 0, 0]),
-                             granularity_timeout=31) as s:
+    async with stream_from_subscription_transform(((x, 10) for x in [0, 0, 0, 0, 1, 0, 1, 1, 0, 0]),
+                                                  granularity_timeout=31) as s:
         await s.expect_after(10, 0)
         await trio.sleep(35)
         await s.expect_after(0, 0)
@@ -287,8 +288,8 @@ async def test_subscription_transform(autojump_clock):
         await s.expect_after(31, 0)
         await s.expect_exit_after(0)
 
-    async with stream_helper(((x, 10) for x in [0, 0, 0, 0, 1, 0, 1, 1, 0, 0]),
-                             timeout=21, granularity_timeout=31) as s:
+    async with stream_from_subscription_transform(((x, 10) for x in [0, 0, 0, 0, 1, 0, 1, 1, 0, 0]),
+                                                  timeout=21, granularity_timeout=31) as s:
         await s.expect_after(10, 0)
         await trio.sleep(25)
         await s.expect_after(6, 0)
@@ -299,8 +300,8 @@ async def test_subscription_transform(autojump_clock):
         await s.expect_after(31, 0)
         await s.expect_exit_after(0)
 
-    async with stream_helper(((x, 10) for x in [0, 1, 1, 0, 2, 0, 3, 2, 1, 4, 4]),
-                             granularity=lambda a, b: abs(a - b) >= 2) as s:
+    async with stream_from_subscription_transform(((x, 10) for x in [0, 1, 1, 0, 2, 0, 3, 2, 1, 4, 4]),
+                                                  granularity=lambda a, b: abs(a - b) >= 2) as s:
         await s.expect_after(10, 0)
         await s.expect_after(40, 2)
         await s.expect_after(10, 0)
@@ -310,8 +311,8 @@ async def test_subscription_transform(autojump_clock):
         # as soon as the last value arrives, the stream terminates
         await s.expect_exit_after(10)
 
-    async with stream_helper(((x, 10) for x in [0, 1, 1, 0, 2, 1, 3, 2, 1, 4, 4]),
-                             granularity=lambda a, b: abs(a - b) >= 2, granularity_timeout=21) as s:
+    async with stream_from_subscription_transform(((x, 10) for x in [0, 1, 1, 0, 2, 1, 3, 2, 1, 4, 4]),
+                                                  granularity=lambda a, b: abs(a - b) >= 2, granularity_timeout=21) as s:
         await s.expect_after(10, 0)
         await s.expect_after(21, 1)
         await s.expect_after(21, 2)
@@ -322,8 +323,8 @@ async def test_subscription_transform(autojump_clock):
         await s.expect_after(21, 4)
         await s.expect_exit_after(0)
 
-    async with stream_helper(((x, 10) for x in [0, 1, 1, 0, 2, 0, 4, 2, 1, 4, 2, 3, 3]),
-                             timeout=21, granularity=lambda a, b: abs(a - b) >= 2) as s:
+    async with stream_from_subscription_transform(((x, 10) for x in [0, 1, 1, 0, 2, 0, 4, 2, 1, 4, 2, 3, 3]),
+                                                  timeout=21, granularity=lambda a, b: abs(a - b) >= 2) as s:
         await s.expect_after(10, 0)
         await s.expect_after(40, 2)
         await s.expect_after(21, 4)
@@ -332,8 +333,8 @@ async def test_subscription_transform(autojump_clock):
         # as soon as the last value arrives, the stream terminates
         await s.expect_exit_after(10)
 
-    async with stream_helper(((x, 10) for x in [0, 1, 1, 0, 1, 0, 4, 2, 1, 4, 2, 3, 3]),
-                             timeout=21, granularity=lambda a, b: abs(a - b) >= 2, granularity_timeout=41) as s:
+    async with stream_from_subscription_transform(((x, 10) for x in [0, 1, 1, 0, 1, 0, 4, 2, 1, 4, 2, 3, 3]),
+                                                  timeout=21, granularity=lambda a, b: abs(a - b) >= 2, granularity_timeout=41) as s:
         await s.expect_after(10, 0)
         await s.expect_after(41, 1)
         await s.expect_after(21, 4)
@@ -350,7 +351,7 @@ async def test_subscription_streamer(trio_aio_loop, autojump_clock):
     out_seq = [0, 1, {2, 3}, 4, {5, 6}, 7]
     tim_seq = [10, 15, 15, 15, 15, 15]
 
-    async with do_stream(in_seq) as subs:
+    async with subscription_streamer(in_seq) as subs:
         with assertPassed(sum(tim_seq)):
             await assert_stream(
                 tim_seq, out_seq,
@@ -363,7 +364,7 @@ async def test_subscription_streamer_granularity(autojump_clock):
     out_seq = [0, 2, 1, 0]
     tim_seq = [10, 20, 45, 45]
 
-    async with do_stream(in_seq) as subs:
+    async with subscription_streamer(in_seq) as subs:
         with assertPassed(sum(tim_seq)):
             await assert_stream(
                 tim_seq, out_seq,
@@ -376,7 +377,7 @@ async def test_subscription_streamer_delayed_subscribe(autojump_clock):
     out_seq = [2, 3, {4, 5}, 6, 7]
     tim_seq = [5, 15, 15, 15, 15]
 
-    async with do_stream(in_seq) as subs:
+    async with subscription_streamer(in_seq) as subs:
         await trio.sleep(25)
         with assertPassed(sum(tim_seq)):
             await assert_stream(
@@ -390,7 +391,7 @@ async def test_subscription_streamer_cancel(autojump_clock):
     out_seq = [0, 1, {2, 3}]
     tim_seq = [10, 15, 15]
 
-    async with do_stream(in_seq) as subs:
+    async with subscription_streamer(in_seq) as subs:
         async def the_stream():
             s = subs.subscribe(15, None, None)
             for i in range(3):
