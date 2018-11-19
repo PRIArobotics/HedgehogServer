@@ -2,7 +2,7 @@ from typing import AsyncIterator, Callable, Dict, Generic, Set, TypeVar
 
 import math
 import trio
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, asynccontextmanager
 from functools import partial
 
 from hedgehog.protocol import Header
@@ -77,10 +77,95 @@ class BroadcastChannel(Generic[T], trio.abc.AsyncResource):
         await self._stack.aclose()
 
 
+@asynccontextmanager
+async def _skipping_stream(stream: AsyncIterator[T]):
+    """\
+    A helper that shields an async iterable from its consumer's timing,
+    and skips any values that the consumer is too slow to retrieve.
+
+    Async iterables are only executed, like any Python generator, when it is queried (using `await __anext__()`).
+    So, consumers that block between queries influence streams' timings.
+    This context manager constantly queries the input stream in a task, i.e. without pauses between `__anext__` calls),
+    in the process discarding any values the consumer was too slow to retrieve.
+    Only one element is buffered for the consumer. Consider this order of operations:
+
+        in: 0         # value 0 arrives on the input stream
+        retrieve 0    # buffered value is retrieved by the consumer, returning immediately
+        retrieve ...  # retrieving blocks
+        in: 1
+             ... 1    # retrieving returns
+        in: 2
+        in: 3         # previous value 2 is discarded
+        retrieve 3
+        in: 4
+        in: EOF
+        retrieve 4    # when EOF is reached, the last value remains in the buffer
+        retrieve EOF
+
+    Cancelling `await __anext__()` raises `Cancelled` into the iterator, thus terminating it.
+    Therefore, another interface is used: the context manager resolves to a function that returns a tuple
+    `(value, eof)`; either `(<value>, False)` or `(None, True)`.
+    On exiting the context manager, the input stream is closed, thus cleaning up properly. Usage:
+
+        async with __skipping_stream(stream) as anext:
+            value, eof = await anext()
+            while not eof:
+                foo(value)
+                value, eof = await anext()
+    """
+
+    async with trio.open_nursery() as nursery:
+        # has the input stream emitted a value, or reached EOF, since last looking?
+        news = trio.Event()
+        # has there been a value from the input stream since last emitting one to the consumer?
+        has_value = False
+        # has the input stream reached EOF? This may be the case even if `has_value` is also true.
+        eof = False
+        # what's the last value emitted by the input stream? Only valid if `has_value` is true.
+        value = None
+
+        @nursery.start_soon
+        async def reader():
+            nonlocal has_value, eof, value
+            try:
+                async for value in stream:
+                    # there's a value available in `value`
+                    has_value = True
+                    news.set()
+                eof = True
+                news.set()
+            finally:
+                if hasattr(stream, 'aclose'):
+                    await stream.aclose()
+
+        async def anext():
+            nonlocal has_value, eof, value
+
+            # If `eof`, there will be no events. `has_value` may be true or not, but any input is done.
+            # If `not eof`, there *will* be more events.
+            # - if `has_value` is set, the event will also be set. In that case waiting is a no-op and thus fine
+            # - if `has_value` is not set, then we have to wait - either for EOF or for a value
+            if not eof:
+                await news.wait()
+                news.clear()
+
+            # now there's news, may be a value, may be EOF (or both)
+            if has_value:
+                has_value = False
+                return value, False
+            elif eof:
+                return None, True
+            else:
+                assert False
+
+        yield anext
+        nursery.cancel_scope.cancel()
+
+
 async def subscription_transform(stream: AsyncIterator[T], timeout: float=None,
         granularity: Callable[[T, T], bool]=None, granularity_timeout: float=None) -> AsyncIterator[T]:
     """\
-    Implements the stream transformation described `subscription.proto`.
+    Implements the stream transformation described in `subscription.proto`.
     The identity transform would be `subscription_transform(stream, granularity=lambda a, b: True)`:
     no timing behavior is added, and all values are treated as distinct, and thus emitted.
 
@@ -95,9 +180,11 @@ async def subscription_transform(stream: AsyncIterator[T], timeout: float=None,
     and then all subsequent values are considered until the next emission.
     Suppose the input is [0, 1, 0, 1, 0] and the timeout is just enough to skip one value completely.
     After emitting `0`, the first `1` is skipped, and the second `0` is not emitted because it's not a new value.
-    The second `1` is emitted; because at that time no timeout is active (the last emission was too long ago.
-    Immediately after the emission the timeout starts again,
-    ignoring the last `0`, reaching the end of the input and terminating the stream even before the timeout expired.
+    The second `1` is emitted; because at that time no timeout is active (the last emission was too long ago).
+    Immediately after the emission the timeout starts again, the last `0` arrives and the input stream ends.
+    Because the `0` should be emitted, the stream awaits the timeout a final time, emits the value, and then terminates.
+    Had the last value been a `1`, the output stream would have terminated immediately,
+    as the value would not be emitted.
 
     The `granularity_timeout` parameter specifies a maximum time to pass between subsequent emitted values,
     as long as there were input values at all.
@@ -109,74 +196,94 @@ async def subscription_transform(stream: AsyncIterator[T], timeout: float=None,
     After emitting `0` and skipping the next one, another `0` is emitted:
     although the default granularity discarded the unchanged value, the granularity timeout forces its emission.
     Then, the first `1` and next `0` are emitted as normal, as changed values appeared before the timeout ran out.
+    After the last `0`, the input ends.
+    The stream waits a final time for the granularity timeout, outputs the value, and then terminates.
 
     Suppose the input is [0, 0] and the granularity timeout is so low that it runs out before the second zero.
-    Even though the next value (the second zero) is forced to be emitted as soon as it arrives,
-    the first zero is not emitted twice.
-    It is the last value seen before the granularity timeout ran out, but once emitted it is out of the picture.
+    The first zero is the last value seen before the granularity timeout ran out,
+    but once emitted it is out of the picture. The second zero is simply emitted as soon as it arrives.
     """
-    try:
-        if granularity is None:
-            granularity = lambda a, b: a != b
-        if granularity_timeout is None:
-            granularity_timeout = math.inf
+    if timeout is None:
+        timeout = -math.inf
+    if granularity is None:
+        granularity = lambda a, b: a != b
+    if granularity_timeout is None:
+        granularity_timeout = math.inf
 
-        async with trio.open_nursery() as nursery:
-            # has the input stream emitted a value (or terminated) since last looking?
-            new_value = trio.Event()
-            # what's the last value emitted by the input stream?
-            value = None
+    async with _skipping_stream(stream) as anext:
+        # we need a first value for our granularity checks
+        value, eof = await anext()
+        if eof:
+            return
 
-            @nursery.start_soon
-            async def reader():
-                nonlocal value
-                async for value in stream:
-                    new_value.set()
-                # this may discard the last values of the stream, but that's fine
-                # this makes sure that the stream terminates immediately when it's clear
-                # that no more data can arrive; no pending timeouts
-                nursery.cancel_scope.cancel()
+        while True:
+            last_emit_at = trio.current_time()
+            yield value
+            if eof:
+                return
 
-            # we need a first value for our granularity checks
-            await new_value.wait()
-            new_value.clear()
+            last_value = value
+            has_value = False
 
-            while True:
-                # store the latest value & time for comparison
-                # do that before emitting the value, because the stream's consumer could take its time
-                last_value = value
-                last_value_at = trio.current_time()
-                yield value
+            with trio.move_on_at(last_emit_at + granularity_timeout):
+                with trio.move_on_at(last_emit_at + timeout):
+                    while not eof:
+                        # wait until there's news, save a value if there is
+                        _value, eof = await anext()
+                        if not eof:
+                            # there's a value
+                            value = _value
+                            has_value = True
 
-                # has there been a value from the input stream since last emitting one?
-                has_value = False
+                # if we get here, either the timeout ran out or EOF was reached
+                if eof:
+                    if not has_value:
+                        # no value at all
+                        return
+                    elif granularity(last_value, value):
+                        # a good value! Wait for the timeout, then emit that value
+                        await trio.sleep_until(last_emit_at + timeout)
+                        continue
+                    elif granularity_timeout < math.inf:
+                        # there's still a chance to send the value after the granularity timeout
+                        await trio.sleep_forever()
+                    else:
+                        # again, nothing to send
+                        return
+                    # note that none of the branches continue here
 
-                # normal operation until the granularity timeout is reached; after that take the first value
-                with trio.move_on_at(last_value_at + granularity_timeout):
-                    # wait at least for the timeout before checking on sending a value
-                    if timeout:
-                        await trio.sleep_until(last_value_at + timeout)
-
-                    while True:
-                        # wait until there's a value
-                        await new_value.wait()
-                        new_value.clear()
-
-                        # now we know there's a value
+                # not EOF, so do regular waiting for values
+                while not eof and (not has_value or not granularity(last_value, value)):
+                    # wait until there's news, save a value if there is
+                    _value, eof = await anext()
+                    if not eof:
+                        # there's a value
+                        value = _value
                         has_value = True
-                        # should we send this value?
-                        if granularity(last_value, value):
-                            break
 
-                if not has_value:
-                    # we did not once observe a new value on the input stream
-                    # the granularity timeout is over, but we still need that one value
-                    await new_value.wait()
-                    new_value.clear()
-                # now we know there's a value; will be emitted on the next iteration
-    finally:
-        if hasattr(stream, 'aclose'):
-            await stream.aclose()
+                if eof:
+                    # EOF was reached.
+                    # If there is a value, we know that the granularity did not break the loop;
+                    # no need to check that again.
+                    if not has_value:
+                        # no value at all
+                        return
+                    elif granularity_timeout < math.inf:
+                        # there's still a chance to send the value after the granularity timeout
+                        await trio.sleep_forever()
+                    else:
+                        # again, nothing to send
+                        return
+                    # note that none of the branches continue here
+
+            # after the granularity timeout, we're fine with any value
+            if has_value:
+                continue
+
+            # wait for the next event
+            value, eof = await anext()
+            if eof:
+                return
 
 
 class SubscriptionStreamer(Generic[T]):

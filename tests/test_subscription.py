@@ -235,7 +235,7 @@ async def test_subscription_transform(autojump_clock):
         await s.expect_exit_after(0)
 
     # test subscription_transform behavior, taking into account that slow consumers must not disrupt the stream
-    async with stream_helper((x, 10) for x in [0, 0, 1, 0, 1, 0, 1, 1, 0, 0]) as s:
+    async with stream_helper((x, 10) for x in [0, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1]) as s:
         # this won't work, because at this point the generator has not started running,
         # and consequently the task that is reading from the stream in the background has neither
         # await trio.sleep(5)
@@ -252,7 +252,9 @@ async def test_subscription_transform(autojump_clock):
         # a zero was completely skipped over and discarded; the next value is a one, so not different from before
         await trio.sleep(25)
         await s.expect_after(15, 0)
-        await s.expect_exit_after(10)
+        # this value is emitted as soon as it arrives, then the stream immediately terminates
+        await s.expect_after(20, 1)
+        await s.expect_exit_after(0)
 
     async with stream_helper(((x, 10) for x in [0, 0, 0, 0, 1, 0, 1, 0, 0, 0]),
                              timeout=31) as s:
@@ -260,15 +262,17 @@ async def test_subscription_transform(autojump_clock):
         await trio.sleep(25)
         await s.expect_after(15, 1)
         await s.expect_after(31, 0)
+        # as soon as the last value arrives, the stream terminates
         await s.expect_exit_after(19)
 
-    async with stream_helper(((x, 10) for x in [0, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0]),
+    async with stream_helper(((x, 10) for x in [0, 0, 0, 0, 1, 0, 1, 1, 0]),
                              timeout=31) as s:
         await s.expect_after(10, 0)
         await trio.sleep(55)
         await s.expect_after(5, 1)
+        # this value is emitted after the timeout, then the stream immediately terminates
         await s.expect_after(31, 0)
-        await s.expect_exit_after(19)
+        await s.expect_exit_after(0)
 
     async with stream_helper(((x, 10) for x in [0, 0, 0, 0, 1, 0, 1, 1, 0, 0]),
                              granularity_timeout=31) as s:
@@ -279,7 +283,9 @@ async def test_subscription_transform(autojump_clock):
         await trio.sleep(25)
         await s.expect_after(6, 1)
         await s.expect_after(9, 0)
-        await s.expect_exit_after(10)
+        # this value is emitted after the granularity timeout, then the stream immediately terminates
+        await s.expect_after(31, 0)
+        await s.expect_exit_after(0)
 
     async with stream_helper(((x, 10) for x in [0, 0, 0, 0, 1, 0, 1, 1, 0, 0]),
                              timeout=21, granularity_timeout=31) as s:
@@ -289,7 +295,9 @@ async def test_subscription_transform(autojump_clock):
         await trio.sleep(35)
         await s.expect_after(0, 1)
         await s.expect_after(21, 0)
-        await s.expect_exit_after(3)
+        # this value is emitted after the granularity timeout, then the stream immediately terminates
+        await s.expect_after(31, 0)
+        await s.expect_exit_after(0)
 
     async with stream_helper(((x, 10) for x in [0, 1, 1, 0, 2, 0, 3, 2, 1, 4, 4]),
                              granularity=lambda a, b: abs(a - b) >= 2) as s:
@@ -299,6 +307,7 @@ async def test_subscription_transform(autojump_clock):
         await s.expect_after(10, 3)
         await s.expect_after(20, 1)
         await s.expect_after(10, 4)
+        # as soon as the last value arrives, the stream terminates
         await s.expect_exit_after(10)
 
     async with stream_helper(((x, 10) for x in [0, 1, 1, 0, 2, 1, 3, 2, 1, 4, 4]),
@@ -309,7 +318,9 @@ async def test_subscription_transform(autojump_clock):
         await s.expect_after(21, 3)
         await s.expect_after(17, 1)
         await s.expect_after(10, 4)
-        await s.expect_exit_after(10)
+        # this value is emitted after the granularity timeout, then the stream immediately terminates
+        await s.expect_after(21, 4)
+        await s.expect_exit_after(0)
 
     async with stream_helper(((x, 10) for x in [0, 1, 1, 0, 2, 0, 4, 2, 1, 4, 2, 3, 3]),
                              timeout=21, granularity=lambda a, b: abs(a - b) >= 2) as s:
@@ -318,6 +329,7 @@ async def test_subscription_transform(autojump_clock):
         await s.expect_after(21, 4)
         await s.expect_after(21, 1)
         await s.expect_after(28, 3)
+        # as soon as the last value arrives, the stream terminates
         await s.expect_exit_after(10)
 
     async with stream_helper(((x, 10) for x in [0, 1, 1, 0, 1, 0, 4, 2, 1, 4, 2, 3, 3]),
@@ -327,7 +339,9 @@ async def test_subscription_transform(autojump_clock):
         await s.expect_after(21, 4)
         await s.expect_after(21, 1)
         await s.expect_after(27, 3)
-        await s.expect_exit_after(10)
+        # this value is emitted after the granularity timeout, then the stream immediately terminates
+        await s.expect_after(41, 3)
+        await s.expect_exit_after(0)
 
 
 @pytest.mark.trio
