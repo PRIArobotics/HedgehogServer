@@ -11,8 +11,8 @@ T = TypeVar('T')
 
 class MockedState(Generic[T]):
     def __init__(self) -> None:
-        self._times = []  # type: List[float]
-        self._values = []  # type: List[T]
+        self._times: List[float] = []
+        self._values: List[T] = []
 
     def set(self, time: float, value: T) -> None:
         i = bisect.bisect_left(self._times, time)
@@ -36,10 +36,10 @@ class MockedHardwareAdapter(HardwareAdapter):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
-        self.io_states = {}  # type: Dict[int, int]
-        self._analogs = [MockedState() for port in range(16)]  # type: List[MockedState[int]]
-        self._digitals = [MockedState() for port in range(16)]  # type: List[MockedState[bool]]
-        self._motors = [MockedState() for port in range(4)]  # type: List[MockedState[Tuple[float, float]]]
+        self.io_states: Dict[int, int] = {}
+        self._analogs: List[MockedState[int]] = [MockedState() for port in range(16)]
+        self._digitals: List[MockedState[bool]] = [MockedState() for port in range(16)]
+        self._motors: List[MockedState[Tuple[float, float]]] = [MockedState() for port in range(4)]
 
     async def set_io_state(self, port, flags):
         self.io_states[port] = flags
