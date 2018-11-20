@@ -84,8 +84,8 @@ async def open_serial_connection(ser: serial.Serial, *,
 
 
 class SerialHardwareAdapter(HardwareAdapter):
-    def __init__(self, motor_state_update_cb=None):
-        super().__init__(motor_state_update_cb=motor_state_update_cb)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.controller = Controller()
         self.reader = None  # type: asyncio.StreamReader
         self.writer = None  # type: asyncio.StreamWriter

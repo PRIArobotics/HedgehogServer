@@ -33,9 +33,8 @@ class MockedState(Generic[T]):
 
 
 class MockedHardwareAdapter(HardwareAdapter):
-    def __init__(self, *args: Any, simulate_sensors: bool=False, **kwargs: Any) -> None:
-        super(MockedHardwareAdapter, self).__init__(*args, **kwargs)
-        self.simulate_sensors = simulate_sensors
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
 
         self.io_states = {}  # type: Dict[int, int]
         self._analogs = [MockedState() for port in range(16)]  # type: List[MockedState[int]]
