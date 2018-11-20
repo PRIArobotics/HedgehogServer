@@ -455,14 +455,13 @@ class PolledSubscribable(Subscribable[T, Upd]):
         if subscription.subscribe:
             if key not in self.subscriptions:
                 self.timeouts.add(subscription.timeout / 1000)
-                await self.intervals.send(min(self.timeouts))
-
                 update_sender = partial(self._update_sender, server, ident, subscription)
                 handle = self.subscriptions[key] = SubscriptionHandle(server, update_sender)
             else:
                 handle = self.subscriptions[key]
 
             await handle.increment()
+            await self.intervals.send(min(self.timeouts))
         else:
             try:
                 handle = self.subscriptions[key]
