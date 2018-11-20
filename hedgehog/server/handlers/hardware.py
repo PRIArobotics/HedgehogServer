@@ -207,7 +207,7 @@ class HardwareHandler(CommandHandler):
         return analog.Reply(msg.port, value)
 
     @_commands.register(analog.Subscribe)
-    async def analog_command_subscribe(self, server, ident, msg):
+    async def analog_subscribe(self, server, ident, msg):
         await self.ios[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
         return ack.Acknowledgement()
 
@@ -217,7 +217,7 @@ class HardwareHandler(CommandHandler):
         return digital.Reply(msg.port, value)
 
     @_commands.register(digital.Subscribe)
-    async def digital_command_subscribe(self, server, ident, msg):
+    async def digital_subscribe(self, server, ident, msg):
         await self.ios[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
         return ack.Acknowledgement()
 
