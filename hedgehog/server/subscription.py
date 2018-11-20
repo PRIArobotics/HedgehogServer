@@ -317,6 +317,8 @@ class SubscriptionStreamer(Generic[T]):
         return subscription_transform(self.broadcast.add_receiver(10), timeout, granularity, granularity_timeout)
 
 
+# TODO how to extract logic from this so that it is not coupled to the Hedgehog server?
+
 class Subscribable(Generic[T, Upd]):
     def __init__(self) -> None:
         self.streamer = SubscriptionStreamer[T]()
