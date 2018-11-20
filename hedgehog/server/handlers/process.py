@@ -46,19 +46,25 @@ class ProcessHandler(CommandHandler):
             nursery.start_soon(handle_stream, process.STDERR, proc.stderr)
 
         exit_code = await trio_asyncio.aio_as_trio(proc.wait)()
-        async with server.job():
-            await server.send_async(ident, process.ExitUpdate(pid, exit_code))
 
-        del self._processes[pid]
-
-        # turn off all actuators
-        # TODO hard coded number of ports
-        for port in range(4):
+        try:
+            # turn off all actuators
+            # TODO hard coded number of ports
+            for port in range(4):
+                async with server.job():
+                    await self.adapter.set_motor(port, motor.POWER, 0)
+            for port in range(4):
+                async with server.job():
+                    await self.adapter.set_servo(port, False, 0)
+        except Exception:  # pragma: nocover
             async with server.job():
-                await self.adapter.set_motor(port, motor.POWER, 0)
-        for port in range(4):
+                await server.send_async(ident, process.ExitUpdate(pid, exit_code))
+            raise
+        else:
             async with server.job():
-                await self.adapter.set_servo(port, False, 0)
+                await server.send_async(ident, process.ExitUpdate(pid, exit_code))
+        finally:
+            del self._processes[pid]
 
     @_commands.register(process.ExecuteAction)
     async def process_execute_action(self, server, ident, msg):
