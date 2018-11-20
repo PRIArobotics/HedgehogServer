@@ -425,18 +425,16 @@ class PolledSubscribable(Subscribable[T, Upd]):
 
             @nursery.start_soon
             async def read_interval():
-                current_interval = -1
-                current_scope = None
+                scope = None
                 async for interval in intervals:
                     # cancel the old polling task
-                    if interval != current_interval and current_scope is not None:
-                        current_scope.cancel()
-                        current_scope = None
+                    if scope is not None:
+                        scope.cancel()
+                        scope = None
 
                     # start new polling task
-                    current_interval = interval
-                    if current_interval >= 0:
-                        current_scope = await nursery.start(poller, current_interval)
+                    if interval >= 0:
+                        scope = await nursery.start(poller, interval)
 
     async def _update_sender(self, server: HedgehogServer, ident: Header, subscription: Subscription):
         async for value in self.streamer.subscribe(subscription.timeout / 1000):
