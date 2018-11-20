@@ -692,6 +692,28 @@ async def test_motor(conn_dealer, autojump_clock):
         sub.subscribe = False
         await assertReplyDealer(socket, motor.CommandSubscribe(0, sub), ack.Acknowledgement())
 
+        with assertTimeoutTrio(1):
+            await socket.recv_multipart()
+
+        sub = Subscription()
+        sub.subscribe = True
+        await assertReplyDealer(socket, motor.CommandSubscribe(1, sub), ack.Acknowledgement())
+
+        with assertTimeoutTrio(1):
+            await socket.recv_multipart()
+
+        with assertImmediate():
+            await assertReplyDealer(socket, motor.Action(1, motor.POWER, 100), ack.Acknowledgement())
+
+            _, update = await socket.recv_msg()
+            assert update == motor.CommandUpdate(1, motor.POWER, 100, sub)
+
+        sub.subscribe = False
+        await assertReplyDealer(socket, motor.CommandSubscribe(1, sub), ack.Acknowledgement())
+
+        with assertTimeoutTrio(1):
+            await socket.recv_multipart()
+
         # ### motor.StateSubscribe
 
         sub = Subscription()
@@ -759,6 +781,28 @@ async def test_servo(conn_dealer, autojump_clock):
 
         sub.subscribe = False
         await assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.Acknowledgement())
+
+        with assertTimeoutTrio(1):
+            await socket.recv_multipart()
+
+        sub = Subscription()
+        sub.subscribe = True
+        await assertReplyDealer(socket, servo.CommandSubscribe(1, sub), ack.Acknowledgement())
+
+        with assertTimeoutTrio(1):
+            await socket.recv_multipart()
+
+        with assertImmediate():
+            await assertReplyDealer(socket, servo.Action(1, True, 1000), ack.Acknowledgement())
+
+            _, update = await socket.recv_msg()
+            assert update == servo.CommandUpdate(1, True, 1000, sub)
+
+        sub.subscribe = False
+        await assertReplyDealer(socket, servo.CommandSubscribe(1, sub), ack.Acknowledgement())
+
+        with assertTimeoutTrio(1):
+            await socket.recv_multipart()
 
 
 def handle_streams() -> Callable[[process.StreamUpdate], Dict[int, bytes]]:
