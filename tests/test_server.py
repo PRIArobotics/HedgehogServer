@@ -187,6 +187,11 @@ async def assertReplyDealer(socket, req: Message,
     return response
 
 
+def test_merge(hardware_adapter):
+    with pytest.raises(ValueError):
+        handlers.merge(ProcessHandler(hardware_adapter), ProcessHandler(hardware_adapter))
+
+
 @pytest.mark.trio
 async def test_server_faulty_task(caplog, check_caplog, conn_req, autojump_clock):
     async def handler_callback(server, ident, msg):
@@ -756,7 +761,6 @@ async def test_servo(conn_dealer, autojump_clock):
         await assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.Acknowledgement())
 
 
-
 def handle_streams() -> Callable[[process.StreamUpdate], Dict[int, bytes]]:
     outputs = {
         process.STDOUT: [],
@@ -807,6 +811,9 @@ async def test_process_echo(conn_dealer, autojump_clock):
 @pytest.mark.trio
 async def test_process_cat(conn_dealer, autojump_clock):
     async with conn_dealer() as socket:
+        await assertReplyDealer(socket, process.StreamAction(0, process.STDIN, b''), ack.FAILED_COMMAND)
+        await assertReplyDealer(socket, process.SignalAction(0, signal.SIGINT), ack.FAILED_COMMAND)
+
         response = await assertReplyDealer(socket, process.ExecuteAction('cat'),
                                            process.ExecuteReply)  # type: process.ExecuteReply
         pid = response.pid
@@ -819,6 +826,10 @@ async def test_process_cat(conn_dealer, autojump_clock):
             _, msg = await socket.recv_msg()  # type: Tuple[Any, process.StreamUpdate]
             assertMsgEqual(msg, process.StreamUpdate, pid=pid)
             output = stream_handler(msg)
+
+        action = process.StreamAction(pid, process.STDIN, b'asdf')
+        object.__setattr__(action, 'fileno', process.STDOUT)
+        await assertReplyDealer(socket, action, ack.INVALID_COMMAND)
 
         await assertReplyDealer(socket, process.StreamAction(pid, process.STDIN, b'asdf'), ack.Acknowledgement())
         await handle()

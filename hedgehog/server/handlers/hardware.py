@@ -20,7 +20,7 @@ class _HWHandler(object):
     async def subscribe(self, server: HedgehogServer, ident: Header, msg: Type[Message], subscription: Subscription) -> None:
         try:
             subscribable = self.subscribables[msg]
-        except KeyError as err:
+        except KeyError as err:  # pragma: nocover
             raise UnsupportedCommandError(msg.msg_name()) from err
         else:
             await subscribable.subscribe(server, ident, subscription)
@@ -123,7 +123,7 @@ class _MotorHandler(_HWHandler):
             # TODO
             # self.state
             pass
-        except UnsupportedCommandError:
+        except UnsupportedCommandError:  # pragma: nocover
             pass
         else:
             self.subscribables[motor.StateSubscribe] = self.__state_subscribable()

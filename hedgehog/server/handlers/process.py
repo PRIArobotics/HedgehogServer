@@ -69,8 +69,7 @@ class ProcessHandler(CommandHandler):
     async def process_stream_action(self, server, ident, msg):
         # check whether the process has already finished
         if msg.pid in self._processes:
-            if msg.fileno != process.STDIN:
-                raise FailedCommandError("Can only write to STDIN stream")
+            assert msg.fileno == process.STDIN
 
             proc = self._processes[msg.pid]
             if msg.chunk != b'':
