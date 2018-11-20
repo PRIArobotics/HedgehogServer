@@ -92,7 +92,9 @@ class SerialHardwareAdapter(HardwareAdapter):
         self.controller.reset(True)
 
     async def __aenter__(self):
+        await super().__aenter__()
         self.reader, self.writer = await open_serial_connection(self.controller.serial)
+        # TODO register cleanup
 
     async def repeatable_command(self, cmd: List[int], reply_code: int=OK, tries: int=3) -> List[int]:
         for i in range(tries - 1):

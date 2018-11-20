@@ -1,5 +1,6 @@
 from typing import Tuple
 
+from contextlib import AsyncExitStack
 from dataclasses import dataclass
 import trio
 
@@ -22,18 +23,20 @@ class MotorStateUpdate(HardwareUpdate):
 class HardwareAdapter(object):
     def __init__(self) -> None:
         self._send_channel, self.hardware_updates = trio.open_memory_channel(10)
+        self._stack: AsyncExitStack = None
 
     async def __aenter__(self):
-        pass
+        self._stack = AsyncExitStack()
+        await self._stack.enter_async_context(self._send_channel)
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self._send_channel.aclose()
+        return await self._stack.__aexit__(exc_type, exc_val, exc_tb)
 
     def _enqueue_update(self, update: HardwareUpdate):
         try:
             # try enqueueing the update
             self._send_channel.send_nowait(update)
-        except trio.WouldBlock:
+        except trio.WouldBlock:  # pragma: nocover
             try:
                 # the queue is full, so this must work
                 self.hardware_updates.receive_nowait()
