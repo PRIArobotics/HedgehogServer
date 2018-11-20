@@ -344,8 +344,9 @@ class SubscriptionHandle(object):
             await self._update_sender()
 
     async def increment(self) -> None:
-        if self.count == 0:
-            self._scope = await self.server.add_task(self._update_task)
+        if self._scope is not None:
+            self._scope.cancel()
+        self._scope = await self.server.add_task(self._update_task)
         self.count += 1
 
     async def decrement(self) -> None:

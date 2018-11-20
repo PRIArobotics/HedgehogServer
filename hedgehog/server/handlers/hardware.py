@@ -68,11 +68,17 @@ class _IOHandler(_HWHandler):
         self.subscribables[analog.Subscribe] = self.__analog_subscribable()
         self.subscribables[digital.Subscribe] = self.__digital_subscribable()
 
-    async def action(self, flags: int) -> None:
-        await self.adapter.set_io_state(self.port, flags)
+    async def action_update(self) -> None:
+        if self.command is None:
+            return
+        flags, = self.command
         await cast(subscription.TriggeredSubscribable[int, io.CommandUpdate],
                    self.subscribables[io.CommandSubscribe]).update(flags)
+
+    async def action(self, flags: int) -> None:
+        await self.adapter.set_io_state(self.port, flags)
         self.command = flags,
+        await self.action_update()
 
     @property
     async def analog_value(self) -> int:
@@ -192,6 +198,7 @@ class HardwareHandler(CommandHandler):
     @_commands.register(io.CommandSubscribe)
     async def io_command_subscribe(self, server, ident, msg):
         await self.ios[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
+        await self.ios[msg.port].action_update()
         return ack.Acknowledgement()
 
     @_commands.register(analog.Request)
