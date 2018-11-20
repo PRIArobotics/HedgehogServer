@@ -1,6 +1,6 @@
 from typing import Any, Dict, Generic, List, Tuple, TypeVar
 
-import asyncio
+import trio
 import bisect
 
 from . import HardwareAdapter, POWER
@@ -24,7 +24,7 @@ class MockedState(Generic[T]):
 
     def get(self, time: float=None, default: T=None)-> T:
         if time is None:
-            time = asyncio.get_event_loop().time()
+            time = trio.current_time()
 
         i = bisect.bisect_right(self._times, time)
         if i == 0:

@@ -1,9 +1,9 @@
 from typing import List, Tuple
 
 import asyncio
+import trio
 import serial
 import serial_asyncio
-import time
 from hedgehog.platform import Controller
 from hedgehog.protocol.errors import FailedCommandError
 from . import HardwareAdapter, POWER
@@ -130,7 +130,7 @@ class SerialHardwareAdapter(HardwareAdapter):
         else:
             if reply[0] == UNKNOWN_OPCODE:
                 self.controller.serial.flushOutput()
-                await asyncio.sleep(0.02)
+                await trio.sleep(0.02)
                 self.controller.serial.flushInput()
                 raise FailedCommandError("opcode unknown to the HWC; connection was reset")
             elif reply[0] == INVALID_OPCODE:
