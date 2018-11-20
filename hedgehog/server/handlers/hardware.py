@@ -128,11 +128,17 @@ class _MotorHandler(_HWHandler):
         else:
             self.subscribables[motor.StateSubscribe] = self.__state_subscribable()
 
-    async def action(self, state: int, amount: int, reached_state: int, relative: int, absolute: int) -> None:
-        await self.adapter.set_motor(self.port, state, amount, reached_state, relative, absolute)
+    async def action_update(self) -> None:
+        if self.command is None:
+            return
+        state, amount = self.command
         await cast(subscription.TriggeredSubscribable[Tuple[int, int], motor.CommandUpdate],
                    self.subscribables[motor.CommandSubscribe]).update((state, amount))
+
+    async def action(self, state: int, amount: int, reached_state: int, relative: int, absolute: int) -> None:
+        await self.adapter.set_motor(self.port, state, amount, reached_state, relative, absolute)
         self.command = state, amount
+        await self.action_update()
 
     async def set_position(self, position: int) -> None:
         await self.adapter.set_motor_position(self.port, position)
@@ -160,11 +166,17 @@ class _ServoHandler(_HWHandler):
 
         self.subscribables[servo.CommandSubscribe] = self.__command_subscribable()
 
-    async def action(self, active: bool, position: int) -> None:
-        await self.adapter.set_servo(self.port, active, position if active else 0)
+    async def action_update(self) -> None:
+        if self.command is None:
+            return
+        active, position = self.command
         await cast(subscription.TriggeredSubscribable[Tuple[int, int], servo.CommandUpdate],
                    self.subscribables[servo.CommandSubscribe]).update((active, position))
+
+    async def action(self, active: bool, position: int) -> None:
+        await self.adapter.set_servo(self.port, active, position if active else 0)
         self.command = active, position
+        await self.action_update()
 
 
 class HardwareHandler(CommandHandler):
@@ -244,6 +256,7 @@ class HardwareHandler(CommandHandler):
     @_commands.register(motor.CommandSubscribe)
     async def motor_command_subscribe(self, server, ident, msg):
         await self.motors[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
+        await self.motors[msg.port].action_update()
         return ack.Acknowledgement()
 
     @_commands.register(motor.StateRequest)
@@ -284,4 +297,5 @@ class HardwareHandler(CommandHandler):
     @_commands.register(servo.CommandSubscribe)
     async def servo_command_subscribe(self, server, ident, msg):
         await self.servos[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
+        await self.servos[msg.port].action_update()
         return ack.Acknowledgement()

@@ -364,9 +364,13 @@ async def test_io(conn_dealer, autojump_clock):
         sub.subscribe = False
         await assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.FAILED_COMMAND)
 
-        sub = Subscription()
-        sub.subscribe = True
-        await assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
+        with assertImmediate():
+            sub = Subscription()
+            sub.subscribe = True
+            await assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
+
+            _, update = await socket.recv_msg()
+            assert update == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
 
         with assertTimeoutTrio(1):
             await socket.recv_multipart()
@@ -374,18 +378,20 @@ async def test_io(conn_dealer, autojump_clock):
         with assertImmediate():
             await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
 
-            _, response = await socket.recv_msg()
-            assert response == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
+        with assertTimeoutTrio(1):
+            await socket.recv_multipart()
 
         with assertImmediate():
             await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLUP), ack.Acknowledgement())
 
-            _, response = await socket.recv_msg()
-            assert response == io.CommandUpdate(0, io.INPUT_PULLUP, sub)
+            _, update = await socket.recv_msg()
+            assert update == io.CommandUpdate(0, io.INPUT_PULLUP, sub)
 
-        sub = Subscription()
         sub.subscribe = False
         await assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
+
+        with assertTimeoutTrio(1):
+            await socket.recv_multipart()
 
 
 @pytest.mark.trio
@@ -411,8 +417,8 @@ async def test_command_subscription(conn_dealer, autojump_clock):
             # send a first command to get an update
             await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
 
-            _, response = await socket.recv_msg()
-            assert response == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
+            _, update = await socket.recv_msg()
+            assert update == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
 
         # send another command that does not actually change the value
         await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
@@ -426,36 +432,35 @@ async def test_command_subscription(conn_dealer, autojump_clock):
             # change command value
             await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLUP), ack.Acknowledgement())
 
-            _, response = await socket.recv_msg()
-            assert response == io.CommandUpdate(0, io.INPUT_PULLUP, sub)
+            _, update = await socket.recv_msg()
+            assert update == io.CommandUpdate(0, io.INPUT_PULLUP, sub)
 
         # check update is not immediately
         with assertPassed(1):
             # change command value
             await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLDOWN), ack.Acknowledgement())
 
-            _, response = await socket.recv_msg()
-            assert response == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
+            _, update = await socket.recv_msg()
+            assert update == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
 
-        # FIXME no immediate update
-        # # check update is not immediately
-        # with assertPassed(1):
-        #     # add extra subscription
-        #     await assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
-        #
-        #     _, response = await socket.recv_msg()
-        #     assert response == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
-        #
-        # # cancel extra subscription
-        # await assertReplyDealer(socket, io.CommandSubscribe(0, unsub), ack.Acknowledgement())
+        # check immediate update
+        with assertImmediate():
+            # add extra subscription
+            await assertReplyDealer(socket, io.CommandSubscribe(0, sub), ack.Acknowledgement())
+
+            _, update = await socket.recv_msg()
+            assert update == io.CommandUpdate(0, io.INPUT_PULLDOWN, sub)
+
+        # cancel extra subscription
+        await assertReplyDealer(socket, io.CommandSubscribe(0, unsub), ack.Acknowledgement())
 
         # check update is not immediately
         with assertPassed(1):
             # change command value
             await assertReplyDealer(socket, io.Action(0, io.INPUT_PULLUP), ack.Acknowledgement())
 
-            _, response = await socket.recv_msg()
-            assert response == io.CommandUpdate(0, io.INPUT_PULLUP, sub)
+            _, update = await socket.recv_msg()
+            assert update == io.CommandUpdate(0, io.INPUT_PULLUP, sub)
 
         # cancel original subscription
         await assertReplyDealer(socket, io.CommandSubscribe(0, unsub), ack.Acknowledgement())
@@ -488,20 +493,20 @@ async def test_analog(conn_dealer, autojump_clock):
             sub.timeout = 1000
             await assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
 
-            _, response = await socket.recv_msg()
-            assert response == analog.Update(0, 0, sub)
+            _, update = await socket.recv_msg()
+            assert update == analog.Update(0, 0, sub)
 
-        sub = Subscription()
         sub.subscribe = False
-        sub.timeout = 1000
         await assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
 
 
 @pytest.mark.trio
 async def test_sensor_subscription(conn_dealer, hardware_adapter, autojump_clock):
     async with conn_dealer() as socket:
-        hardware_adapter.set_analog(0, 0.5, 100)
-        hardware_adapter.set_analog(0, 3, 0)
+        hardware_adapter.set_analog(0, 0.1, 100)
+        hardware_adapter.set_analog(0, 2.1, 0)
+        hardware_adapter.set_analog(0, 3.1, 100)
+        hardware_adapter.set_analog(0, 7.1, 0)
 
         sub = Subscription()
         sub.subscribe = True
@@ -516,30 +521,77 @@ async def test_sensor_subscription(conn_dealer, hardware_adapter, autojump_clock
             # original subscription
             await assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
 
-            _, response = await socket.recv_msg()
-            assert response == analog.Update(0, 0, sub)
+            _, update = await socket.recv_msg()
+            assert update == analog.Update(0, 0, sub)
 
-        # check the next update comes after one second, even though the change occurs earlier
+        # value changes at 0.1
+
+        # check the next update comes at 1.0, even though the change occurs earlier
         with assertPassed(1):
-            _, response = await socket.recv_msg()
-            assert response == analog.Update(0, 100, sub)
+            _, update = await socket.recv_msg()
+            assert update == analog.Update(0, 100, sub)
 
-        # check the next update comes after two seconds, as the value didn't change earlier
+        # value changes at 2.1
+
+        # check the next update comes at 3.0, as the value didn't change before 2.0
         with assertPassed(2):
-            _, response = await socket.recv_msg()
-            assert response == analog.Update(0, 0, sub)
+            _, update = await socket.recv_msg()
+            assert update == analog.Update(0, 0, sub)
 
-        # FIXME no update at all
-        # # add extra subscription
-        # await assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
-        #
-        # # check immediate update
-        # _, response = await socket.recv_msg()
-        # assert response == analog.Update(0, 0, sub)
-        #
-        # # cancel extra subscription
-        # await assertReplyDealer(socket, analog.Subscribe(0, unsub), ack.Acknowledgement())
-    
+        # check the next update comes immediately because of the new subscription
+        with assertImmediate():
+            # add extra subscription
+            await assertReplyDealer(socket, analog.Subscribe(0, sub), ack.Acknowledgement())
+
+            _, update = await socket.recv_msg()
+            assert update == analog.Update(0, 0, sub)
+
+        # cancel extra subscription
+        await assertReplyDealer(socket, analog.Subscribe(0, unsub), ack.Acknowledgement())
+
+        sub2 = Subscription()
+        sub2.subscribe = True
+        sub2.timeout = 1500
+
+        unsub2 = Subscription()
+        unsub2.subscribe = False
+        unsub2.timeout = 1500
+
+        # check there is an update immediately for the new subscription
+        # the old subscription doesn't get an update because of granularity
+        with assertImmediate():
+            # add extra subscription
+            await assertReplyDealer(socket, analog.Subscribe(0, sub2), ack.Acknowledgement())
+
+            _, update = await socket.recv_msg()
+            assert update == analog.Update(0, 0, sub2)
+
+        # the next value change happens at 3.1
+
+        # check the next update comes at 4.0 for the first subscription
+        with assertPassed(1):
+            _, update = await socket.recv_msg()
+            assert update == analog.Update(0, 100, sub)
+
+        # check the next update comes at 4.5 for the second subscription
+        with assertPassed(0.5):
+            _, update = await socket.recv_msg()
+            assert update == analog.Update(0, 100, sub2)
+
+        # the next value change happens at 7.1
+
+        # check the next updates come at 8.0.
+        # there would be an update at 7.5 for the second subscription,
+        # but we only poll at 8.0 because the minimum interval is 1.0, which doesn't poll at 7.5.
+        with assertPassed(3.5):
+            _, update = await socket.recv_msg()
+            _, update2 = await socket.recv_msg()
+            assert analog.Update(0, 0, sub) in [update, update2]
+            assert analog.Update(0, 0, sub2) in [update, update2]
+
+        # cancel extra subscription
+        await assertReplyDealer(socket, analog.Subscribe(0, unsub2), ack.Acknowledgement())
+
         # cancel original subscription
         await assertReplyDealer(socket, analog.Subscribe(0, unsub), ack.Acknowledgement())
 
@@ -568,12 +620,10 @@ async def test_digital(conn_dealer, autojump_clock):
             sub.timeout = 1000
             await assertReplyDealer(socket, digital.Subscribe(0, sub), ack.Acknowledgement())
 
-            _, response = await socket.recv_msg()
-            assert response == digital.Update(0, False, sub)
+            _, update = await socket.recv_msg()
+            assert update == digital.Update(0, False, sub)
 
-        sub = Subscription()
         sub.subscribe = False
-        sub.timeout = 1000
         await assertReplyDealer(socket, digital.Subscribe(0, sub), ack.Acknowledgement())
 
 
@@ -609,45 +659,52 @@ async def test_motor(conn_dealer, autojump_clock):
 
         sub = Subscription()
         sub.subscribe = False
-        sub.timeout = 1000
         await assertReplyDealer(socket, motor.CommandSubscribe(0, sub), ack.FAILED_COMMAND)
 
-        # FIXME no immediate update
-        # with assertImmediate():
-        #     sub = Subscription()
-        #     sub.subscribe = True
-        #     sub.timeout = 1000
-        #     await assertReplyDealer(socket, motor.CommandSubscribe(0, sub), ack.Acknowledgement())
-        #
-        #     _, response = await socket.recv_msg()
-        #     assert response == motor.CommandUpdate(0, motor.POWER, 0, sub)
-        #
-        # sub = Subscription()
-        # sub.subscribe = False
-        # sub.timeout = 1000
-        # await assertReplyDealer(socket, motor.CommandSubscribe(0, sub), ack.Acknowledgement())
-        #
+        with assertImmediate():
+            sub = Subscription()
+            sub.subscribe = True
+            await assertReplyDealer(socket, motor.CommandSubscribe(0, sub), ack.Acknowledgement())
+
+            _, update = await socket.recv_msg()
+            assert update == motor.CommandUpdate(0, motor.POWER, 0, sub)
+
+        with assertTimeoutTrio(1):
+            await socket.recv_multipart()
+
+        with assertImmediate():
+            await assertReplyDealer(socket, motor.Action(0, motor.POWER), ack.Acknowledgement())
+
+        with assertTimeoutTrio(1):
+            await socket.recv_multipart()
+
+        with assertImmediate():
+            await assertReplyDealer(socket, motor.Action(0, motor.POWER, 100), ack.Acknowledgement())
+
+            _, update = await socket.recv_msg()
+            assert update == motor.CommandUpdate(0, motor.POWER, 100, sub)
+
+        sub.subscribe = False
+        await assertReplyDealer(socket, motor.CommandSubscribe(0, sub), ack.Acknowledgement())
+
         # ### motor.StateSubscribe
 
-        # FIXME
-        # sub = Subscription()
-        # sub.subscribe = False
-        # sub.timeout = 1000
-        # await assertReplyDealer(socket, motor.StateSubscribe(0, sub), ack.FAILED_COMMAND)
-        #
-        # with assertImmediate():
-        #     sub = Subscription()
-        #     sub.subscribe = True
-        #     sub.timeout = 1000
-        #     await assertReplyDealer(socket, motor.StateSubscribe(0, sub), ack.Acknowledgement())
-        #
-        #     _, response = await socket.recv_msg()
-        #     assert response == motor.StateUpdate(0, 0, 0, sub)
-        #
-        # sub = Subscription()
-        # sub.subscribe = False
-        # sub.timeout = 1000
-        # await assertReplyDealer(socket, motor.StateSubscribe(0, sub), ack.Acknowledgement())
+        sub = Subscription()
+        sub.subscribe = False
+        sub.timeout = 1000
+        await assertReplyDealer(socket, motor.StateSubscribe(0, sub), ack.FAILED_COMMAND)
+
+        with assertImmediate():
+            sub = Subscription()
+            sub.subscribe = True
+            sub.timeout = 1000
+            await assertReplyDealer(socket, motor.StateSubscribe(0, sub), ack.Acknowledgement())
+
+            _, update = await socket.recv_msg()
+            assert update == motor.StateUpdate(0, 0, 0, sub)
+
+        sub.subscribe = False
+        await assertReplyDealer(socket, motor.StateSubscribe(0, sub), ack.Acknowledgement())
 
 
 @pytest.mark.trio
@@ -672,20 +729,32 @@ async def test_servo(conn_dealer, autojump_clock):
         sub.timeout = 10
         await assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.FAILED_COMMAND)
 
-        # FIXME no immediate update
-        # with assertImmediate():
-        #     sub = Subscription()
-        #     sub.subscribe = True
-        #     sub.timeout = 10
-        #     await assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.Acknowledgement())
-        #
-        #     _, response = await socket.recv_msg()
-        #     assert response == servo.CommandUpdate(0, True, 0, sub)
-        #
-        # sub = Subscription()
-        # sub.subscribe = False
-        # sub.timeout = 10
-        # await assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.Acknowledgement())
+        with assertImmediate():
+            sub = Subscription()
+            sub.subscribe = True
+            await assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.Acknowledgement())
+
+            _, update = await socket.recv_msg()
+            assert update == servo.CommandUpdate(0, True, 0, sub)
+
+        with assertTimeoutTrio(1):
+            await socket.recv_multipart()
+
+        with assertImmediate():
+            await assertReplyDealer(socket, servo.Action(0, True, 0), ack.Acknowledgement())
+
+        with assertTimeoutTrio(1):
+            await socket.recv_multipart()
+
+        with assertImmediate():
+            await assertReplyDealer(socket, servo.Action(0, True, 1000), ack.Acknowledgement())
+
+            _, update = await socket.recv_msg()
+            assert update == servo.CommandUpdate(0, True, 1000, sub)
+
+        sub.subscribe = False
+        await assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.Acknowledgement())
+
 
 
 def handle_streams() -> Callable[[process.StreamUpdate], Dict[int, bytes]]:
