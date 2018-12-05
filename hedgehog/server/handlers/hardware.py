@@ -90,13 +90,13 @@ class _IOHandler(_HWHandler):
 
 
 class _MotorHandler(_HWHandler):
-    def __command_subscribable(self) -> subscription.TriggeredSubscribable[Tuple[int, int], motor.CommandUpdate]:
+    def __command_subscribable(self) -> subscription.TriggeredSubscribable[Tuple[motor.Config, int, int], motor.CommandUpdate]:
         outer_self = self
 
-        class Subs(subscription.TriggeredSubscribable[Tuple[int, int], motor.CommandUpdate]):
+        class Subs(subscription.TriggeredSubscribable[Tuple[motor.Config, int, int], motor.CommandUpdate]):
             def compose_update(self, server, ident, subscription, command):
-                state, amount = command
-                return motor.CommandUpdate(outer_self.port, state, amount, subscription)
+                config, state, amount = command
+                return motor.CommandUpdate(outer_self.port, config, state, amount, subscription)
 
         return Subs()
 
@@ -116,6 +116,7 @@ class _MotorHandler(_HWHandler):
     def __init__(self, adapter: HardwareAdapter, port: int) -> None:
         super(_MotorHandler, self).__init__(adapter)
         self.port = port
+        self.config = motor.DcConfig()  # type: motor.Config
         self.command = None  # type: Tuple[int, int]
 
         self.subscribables[motor.CommandSubscribe] = self.__command_subscribable()
@@ -133,7 +134,7 @@ class _MotorHandler(_HWHandler):
             return
         state, amount = self.command
         await cast(subscription.TriggeredSubscribable[Tuple[int, int], motor.CommandUpdate],
-                   self.subscribables[motor.CommandSubscribe]).update((state, amount))
+                   self.subscribables[motor.CommandSubscribe]).update((self.config, state, amount))
 
     async def action(self, state: int, amount: int, reached_state: int, relative: int, absolute: int) -> None:
         await self.adapter.set_motor(self.port, state, amount, reached_state, relative, absolute)
@@ -245,13 +246,14 @@ class HardwareHandler(CommandHandler):
 
     @_commands.register(motor.CommandRequest)
     async def motor_command_request(self, server, ident, msg):
+        config = self.motors[msg.port].config
         command = self.motors[msg.port].command
         try:
             state, amount = command
         except TypeError:
             raise FailedCommandError("no command executed yet")
         else:
-            return motor.CommandReply(msg.port, state, amount)
+            return motor.CommandReply(msg.port, config, state, amount)
 
     @_commands.register(motor.CommandSubscribe)
     async def motor_command_subscribe(self, server, ident, msg):

@@ -650,7 +650,7 @@ async def test_motor(conn_dealer, autojump_clock):
 
         # ### motor.CommandRequest
 
-        await assertReplyDealer(socket, motor.CommandRequest(0), motor.CommandReply(0, motor.POWER, 0))
+        await assertReplyDealer(socket, motor.CommandRequest(0), motor.CommandReply(0, motor.DcConfig(), motor.POWER, 0))
 
         # ### motor.StateRequest
 
@@ -672,7 +672,7 @@ async def test_motor(conn_dealer, autojump_clock):
             await assertReplyDealer(socket, motor.CommandSubscribe(0, sub), ack.Acknowledgement())
 
             _, update = await socket.recv_msg()
-            assert update == motor.CommandUpdate(0, motor.POWER, 0, sub)
+            assert update == motor.CommandUpdate(0, motor.DcConfig(), motor.POWER, 0, sub)
 
         with assertTimeoutTrio(1):
             await socket.recv_multipart()
@@ -687,7 +687,7 @@ async def test_motor(conn_dealer, autojump_clock):
             await assertReplyDealer(socket, motor.Action(0, motor.POWER, 100), ack.Acknowledgement())
 
             _, update = await socket.recv_msg()
-            assert update == motor.CommandUpdate(0, motor.POWER, 100, sub)
+            assert update == motor.CommandUpdate(0, motor.DcConfig(), motor.POWER, 100, sub)
 
         sub.subscribe = False
         await assertReplyDealer(socket, motor.CommandSubscribe(0, sub), ack.Acknowledgement())
@@ -706,7 +706,7 @@ async def test_motor(conn_dealer, autojump_clock):
             await assertReplyDealer(socket, motor.Action(1, motor.POWER, 100), ack.Acknowledgement())
 
             _, update = await socket.recv_msg()
-            assert update == motor.CommandUpdate(1, motor.POWER, 100, sub)
+            assert update == motor.CommandUpdate(1, motor.DcConfig(), motor.POWER, 100, sub)
 
         sub.subscribe = False
         await assertReplyDealer(socket, motor.CommandSubscribe(1, sub), ack.Acknowledgement())
