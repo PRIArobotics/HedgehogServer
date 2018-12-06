@@ -652,6 +652,19 @@ async def test_motor(conn_dealer, autojump_clock):
 
         await assertReplyDealer(socket, motor.CommandRequest(0), motor.CommandReply(0, motor.DcConfig(), motor.POWER, 0))
 
+        # ### motor.ConfigAction
+
+        await assertReplyDealer(socket, motor.ConfigAction(0, motor.EncoderConfig(0, 1)), ack.Acknowledgement())
+
+        # ### motor.CommandRequest
+
+        await assertReplyDealer(socket, motor.CommandRequest(0),
+                                motor.CommandReply(0, motor.EncoderConfig(0, 1), motor.POWER, 0))
+
+        # ### motor.ConfigAction
+
+        await assertReplyDealer(socket, motor.ConfigAction(0, motor.DcConfig()), ack.Acknowledgement())
+
         # ### motor.StateRequest
 
         await assertReplyDealer(socket, motor.StateRequest(0), motor.StateReply(0, 0, 0))
