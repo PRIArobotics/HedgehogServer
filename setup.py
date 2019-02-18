@@ -53,7 +53,7 @@ setup(
     # $ pip install -e .[dev,test]
     extras_require={
         # TODO adding extras for existing requirement does not work
-        'dev': ['pytest', 'pytest-runner', 'pytest-asyncio', 'pytest-cov', 'pytest-timeout', 'mypy'],
+        'dev': ['pytest', 'pytest-runner', 'pytest-asyncio', 'pytest-trio', 'pytest-cov', 'pytest-timeout', 'mypy'],
         #'raspberry': ['hedgehog-platform[raspberry] >=0.2, <0.3'],
         'raspberry': ['RPi.GPIO', 'pyserial-asyncio'],
     },
