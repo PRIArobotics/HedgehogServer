@@ -339,7 +339,7 @@ class SubscriptionHandle(object):
         self._scope = None
 
     async def _update_task(self, *, task_status=trio.TASK_STATUS_IGNORED):
-        with trio.open_cancel_scope() as scope:
+        with trio.CancelScope() as scope:
             task_status.started(scope)
             await self._update_sender()
 
@@ -418,7 +418,7 @@ class PolledSubscribable(Subscribable[T, Upd]):
 
         async with trio.open_nursery() as nursery:
             async def poller(interval, *, task_status=trio.TASK_STATUS_IGNORED):
-                with trio.open_cancel_scope() as scope:
+                with trio.CancelScope() as scope:
                     task_status.started(scope)
                     while True:
                         await self.streamer.send(await self.poll())
