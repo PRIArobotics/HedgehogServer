@@ -46,8 +46,8 @@ setup(
     # your project is installed. For an analysis of "install_requires" vs pip's
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
-    install_requires=['concurrent-utils ~=0.2.0', 'hedgehog-protocol ~=0.7.1',
-                      'hedgehog-utils[protobuf,zmq] ~=0.6.0', 'hedgehog-platform ~=0.2.0'],
+    install_requires=['concurrent-utils ~=0.2.0', 'hedgehog-protocol ~=0.8.0rc1',
+                      'hedgehog-utils[protobuf,zmq,trio] ~=0.7.0rc1', 'hedgehog-platform ~=0.2.0'],
 
     # You can install these using the following syntax, for example:
     # $ pip install -e .[dev,test]
