@@ -90,7 +90,7 @@ def hedgehog_server(trio_aio_loop, zmq_trio_ctx,
 
 
 @pytest.fixture
-async def client_req(trio_aio_loop, zmq_trio_ctx):
+def client_req(trio_aio_loop, zmq_trio_ctx):
     @asynccontextmanager
     async def connect(endpoint: str='inproc://controller'):
         async with trio_aio_loop(), zmq_trio_ctx() as ctx:
@@ -102,7 +102,7 @@ async def client_req(trio_aio_loop, zmq_trio_ctx):
 
 
 @pytest.fixture
-async def client_dealer(trio_aio_loop, zmq_trio_ctx):
+def client_dealer(trio_aio_loop, zmq_trio_ctx):
     @asynccontextmanager
     async def connect(endpoint: str='inproc://controller'):
         async with trio_aio_loop(), zmq_trio_ctx() as ctx:
@@ -114,7 +114,7 @@ async def client_dealer(trio_aio_loop, zmq_trio_ctx):
 
 
 @pytest.fixture
-async def conn_req(hedgehog_server, client_req, handler_dict: handlers.HandlerCallbackDict):
+def conn_req(hedgehog_server, client_req, handler_dict: handlers.HandlerCallbackDict):
     @asynccontextmanager
     async def connect(endpoint: str='inproc://controller', *,
                       handler_dict: handlers.HandlerCallbackDict=handler_dict):
@@ -126,7 +126,7 @@ async def conn_req(hedgehog_server, client_req, handler_dict: handlers.HandlerCa
 
 
 @pytest.fixture
-async def conn_dealer(hedgehog_server, client_dealer, handler_dict: handlers.HandlerCallbackDict):
+def conn_dealer(hedgehog_server, client_dealer, handler_dict: handlers.HandlerCallbackDict):
     @asynccontextmanager
     async def connect(endpoint: str='inproc://controller', *,
                       handler_dict: handlers.HandlerCallbackDict=handler_dict):
