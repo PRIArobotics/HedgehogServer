@@ -1,15 +1,14 @@
 import argparse
-import asyncio
 import configparser
 import logging
 import logging.config
 import os.path
-import signal
-import socket
 import subprocess
-import time
-import zmq.asyncio
+import trio
+import trio_asyncio
 from contextlib import suppress
+
+from hedgehog.utils.zmq import trio as zmq_trio
 
 from . import handlers
 from .hedgehog_server import HedgehogServer
@@ -100,20 +99,13 @@ def launch(hardware):
 
 
 def start(hardware, port=0):
-    ctx = zmq.asyncio.Context.instance()
+    ctx = zmq_trio.Context.instance()
 
     async def run():
         adapter = hardware()
         handler = handlers.merge(HardwareHandler(adapter), ProcessHandler(adapter))
 
-        async with adapter, HedgehogServer.start(ctx, 'tcp://*:{}'.format(port), handler) as server:
-            loop = asyncio.get_event_loop()
+        async with trio_asyncio.open_loop(), adapter:
+            await HedgehogServer(ctx, 'tcp://*:{}'.format(port), handler).run()
 
-            def sigint_handler():
-                print("stop server")
-                loop.create_task(server.stop())
-
-            loop.add_signal_handler(signal.SIGINT, sigint_handler)
-            await server.result()
-
-    asyncio.get_event_loop().run_until_complete(run())
+    trio.run(run)

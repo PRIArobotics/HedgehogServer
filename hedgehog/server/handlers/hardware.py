@@ -20,7 +20,7 @@ class _HWHandler(object):
     async def subscribe(self, server: HedgehogServer, ident: Header, msg: Type[Message], subscription: Subscription) -> None:
         try:
             subscribable = self.subscribables[msg]
-        except KeyError as err:
+        except KeyError as err:  # pragma: nocover
             raise UnsupportedCommandError(msg.msg_name()) from err
         else:
             await subscribable.subscribe(server, ident, subscription)
@@ -68,11 +68,17 @@ class _IOHandler(_HWHandler):
         self.subscribables[analog.Subscribe] = self.__analog_subscribable()
         self.subscribables[digital.Subscribe] = self.__digital_subscribable()
 
-    async def action(self, flags: int) -> None:
-        await self.adapter.set_io_state(self.port, flags)
+    async def action_update(self) -> None:
+        if self.command is None:
+            return
+        flags, = self.command
         await cast(subscription.TriggeredSubscribable[int, io.CommandUpdate],
                    self.subscribables[io.CommandSubscribe]).update(flags)
+
+    async def action(self, flags: int) -> None:
+        await self.adapter.set_io_state(self.port, flags)
         self.command = flags,
+        await self.action_update()
 
     @property
     async def analog_value(self) -> int:
@@ -84,13 +90,13 @@ class _IOHandler(_HWHandler):
 
 
 class _MotorHandler(_HWHandler):
-    def __command_subscribable(self) -> subscription.TriggeredSubscribable[Tuple[int, int], motor.CommandUpdate]:
+    def __command_subscribable(self) -> subscription.TriggeredSubscribable[Tuple[motor.Config, int, int], motor.CommandUpdate]:
         outer_self = self
 
-        class Subs(subscription.TriggeredSubscribable[Tuple[int, int], motor.CommandUpdate]):
+        class Subs(subscription.TriggeredSubscribable[Tuple[motor.Config, int, int], motor.CommandUpdate]):
             def compose_update(self, server, ident, subscription, command):
-                state, amount = command
-                return motor.CommandUpdate(outer_self.port, state, amount, subscription)
+                config, state, amount = command
+                return motor.CommandUpdate(outer_self.port, config, state, amount, subscription)
 
         return Subs()
 
@@ -110,6 +116,7 @@ class _MotorHandler(_HWHandler):
     def __init__(self, adapter: HardwareAdapter, port: int) -> None:
         super(_MotorHandler, self).__init__(adapter)
         self.port = port
+        self.config = motor.DcConfig()  # type: motor.Config
         self.command = None  # type: Tuple[int, int]
 
         self.subscribables[motor.CommandSubscribe] = self.__command_subscribable()
@@ -117,16 +124,27 @@ class _MotorHandler(_HWHandler):
             # TODO
             # self.state
             pass
-        except UnsupportedCommandError:
+        except UnsupportedCommandError:  # pragma: nocover
             pass
         else:
             self.subscribables[motor.StateSubscribe] = self.__state_subscribable()
 
+    async def action_update(self) -> None:
+        if self.command is None:
+            return
+        state, amount = self.command
+        await cast(subscription.TriggeredSubscribable[Tuple[int, int], motor.CommandUpdate],
+                   self.subscribables[motor.CommandSubscribe]).update((self.config, state, amount))
+
     async def action(self, state: int, amount: int, reached_state: int, relative: int, absolute: int) -> None:
         await self.adapter.set_motor(self.port, state, amount, reached_state, relative, absolute)
-        await cast(subscription.TriggeredSubscribable[Tuple[int, int], motor.CommandUpdate],
-                   self.subscribables[motor.CommandSubscribe]).update((state, amount))
         self.command = state, amount
+        await self.action_update()
+
+    async def config_action(self, config: motor.Config) -> None:
+        # await self.adapter.set_motor(self.port, state, amount, reached_state, relative, absolute)
+        self.config = config
+        await self.action_update()
 
     async def set_position(self, position: int) -> None:
         await self.adapter.set_motor_position(self.port, position)
@@ -154,11 +172,17 @@ class _ServoHandler(_HWHandler):
 
         self.subscribables[servo.CommandSubscribe] = self.__command_subscribable()
 
-    async def action(self, active: bool, position: int) -> None:
-        await self.adapter.set_servo(self.port, active, position if active else 0)
+    async def action_update(self) -> None:
+        if self.command is None:
+            return
+        active, position = self.command
         await cast(subscription.TriggeredSubscribable[Tuple[int, int], servo.CommandUpdate],
                    self.subscribables[servo.CommandSubscribe]).update((active, position))
+
+    async def action(self, active: bool, position: int) -> None:
+        await self.adapter.set_servo(self.port, active, position if active else 0)
         self.command = active, position
+        await self.action_update()
 
 
 class HardwareHandler(CommandHandler):
@@ -192,6 +216,7 @@ class HardwareHandler(CommandHandler):
     @_commands.register(io.CommandSubscribe)
     async def io_command_subscribe(self, server, ident, msg):
         await self.ios[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
+        await self.ios[msg.port].action_update()
         return ack.Acknowledgement()
 
     @_commands.register(analog.Request)
@@ -200,7 +225,7 @@ class HardwareHandler(CommandHandler):
         return analog.Reply(msg.port, value)
 
     @_commands.register(analog.Subscribe)
-    async def analog_command_subscribe(self, server, ident, msg):
+    async def analog_subscribe(self, server, ident, msg):
         await self.ios[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
         return ack.Acknowledgement()
 
@@ -210,7 +235,7 @@ class HardwareHandler(CommandHandler):
         return digital.Reply(msg.port, value)
 
     @_commands.register(digital.Subscribe)
-    async def digital_command_subscribe(self, server, ident, msg):
+    async def digital_subscribe(self, server, ident, msg):
         await self.ios[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
         return ack.Acknowledgement()
 
@@ -224,19 +249,26 @@ class HardwareHandler(CommandHandler):
         await self.motors[msg.port].action(msg.state, msg.amount, msg.reached_state, msg.relative, msg.absolute)
         return ack.Acknowledgement()
 
+    @_commands.register(motor.ConfigAction)
+    async def motor_config_action(self, server, ident, msg):
+        await self.motors[msg.port].config_action(msg.config)
+        return ack.Acknowledgement()
+
     @_commands.register(motor.CommandRequest)
     async def motor_command_request(self, server, ident, msg):
+        config = self.motors[msg.port].config
         command = self.motors[msg.port].command
         try:
             state, amount = command
         except TypeError:
             raise FailedCommandError("no command executed yet")
         else:
-            return motor.CommandReply(msg.port, state, amount)
+            return motor.CommandReply(msg.port, config, state, amount)
 
     @_commands.register(motor.CommandSubscribe)
     async def motor_command_subscribe(self, server, ident, msg):
         await self.motors[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
+        await self.motors[msg.port].action_update()
         return ack.Acknowledgement()
 
     @_commands.register(motor.StateRequest)
@@ -277,4 +309,5 @@ class HardwareHandler(CommandHandler):
     @_commands.register(servo.CommandSubscribe)
     async def servo_command_subscribe(self, server, ident, msg):
         await self.servos[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
+        await self.servos[msg.port].action_update()
         return ack.Acknowledgement()
