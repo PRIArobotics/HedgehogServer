@@ -1,9 +1,9 @@
-from typing import Any, Dict, Generic, List, Tuple, TypeVar
+from typing import Any, Dict, Generic, List, Set, Tuple, TypeVar
 
-import asyncio
+import trio
 import bisect
 
-from . import HardwareAdapter, POWER
+from . import HardwareAdapter, HardwareUpdate, POWER
 
 
 T = TypeVar('T')
@@ -11,8 +11,8 @@ T = TypeVar('T')
 
 class MockedState(Generic[T]):
     def __init__(self) -> None:
-        self._times = []  # type: List[float]
-        self._values = []  # type: List[T]
+        self._times: List[float] = []
+        self._values: List[T] = []
 
     def set(self, time: float, value: T) -> None:
         i = bisect.bisect_left(self._times, time)
@@ -24,7 +24,7 @@ class MockedState(Generic[T]):
 
     def get(self, time: float=None, default: T=None)-> T:
         if time is None:
-            time = asyncio.get_event_loop().time()
+            time = trio.current_time()
 
         i = bisect.bisect_right(self._times, time)
         if i == 0:
@@ -32,15 +32,45 @@ class MockedState(Generic[T]):
         return self._values[i - 1]
 
 
-class MockedHardwareAdapter(HardwareAdapter):
-    def __init__(self, *args: Any, simulate_sensors: bool=False, **kwargs: Any) -> None:
-        super(MockedHardwareAdapter, self).__init__(*args, **kwargs)
-        self.simulate_sensors = simulate_sensors
+class MockedUpdates:
+    def __init__(self) -> None:
+        self._updates: Dict[float, Set[HardwareUpdate]] = {}
 
-        self.io_states = {}  # type: Dict[int, int]
-        self._analogs = [MockedState() for port in range(16)]  # type: List[MockedState[int]]
-        self._digitals = [MockedState() for port in range(16)]  # type: List[MockedState[bool]]
-        self._motors = [MockedState() for port in range(4)]  # type: List[MockedState[Tuple[float, float]]]
+    def add(self, time: float, update: HardwareUpdate) -> None:
+        try:
+            updates = self._updates[time]
+        except KeyError:
+            updates = self._updates[time] = set()
+        updates.add(update)
+
+    async def __aiter__(self):
+        while self._updates:
+            next_time = min(self._updates)
+            await trio.sleep_until(next_time)
+            updates = self._updates.pop(next_time)
+            for update in updates:
+                yield update
+
+
+class MockedHardwareAdapter(HardwareAdapter):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+
+        self.io_states: Dict[int, int] = {}
+        self._updates: MockedUpdates = MockedUpdates()
+        self._analogs: List[MockedState[int]] = [MockedState() for port in range(16)]
+        self._digitals: List[MockedState[bool]] = [MockedState() for port in range(16)]
+        self._motors: List[MockedState[Tuple[float, float]]] = [MockedState() for port in range(4)]
+
+    async def __aenter__(self):
+        await super().__aenter__()
+        nursery = await self._stack.enter_async_context(trio.open_nursery())
+
+        @nursery.start_soon
+        async def emit_updates():
+            async with self._send_channel:
+                async for update in self._updates:
+                    self._enqueue_update(update)
 
     async def set_io_state(self, port, flags):
         self.io_states[port] = flags

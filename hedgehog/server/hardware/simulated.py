@@ -8,7 +8,7 @@ from hedgehog.protocol.messages import io
 
 class SimulatedHardwareAdapter(HardwareAdapter):
     def __init__(self, *args, simulate_sensors=False, **kwargs):
-        super(SimulatedHardwareAdapter, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.simulate_sensors = simulate_sensors
 
         self.io_states = {}  # type: Dict[int, int]
