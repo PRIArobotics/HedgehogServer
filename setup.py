@@ -19,7 +19,7 @@ with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
 
 setup(
     name='hedgehog-server',
-    version='0.8.0',
+    version='0.9.0a1',
     description='Hedgehog Robot Controller Server',
     long_description=long_description,
     url="https://github.com/PRIArobotics/HedgehogServer",
