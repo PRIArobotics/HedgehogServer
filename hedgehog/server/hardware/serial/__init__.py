@@ -9,7 +9,7 @@ import serial
 import serial_asyncio
 from hedgehog.platform import Controller
 from hedgehog.protocol.errors import FailedCommandError
-from . import HardwareAdapter, POWER
+from .. import HardwareAdapter, POWER
 
 # commands:
 IO_STATE = 0x10
