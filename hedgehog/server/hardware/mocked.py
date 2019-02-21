@@ -68,9 +68,8 @@ class MockedHardwareAdapter(HardwareAdapter):
 
         @nursery.start_soon
         async def emit_updates():
-            async with self._send_channel:
-                async for update in self._updates:
-                    self._enqueue_update(update)
+            async for update in self._updates:
+                self._enqueue_update(update)
 
     async def set_io_state(self, port, flags):
         self.io_states[port] = flags

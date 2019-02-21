@@ -21,32 +21,50 @@ class MotorStateUpdate(HardwareUpdate):
 
 
 class HardwareAdapter(object):
-    def __init__(self) -> None:
-        self._send_channel, self.hardware_updates = trio.open_memory_channel(10)
+    def __init__(self, *, update_buffer_size=10) -> None:
+        self._updates_in, self._updates_out = trio.open_memory_channel(update_buffer_size)
         self._stack: AsyncExitStack = None
 
     async def __aenter__(self):
         self._stack = AsyncExitStack()
-        await self._stack.enter_async_context(self._send_channel)
+        await self._stack.enter_async_context(self._updates_in)
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         return await self._stack.__aexit__(exc_type, exc_val, exc_tb)
 
     def _enqueue_update(self, update: HardwareUpdate):
+        """
+        Adds an update from the hardware to a queue.
+        This is normally done from inside the hardware adapter itself.
+        The updates can be retrieved from `self.updates`.
+
+        If the queue is full, the oldest update in the queue is discarded,
+        so it is (relatively) safe to ignore the queue when no hardware updates are needed.
+        """
         try:
             # try enqueueing the update
-            self._send_channel.send_nowait(update)
+            self._updates_in.send_nowait(update)
         except trio.WouldBlock:  # pragma: nocover
             try:
                 # the queue is full, so this must work
-                self.hardware_updates.receive_nowait()
+                # consume the least recent update in the queue
+                self._updates_out.receive_nowait()
             except trio.WouldBlock:
                 assert False
             try:
                 # now the queue can't be full, try again
-                self._send_channel.send_nowait(update)
+                self._updates_in.send_nowait(update)
             except trio.WouldBlock:
                 assert False
+
+    @property
+    def updates(self) -> trio.abc.ReceiveChannel:
+        """
+        A queue of updates from the hardware.
+        Old updates are discarded if the queue is not consumed quickly enough,
+        so it is (relatively) safe to ignore the queue when no hardware updates are needed.
+        """
+        return self._updates_out
 
     async def set_io_state(self, port: int, flags: int) -> None:
         raise UnsupportedCommandError(messages.io.Action.msg_name())
@@ -63,9 +81,6 @@ class HardwareAdapter(object):
 
     async def get_motor(self, port: int) -> Tuple[int, int]:
         raise UnsupportedCommandError(messages.motor.StateRequest.msg_name())
-
-    def motor_state_update(self, port: int, state: int) -> None:
-        self._enqueue_update(MotorStateUpdate(port, state))
 
     async def set_motor_position(self, port: int, position: int) -> None:
         raise UnsupportedCommandError(messages.motor.SetPositionAction.msg_name())
