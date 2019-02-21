@@ -133,7 +133,7 @@ class _MotorHandler(_HWHandler):
         if self.command is None:
             return
         state, amount = self.command
-        await cast(subscription.TriggeredSubscribable[Tuple[int, int], motor.CommandUpdate],
+        await cast(subscription.TriggeredSubscribable[Tuple[motor.Config, int, int], motor.CommandUpdate],
                    self.subscribables[motor.CommandSubscribe]).update((self.config, state, amount))
 
     async def action(self, state: int, amount: int, reached_state: int, relative: int, absolute: int) -> None:
@@ -155,10 +155,10 @@ class _MotorHandler(_HWHandler):
 
 
 class _ServoHandler(_HWHandler):
-    def __command_subscribable(self) -> subscription.TriggeredSubscribable[Tuple[int, int], servo.CommandUpdate]:
+    def __command_subscribable(self) -> subscription.TriggeredSubscribable[Tuple[bool, int], servo.CommandUpdate]:
         outer_self = self
 
-        class Subs(subscription.TriggeredSubscribable[Tuple[int, int], servo.CommandUpdate]):
+        class Subs(subscription.TriggeredSubscribable[Tuple[bool, int], servo.CommandUpdate]):
             def compose_update(self, server, ident, subscription, command):
                 active, position = command
                 return servo.CommandUpdate(outer_self.port, active, position, subscription)
@@ -176,7 +176,7 @@ class _ServoHandler(_HWHandler):
         if self.command is None:
             return
         active, position = self.command
-        await cast(subscription.TriggeredSubscribable[Tuple[int, int], servo.CommandUpdate],
+        await cast(subscription.TriggeredSubscribable[Tuple[bool, int], servo.CommandUpdate],
                    self.subscribables[servo.CommandSubscribe]).update((active, position))
 
     async def action(self, active: bool, position: int) -> None:
