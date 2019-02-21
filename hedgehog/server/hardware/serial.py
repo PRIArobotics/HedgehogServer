@@ -1,7 +1,10 @@
 from typing import List, Tuple
 
 import asyncio
+from contextlib import asynccontextmanager
+
 import trio
+import trio_asyncio
 import serial
 import serial_asyncio
 from hedgehog.platform import Controller
@@ -70,6 +73,7 @@ class TruncatedcommandError(FailedCommandError):
     pass
 
 
+@asynccontextmanager
 async def open_serial_connection(ser: serial.Serial, *,
                                  loop: asyncio.AbstractEventLoop=None, limit: int=asyncio.streams._DEFAULT_LIMIT
                                  ) -> Tuple[asyncio.StreamReader, asyncio.StreamWriter]:
@@ -80,7 +84,12 @@ async def open_serial_connection(ser: serial.Serial, *,
     protocol = asyncio.StreamReaderProtocol(reader, loop=loop)
     transport = serial_asyncio.SerialTransport(loop, protocol, ser)
     writer = asyncio.StreamWriter(transport, protocol, reader, loop)
-    return reader, writer
+    try:
+        yield reader, writer
+    finally:
+        # writer is the one who is handling proper shutdown
+        writer.close()
+        await trio_asyncio.aio_as_trio(writer.wait_closed)()
 
 
 class SerialHardwareAdapter(HardwareAdapter):
@@ -93,8 +102,7 @@ class SerialHardwareAdapter(HardwareAdapter):
 
     async def __aenter__(self):
         await super().__aenter__()
-        self.reader, self.writer = await open_serial_connection(self.controller.serial)
-        # TODO register cleanup
+        self.reader, self.writer = await self._stack.enter_async_context(open_serial_connection(self.controller.serial))
 
     async def repeatable_command(self, cmd: List[int], reply_code: int=OK, tries: int=3) -> List[int]:
         for i in range(tries - 1):
