@@ -9,8 +9,9 @@ import serial
 import serial_asyncio
 from hedgehog.platform import Controller
 from hedgehog.protocol.errors import FailedCommandError
+from hedgehog.utils import Registry
 from .constants import Command, Reply
-from .. import HardwareAdapter, POWER
+from .. import HardwareAdapter, HardwareUpdate, POWER
 
 
 class TruncatedcommandError(FailedCommandError):
@@ -42,11 +43,65 @@ class SerialHardwareAdapter(HardwareAdapter):
         self.controller = Controller()
         self.reader = None  # type: asyncio.StreamReader
         self.writer = None  # type: asyncio.StreamWriter
+        self._replies_in, self._replies_out = trio.open_memory_channel(10)
         self.controller.reset(True)
 
     async def __aenter__(self):
         await super().__aenter__()
+
         self.reader, self.writer = await self._stack.enter_async_context(open_serial_connection(self.controller.serial))
+
+        await self._stack.enter_async_context(self._replies_in)
+        await self._stack.enter_async_context(self._replies_out)
+
+        nursery = await self._stack.enter_async_context(trio.open_nursery())
+        await nursery.start(self._receiver)
+
+    async def _receiver(self, *, task_status=trio.TASK_STATUS_IGNORED):
+        read = trio_asyncio.aio_as_trio(self.reader.read)
+
+        decoders = Registry()
+
+        @decoders.register(Reply.SHUTDOWN)
+        def decode_shutdown(cmd: List[int]) -> HardwareUpdate:
+            raise NotImplemented
+
+        @decoders.register(Reply.EMERGENCY_STOP)
+        def decode_emergency_stop(cmd: List[int]) -> HardwareUpdate:
+            raise NotImplemented
+
+        @decoders.register(Reply.UART_UPDATE)
+        def decode_uart_update(cmd: List[int]) -> HardwareUpdate:
+            raise NotImplemented
+
+        async def read_command() -> List[int]:
+            cmd = await read(1)
+            if cmd[0] not in (Reply.SUCCESS_REPLIES | Reply.ERROR_REPLIES | Reply.UPDATES):
+                raise RuntimeError(f"HWC speaks a language we don't understand: 0x{cmd[0]:02X}")
+            if cmd[0] in Reply.LENGTHS:
+                length = Reply.LENGTHS[cmd[0]]
+                if length > 1:
+                    cmd += await read(length - 1)
+            else:
+                cmd += await read(1)
+                length = cmd[1] + 2
+                if length > 2:
+                    cmd += await read(length - 2)
+            if len(cmd) != length:
+                raise TruncatedcommandError(f"HWC sent a truncated response: {' '.join(f'{b:02X}' for b in cmd)}")
+            return list(cmd)
+
+        task_status.started()
+
+        while True:
+            # TODO handle TruncatedCommandError
+            # TODO will this abort when there's nothing to receive? We have a receive timeout configured...
+            cmd = await read_command()
+            if cmd[0] in Reply.UPDATES:
+                decode = decoders[cmd[0]]
+                self._enqueue_update(decode(cmd))
+            else:
+                await self._replies_in.send(cmd)
 
     async def repeatable_command(self, cmd: List[int], reply_code: int=Reply.OK, tries: int=3) -> List[int]:
         for i in range(tries - 1):
@@ -57,28 +112,8 @@ class SerialHardwareAdapter(HardwareAdapter):
         return await self.command(cmd, reply_code=reply_code)
 
     async def command(self, cmd: List[int], reply_code: int=Reply.OK) -> List[int]:
-        async def read_command() -> List[int]:
-            cmd = await self.reader.read(1)
-            if cmd[0] not in (Reply.SUCCESS_REPLIES | Reply.ERROR_REPLIES | Reply.UPDATES):
-                raise RuntimeError(f"HWC speaks a language we don't understand: 0x{cmd[0]:02X}")
-            if cmd[0] in Reply.LENGTHS:
-                length = Reply.LENGTHS[cmd[0]]
-                if length > 1:
-                    cmd += await self.reader.read(length - 1)
-            else:
-                cmd += await self.reader.read(1)
-                length = cmd[1] + 2
-                if length > 2:
-                    cmd += await self.reader.read(length - 2)
-            if len(cmd) != length:
-                raise TruncatedcommandError(f"HWC sent a truncated response: {' '.join(f'{b:02X}' for b in cmd)}")
-            return list(cmd)
-
         self.writer.write(bytes(cmd))
-        reply = await read_command()
-        while reply[0] not in (Reply.SUCCESS_REPLIES | Reply.ERROR_REPLIES):
-            # TODO do something with the update
-            reply = await read_command()
+        reply = await self._replies_out.receive()
 
         if reply[0] in Reply.SUCCESS_REPLIES:
             assert reply[0] == reply_code
