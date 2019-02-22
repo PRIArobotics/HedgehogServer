@@ -71,6 +71,13 @@ class MockedHardwareAdapter(HardwareAdapter):
             async for update in self._updates:
                 self._enqueue_update(update)
 
+    async def get_version(self):
+        return bytes(12), 0, 0
+
+    async def emergency_release(self):
+        # TODO emergency_release
+        pass
+
     async def set_io_config(self, port, flags):
         self.io_configs[port] = flags
 
@@ -80,6 +87,18 @@ class MockedHardwareAdapter(HardwareAdapter):
     async def get_analog(self, port):
         return self._analogs[port].get(default=0)
 
+    async def get_imu_rate(self):
+        # TODO get_imu_rate
+        return 0, 0, 0
+
+    async def get_imu_acceleration(self):
+        # TODO get_imu_acceleration
+        return 0, 0, 0
+
+    async def get_imu_pose(self):
+        # TODO get_imu_pose
+        return 0, 0, 0
+
     def set_digital(self, port: int, time: float, value: bool) -> None:
         self._digitals[port].set(time, value)
 
@@ -87,7 +106,7 @@ class MockedHardwareAdapter(HardwareAdapter):
         return self._digitals[port].get(default=False)
 
     async def set_motor(self, port, mode, amount=0, reached_state=POWER, relative=None, absolute=None):
-        # TODO set motor action
+        # TODO set_motor
         pass
 
     def set_motor_state(self, port: int, time: float, velocity: int, position: int) -> None:
@@ -97,10 +116,21 @@ class MockedHardwareAdapter(HardwareAdapter):
         return self._motors[port].get(default=(0, 0))
 
     async def set_motor_position(self, port, position):
-        # TODO set motor position
+        # TODO set_motor_position
+        pass
+
+    async def set_motor_config(self, port, config):
+        # TODO set_motor_config
         pass
 
     async def set_servo(self, port, active, position):
-        # TODO set servo position
+        # TODO set_servo
         pass
 
+    async def send_uart(self, data):
+        # TODO send_uart
+        pass
+
+    async def set_speaker(self, frequency):
+        # TODO set_speaker
+        pass

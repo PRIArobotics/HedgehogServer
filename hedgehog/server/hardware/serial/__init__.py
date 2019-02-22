@@ -9,6 +9,7 @@ import trio_asyncio
 import serial
 import serial_asyncio
 from hedgehog.platform import Controller
+from hedgehog.protocol.messages import motor
 from hedgehog.protocol.errors import FailedCommandError
 from hedgehog.utils import Registry
 from .constants import Command, Reply
@@ -152,30 +153,77 @@ class SerialHardwareAdapter(HardwareAdapter):
                 raise FailedCommandError("unsupported servo position")
             raise FailedCommandError("unknown hardware controller response")
 
+    async def get_version(self):
+        reply = await self.repeatable_command([Command.VERSION_REQ], Reply.VERSION_REP)
+        return bytes(reply[1:13]), reply[13], reply[14]
+
+    async def emergency_release(self):
+        await self.repeatable_command([Command.EMERGENCY_RELEASE])
+
     async def set_io_config(self, port, flags):
         await self.repeatable_command([Command.IO_CONFIG, port, flags])
 
     async def get_analog(self, port):
-        _, port_, value_hi, value_lo = await self.repeatable_command([Command.ANALOG_REQ, port], Reply.ANALOG_REP)
-        assert port_ == port
-        return int.from_bytes([value_hi, value_lo], 'big')
+        reply = await self.repeatable_command([Command.ANALOG_REQ, port], Reply.ANALOG_REP)
+        assert reply[1] == port
+        return int.from_bytes(reply[2:4], 'big', signed=False)
+
+    async def get_imu_rate(self):
+        reply = await self.repeatable_command([Command.IMU_RATE_REQ], Reply.IMU_RATE_REP)
+        x = int.from_bytes(reply[1:3], 'big', signed=True)
+        y = int.from_bytes(reply[3:5], 'big', signed=True)
+        z = int.from_bytes(reply[5:7], 'big', signed=True)
+        return x, y, z
+
+    async def get_imu_acceleration(self):
+        reply = await self.repeatable_command([Command.IMU_ACCEL_REQ], Reply.IMU_ACCEL_REP)
+        x = int.from_bytes(reply[1:3], 'big', signed=True)
+        y = int.from_bytes(reply[3:5], 'big', signed=True)
+        z = int.from_bytes(reply[5:7], 'big', signed=True)
+        return x, y, z
+
+    async def get_imu_pose(self):
+        reply = await self.repeatable_command([Command.IMU_POSE_REQ], Reply.IMU_POSE_REP)
+        x = int.from_bytes(reply[1:3], 'big', signed=True)
+        y = int.from_bytes(reply[3:5], 'big', signed=True)
+        z = int.from_bytes(reply[5:7], 'big', signed=True)
+        return x, y, z
 
     async def get_digital(self, port):
-        _, port_, value = await self.repeatable_command([Command.DIGITAL_REQ, port], Reply.DIGITAL_REP)
-        assert port_ == port
-        assert value & ~0x01 == 0x00
-        return value != 0
+        reply = await self.repeatable_command([Command.DIGITAL_REQ, port], Reply.DIGITAL_REP)
+        assert reply[1] == port
+        assert reply[2] & ~0x01 == 0x00
+        return reply[2] != 0
 
     async def set_motor(self, port, mode, amount=0, reached_state=POWER, relative=None, absolute=None):
         if not -0x8000 < amount < 0x8000:
             raise FailedCommandError("unsupported motor power/velocity")
-        value = amount if amount > 0 else (0x8000 | -amount)
-        value_hi, value_lo = value.to_bytes(2, 'big')
-        await self.repeatable_command([Command.MOTOR, port, mode, value_hi, value_lo])
+        await self.repeatable_command([Command.MOTOR, port, mode, *amount.to_bytes(2, 'big', signed=True)])
+
+    # TODO add HWC protocol for get_motor
+
+    # TODO add HWC protocol for set_motor_position
+
+    async def set_motor_config(self, port, config):
+        if isinstance(config, motor.DcConfig):
+            await self.repeatable_command([Command.MOTOR_CONFIG_DC, port])
+        elif isinstance(config, motor.EncoderConfig):
+            await self.repeatable_command([Command.MOTOR_CONFIG_ENCODER, port, config.encoder_a_port, config.encoder_b_port])
+        elif isinstance(config, motor.StepperConfig):
+            await self.repeatable_command([Command.MOTOR_CONFIG_STEPPER, port])
+        else:  # pragma: nocover
+            assert False
 
     async def set_servo(self, port, active, position):
         if not 0 <= position < 0x8000:
             raise FailedCommandError("unsupported servo position")
         value = position | (0x8000 if active else 0x0000)
-        value_hi, value_lo = value.to_bytes(2, 'big')
-        await self.repeatable_command([Command.SERVO, port, value_hi, value_lo])
+        await self.repeatable_command([Command.SERVO, port, *value.to_bytes(2, 'big', signed=False)])
+
+    async def send_uart(self, data):
+        if len(data) > 255:
+            raise FailedCommandError("can only send up to 255 bytes at a time")
+        await self.repeatable_command([Command.UART, len(data), *data])
+
+    async def set_speaker(self, frequency):
+        await self.repeatable_command([Command.SPEAKER, frequency])

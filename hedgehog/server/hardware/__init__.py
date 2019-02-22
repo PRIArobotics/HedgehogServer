@@ -6,7 +6,7 @@ import trio
 
 from hedgehog.protocol.errors import UnsupportedCommandError
 from hedgehog.protocol import messages
-from hedgehog.protocol.messages import io, analog, digital, servo
+from hedgehog.protocol.messages import io, analog, imu, digital, motor, servo, speaker
 from hedgehog.protocol.messages.motor import POWER
 
 
@@ -66,18 +66,41 @@ class HardwareAdapter(object):
         """
         return self._updates_out
 
+    async def get_version(self) -> Tuple[bytes, int, int]:
+        # TODO not exposed in protocol
+        raise UnsupportedCommandError("get_version")
+
+    async def emergency_release(self) -> None:
+        # TODO not exposed in protocol
+        raise UnsupportedCommandError("emergency_release")
+
     async def set_io_config(self, port: int, flags: int) -> None:
         raise UnsupportedCommandError(messages.io.Action.msg_name())
 
     async def get_analog(self, port: int) -> int:
         raise UnsupportedCommandError(messages.analog.Request.msg_name())
 
+    async def get_imu_rate(self) -> Tuple[int, int, int]:
+        raise UnsupportedCommandError(messages.imu.RateRequest.msg_name())
+
+    async def get_imu_acceleration(self) -> Tuple[int, int, int]:
+        raise UnsupportedCommandError(messages.imu.AccelerationRequest.msg_name())
+
+    async def get_imu_pose(self) -> Tuple[int, int, int]:
+        raise UnsupportedCommandError(messages.imu.PoseRequest.msg_name())
+
     async def get_digital(self, port: int) -> bool:
         raise UnsupportedCommandError(messages.digital.Request.msg_name())
 
     async def set_motor(self, port: int, mode: int, amount: int=0,
-                  reached_state: int=POWER, relative: int=None, absolute: int=None) -> None:
+                        reached_state: int=POWER, relative: int=None, absolute: int=None) -> None:
+        # TODO separate set_motor and set_motor_positional command
         raise UnsupportedCommandError(messages.motor.Action.msg_name())
+
+    # TODO add set_motor_servo command
+
+    async def set_motor_config(self, port: int, config: motor.Config) -> None:
+        raise UnsupportedCommandError(messages.motor.ConfigAction.msg_name())
 
     async def get_motor(self, port: int) -> Tuple[int, int]:
         raise UnsupportedCommandError(messages.motor.StateRequest.msg_name())
@@ -87,3 +110,10 @@ class HardwareAdapter(object):
 
     async def set_servo(self, port: int, active: bool, position: int) -> None:
         raise UnsupportedCommandError(messages.servo.Action.msg_name())
+
+    async def send_uart(self, data: bytes) -> None:
+        # TODO not exposed in protocol
+        raise UnsupportedCommandError("send_uart")
+
+    async def set_speaker(self, frequency: int) -> None:
+        raise UnsupportedCommandError(messages.speaker.Action.msg_name())
