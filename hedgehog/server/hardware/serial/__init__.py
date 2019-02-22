@@ -18,7 +18,7 @@ from .. import HardwareAdapter, HardwareUpdate, POWER
 logger = logging.getLogger(__name__)
 
 
-class TruncatedcommandError(FailedCommandError):
+class TruncatedCommandError(FailedCommandError):
     pass
 
 
@@ -96,7 +96,7 @@ class SerialHardwareAdapter(HardwareAdapter):
                 if length > 2:
                     cmd += await read(length - 2)
             if len(cmd) != length:
-                raise TruncatedcommandError(f"HWC sent a truncated response: {' '.join(f'{b:02X}' for b in cmd)}")
+                raise TruncatedCommandError(f"HWC sent a truncated response: {' '.join(f'{b:02X}' for b in cmd)}")
             return list(cmd)
 
         task_status.started()
@@ -118,7 +118,7 @@ class SerialHardwareAdapter(HardwareAdapter):
         for i in range(tries - 1):
             try:
                 return await self.command(cmd, reply_code=reply_code)
-            except TruncatedcommandError:
+            except TruncatedCommandError:
                 pass
         return await self.command(cmd, reply_code=reply_code)
 
