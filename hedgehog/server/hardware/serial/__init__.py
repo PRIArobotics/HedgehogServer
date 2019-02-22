@@ -152,8 +152,8 @@ class SerialHardwareAdapter(HardwareAdapter):
                 raise FailedCommandError("unsupported servo position")
             raise FailedCommandError("unknown hardware controller response")
 
-    async def set_io_state(self, port, flags):
-        await self.repeatable_command([Command.IO_STATE, port, flags])
+    async def set_io_config(self, port, flags):
+        await self.repeatable_command([Command.IO_CONFIG, port, flags])
 
     async def get_analog(self, port):
         _, port_, value_hi, value_lo = await self.repeatable_command([Command.ANALOG_REQ, port], Reply.ANALOG_REP)

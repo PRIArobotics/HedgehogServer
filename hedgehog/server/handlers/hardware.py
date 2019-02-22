@@ -76,7 +76,7 @@ class _IOHandler(_HWHandler):
                    self.subscribables[io.CommandSubscribe]).update(flags)
 
     async def action(self, flags: int) -> None:
-        await self.adapter.set_io_state(self.port, flags)
+        await self.adapter.set_io_config(self.port, flags)
         self.command = flags,
         await self.action_update()
 
@@ -199,7 +199,7 @@ class HardwareHandler(CommandHandler):
         # self.adapter.motor_state_update_cb = self.motor_state_update
 
     @_commands.register(io.Action)
-    async def io_state_action(self, server, ident, msg):
+    async def io_config_action(self, server, ident, msg):
         await self.ios[msg.port].action(msg.flags)
         return ack.Acknowledgement()
 

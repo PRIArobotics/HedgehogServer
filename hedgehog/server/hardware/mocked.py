@@ -56,7 +56,7 @@ class MockedHardwareAdapter(HardwareAdapter):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
-        self.io_states: Dict[int, int] = {}
+        self.io_configs: Dict[int, int] = {}
         self._updates: MockedUpdates = MockedUpdates()
         self._analogs: List[MockedState[int]] = [MockedState() for port in range(16)]
         self._digitals: List[MockedState[bool]] = [MockedState() for port in range(16)]
@@ -71,8 +71,8 @@ class MockedHardwareAdapter(HardwareAdapter):
             async for update in self._updates:
                 self._enqueue_update(update)
 
-    async def set_io_state(self, port, flags):
-        self.io_states[port] = flags
+    async def set_io_config(self, port, flags):
+        self.io_configs[port] = flags
 
     def set_analog(self, port: int, time: float, value: int) -> None:
         self._analogs[port].set(time, value)

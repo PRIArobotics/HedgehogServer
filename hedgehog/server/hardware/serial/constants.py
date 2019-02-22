@@ -9,7 +9,7 @@ class Command:
 
     # IO_CONFIG u8, port u8, on bool|pulldown bool|pullup bool|output bool
     # --> OK u8
-    IO_STATE = 0x10
+    IO_CONFIG = 0x10
 
     # ANALOG_REQ u8, port u8
     # --> ANALOG_REP u8, port u8, value u16

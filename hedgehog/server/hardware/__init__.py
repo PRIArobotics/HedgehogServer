@@ -66,7 +66,7 @@ class HardwareAdapter(object):
         """
         return self._updates_out
 
-    async def set_io_state(self, port: int, flags: int) -> None:
+    async def set_io_config(self, port: int, flags: int) -> None:
         raise UnsupportedCommandError(messages.io.Action.msg_name())
 
     async def get_analog(self, port: int) -> int:
