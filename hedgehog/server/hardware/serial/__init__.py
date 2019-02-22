@@ -70,6 +70,10 @@ class SerialHardwareAdapter(HardwareAdapter):
         def decode_emergency_stop(cmd: List[int]) -> HardwareUpdate:
             raise NotImplemented
 
+        @decoders.register(Reply.MOTOR_DONE_UPDATE)
+        def decode_motor_done_update(cmd: List[int]) -> HardwareUpdate:
+            raise NotImplemented
+
         @decoders.register(Reply.UART_UPDATE)
         def decode_uart_update(cmd: List[int]) -> HardwareUpdate:
             raise NotImplemented

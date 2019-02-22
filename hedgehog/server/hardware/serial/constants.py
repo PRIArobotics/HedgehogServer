@@ -35,17 +35,25 @@ class Command:
     # --> OK u8
     MOTOR = 0x40
 
+    # MOTOR_POSITIONAL u8, port u8, mode u8, amount s16, relative bool|done_mode u7, position s32
+    # --> (status codes)
+    MOTOR_POSITIONAL = 0x41
+
+    # MOTOR_SERVO u8, port u8, max_velocity u16, relative bool, position s32
+    # --> (status codes)
+    MOTOR_SERVO = 0x42
+
     # MOTOR_CONFIG_DC u8, port u8
     # --> OK u8
-    MOTOR_CONFIG_DC = 0x41
+    MOTOR_CONFIG_DC = 0x48
 
     # MOTOR_CONFIG_ENCODER u8, port u8, encoder_a_port u8, encoder_b_port u8
     # --> OK u8
-    MOTOR_CONFIG_ENCODER = 0x42
+    MOTOR_CONFIG_ENCODER = 0x49
 
     # MOTOR_CONFIG_STEPPER u8, port u8
     # --> OK u8
-    MOTOR_CONFIG_STEPPER = 0x43
+    MOTOR_CONFIG_STEPPER = 0x4A
 
     # SERVO u8, port u8, active bool|value u15
     # --> OK u8
@@ -77,6 +85,7 @@ class Reply:
     IMU_ACCEL_REP = 0xA3
     IMU_POSE_REP = 0xA4
     DIGITAL_REP = 0xB1
+    MOTOR_DONE_UPDATE = 0xC3
     UART_UPDATE = 0xE1
 
     # these are received for specific commands, meaning that it succeeded
@@ -114,6 +123,10 @@ class Reply:
         EMERGENCY_STOP,
 
         # (asynchronous)
+        # --> MOTOR_DONE_UPDATE u8, port u8
+        MOTOR_DONE_UPDATE,
+
+        # (asynchronous)
         # --> UART_UPDATE u8, length u8, data u8{length}
         UART_UPDATE,
     }
@@ -138,6 +151,7 @@ class Reply:
         IMU_ACCEL_REP: 7,
         IMU_POSE_REP: 7,
         DIGITAL_REP: 3,
+        MOTOR_DONE_UPDATE: 2,
         # UART_UPDATE: variable length
     }
 
@@ -155,7 +169,20 @@ class SpecialDigital:
 
 
 class MotorMode:
+    # power: use constant duty cycle
     POWER = 0x00
+    # brake: short-circuit with constant duty cycle
     BRAKE = 0x01
+    # velocity: constant speed with closed-circuit control; encoder motors only (for now)
     VELOCITY = 0x02
-    POSITION = 0x03
+
+
+class MotorDoneMode:
+    # what does a positional command do after reaching the target position?
+    # behavior in terms of a regular motor command
+    # off: power = 0
+    OFF = 0x00
+    # brake: brake = 1000
+    BRAKE = 0x01
+    # active_brake: velocity = 0
+    ACTIVE_BRAKE = 0x02
