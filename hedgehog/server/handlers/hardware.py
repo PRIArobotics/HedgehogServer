@@ -1,4 +1,4 @@
-from typing import cast, Dict, Tuple, Type
+from typing import cast, Dict, Optional, Tuple, Type
 
 import itertools
 from hedgehog.protocol import Header, Message
@@ -155,33 +155,32 @@ class _MotorHandler(_HWHandler):
 
 
 class _ServoHandler(_HWHandler):
-    def __command_subscribable(self) -> subscription.TriggeredSubscribable[Tuple[bool, int], servo.CommandUpdate]:
+    def __command_subscribable(self) -> subscription.TriggeredSubscribable[Optional[int], servo.CommandUpdate]:
         outer_self = self
 
-        class Subs(subscription.TriggeredSubscribable[Tuple[bool, int], servo.CommandUpdate]):
-            def compose_update(self, server, ident, subscription, command):
-                active, position = command
-                return servo.CommandUpdate(outer_self.port, active, position, subscription)
+        class Subs(subscription.TriggeredSubscribable[Optional[int], servo.CommandUpdate]):
+            def compose_update(self, server, ident, subscription, position):
+                return servo.CommandUpdate(outer_self.port, position, subscription)
 
         return Subs()
 
     def __init__(self, adapter: HardwareAdapter, port: int) -> None:
         super(_ServoHandler, self).__init__(adapter)
         self.port = port
-        self.command = None  # type: Tuple[bool, int]
+        self.command = None  # type: Tuple[Optional[int]]
 
         self.subscribables[servo.CommandSubscribe] = self.__command_subscribable()
 
     async def action_update(self) -> None:
         if self.command is None:
             return
-        active, position = self.command
-        await cast(subscription.TriggeredSubscribable[Tuple[bool, int], servo.CommandUpdate],
-                   self.subscribables[servo.CommandSubscribe]).update((active, position))
+        position, = self.command
+        await cast(subscription.TriggeredSubscribable[Optional[int], servo.CommandUpdate],
+                   self.subscribables[servo.CommandSubscribe]).update(position)
 
-    async def action(self, active: bool, position: int) -> None:
-        await self.adapter.set_servo(self.port, active, position if active else 0)
-        self.command = active, position
+    async def action(self, position: Optional[int]) -> None:
+        await self.adapter.set_servo(self.port, position is not None, position if position is not None else 0)
+        self.command = position,
         await self.action_update()
 
 
@@ -288,18 +287,18 @@ class HardwareHandler(CommandHandler):
 
     @_commands.register(servo.Action)
     async def servo_action(self, server, ident, msg):
-        await self.servos[msg.port].action(msg.active, msg.position)
+        await self.servos[msg.port].action(msg.position)
         return ack.Acknowledgement()
 
     @_commands.register(servo.CommandRequest)
     async def servo_command_request(self, server, ident, msg):
         command = self.servos[msg.port].command
         try:
-            active, position = command
+            position, = command
         except TypeError:
             raise FailedCommandError("no command executed yet")
         else:
-            return servo.CommandReply(msg.port, active, position)
+            return servo.CommandReply(msg.port, position)
 
     @_commands.register(servo.CommandSubscribe)
     async def servo_command_subscribe(self, server, ident, msg):
