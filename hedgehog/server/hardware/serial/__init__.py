@@ -3,6 +3,7 @@ from typing import List, Tuple
 import asyncio
 from contextlib import asynccontextmanager
 
+import logging
 import trio
 import trio_asyncio
 import serial
@@ -12,6 +13,9 @@ from hedgehog.protocol.errors import FailedCommandError
 from hedgehog.utils import Registry
 from .constants import Command, Reply
 from .. import HardwareAdapter, HardwareUpdate, POWER
+
+
+logger = logging.getLogger(__name__)
 
 
 class TruncatedcommandError(FailedCommandError):
@@ -100,7 +104,10 @@ class SerialHardwareAdapter(HardwareAdapter):
         while True:
             # TODO handle TruncatedCommandError
             # TODO will this abort when there's nothing to receive? We have a receive timeout configured...
+
+            logger.debug(f"Listening for HWC message")
             cmd = await read_command()
+            logger.debug(f"Got HWC message: {' '.join(f'{b:02X}' for b in cmd)}")
             if cmd[0] in Reply.UPDATES:
                 decode = decoders[cmd[0]]
                 self._enqueue_update(decode(cmd))
@@ -116,6 +123,7 @@ class SerialHardwareAdapter(HardwareAdapter):
         return await self.command(cmd, reply_code=reply_code)
 
     async def command(self, cmd: List[int], reply_code: int=Reply.OK) -> List[int]:
+        logger.debug(f"Send to HWC:     {' '.join(f'{b:02X}' for b in cmd)}")
         self.writer.write(bytes(cmd))
         reply = await self._replies_out.receive()
 
