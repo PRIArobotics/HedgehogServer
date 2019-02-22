@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 
 from hedgehog.protocol import ClientSide
 from hedgehog.protocol.errors import FailedCommandError
-from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, process
+from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, speaker, process
 from hedgehog.protocol.proto.subscription_pb2 import Subscription
 from hedgehog.protocol.zmq.trio import ReqSocket, DealerRouterSocket
 from hedgehog.server import handlers, HedgehogServer
@@ -816,6 +816,14 @@ async def test_servo(conn_dealer, autojump_clock):
 
         with assertTimeoutTrio(1):
             await socket.recv_multipart()
+
+
+@pytest.mark.trio
+async def test_speaker(conn_dealer, autojump_clock):
+    async with conn_dealer() as socket:
+        # ### speaker.Action
+
+        await assertReplyDealer(socket, speaker.Action(440), ack.Acknowledgement())
 
 
 def handle_streams() -> Callable[[process.StreamUpdate], Dict[int, bytes]]:

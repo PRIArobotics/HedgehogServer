@@ -3,7 +3,7 @@ from typing import cast, Dict, Tuple, Type
 import itertools
 from hedgehog.protocol import Header, Message
 from hedgehog.protocol.errors import FailedCommandError, UnsupportedCommandError
-from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo
+from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo, speaker
 from hedgehog.protocol.proto.subscription_pb2 import Subscription
 
 from . import CommandHandler, CommandRegistry
@@ -142,7 +142,7 @@ class _MotorHandler(_HWHandler):
         await self.action_update()
 
     async def config_action(self, config: motor.Config) -> None:
-        # await self.adapter.set_motor(self.port, state, amount, reached_state, relative, absolute)
+        await self.adapter.set_motor_config(self.port, config)
         self.config = config
         await self.action_update()
 
@@ -281,11 +281,6 @@ class HardwareHandler(CommandHandler):
         await self.motors[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
         return ack.Acknowledgement()
 
-    # async def motor_state_update(self, port, state):
-    #     if port in self.motor_cb:
-    #         self.motor_cb[port](port, state)
-    #         del self.motor_cb[port]
-
     @_commands.register(motor.SetPositionAction)
     async def motor_set_position_action(self, server, ident, msg):
         await self.motors[msg.port].set_position(msg.position)
@@ -310,4 +305,9 @@ class HardwareHandler(CommandHandler):
     async def servo_command_subscribe(self, server, ident, msg):
         await self.servos[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
         await self.servos[msg.port].action_update()
+        return ack.Acknowledgement()
+
+    @_commands.register(speaker.Action)
+    async def speaker_action(self, server, ident, msg):
+        await self.adapter.set_speaker(msg.frequency)
         return ack.Acknowledgement()
