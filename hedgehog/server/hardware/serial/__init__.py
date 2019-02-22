@@ -166,12 +166,12 @@ class SerialHardwareAdapter(HardwareAdapter):
         assert value & ~0x01 == 0x00
         return value != 0
 
-    async def set_motor(self, port, state, amount=0, reached_state=POWER, relative=None, absolute=None):
+    async def set_motor(self, port, mode, amount=0, reached_state=POWER, relative=None, absolute=None):
         if not -0x8000 < amount < 0x8000:
             raise FailedCommandError("unsupported motor power/velocity")
         value = amount if amount > 0 else (0x8000 | -amount)
         value_hi, value_lo = value.to_bytes(2, 'big')
-        await self.repeatable_command([Command.MOTOR, port, state, value_hi, value_lo])
+        await self.repeatable_command([Command.MOTOR, port, mode, value_hi, value_lo])
 
     async def set_servo(self, port, active, position):
         if not 0 <= position < 0x8000:

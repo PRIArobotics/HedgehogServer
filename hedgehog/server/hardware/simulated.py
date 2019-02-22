@@ -48,7 +48,7 @@ class SimulatedHardwareAdapter(HardwareAdapter):
         }[self.io_configs.get(port, io.INPUT_FLOATING)]
         return value
 
-    async def set_motor(self, port, state, amount=0, reached_state=POWER, relative=None, absolute=None):
+    async def set_motor(self, port, mode, amount=0, reached_state=POWER, relative=None, absolute=None):
         # TODO set motor action
         pass
 

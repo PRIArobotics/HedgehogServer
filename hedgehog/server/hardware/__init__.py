@@ -75,7 +75,7 @@ class HardwareAdapter(object):
     async def get_digital(self, port: int) -> bool:
         raise UnsupportedCommandError(messages.digital.Request.msg_name())
 
-    async def set_motor(self, port: int, state: int, amount: int=0,
+    async def set_motor(self, port: int, mode: int, amount: int=0,
                   reached_state: int=POWER, relative: int=None, absolute: int=None) -> None:
         raise UnsupportedCommandError(messages.motor.Action.msg_name())
 
