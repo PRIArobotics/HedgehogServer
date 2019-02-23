@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 
 from hedgehog.protocol import ClientSide
 from hedgehog.protocol.errors import FailedCommandError
-from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, process
+from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, speaker, process
 from hedgehog.protocol.proto.subscription_pb2 import Subscription
 from hedgehog.protocol.zmq.trio import ReqSocket, DealerRouterSocket
 from hedgehog.server import handlers, HedgehogServer
@@ -90,7 +90,7 @@ def hedgehog_server(trio_aio_loop, zmq_trio_ctx,
 
 
 @pytest.fixture
-async def client_req(trio_aio_loop, zmq_trio_ctx):
+def client_req(trio_aio_loop, zmq_trio_ctx):
     @asynccontextmanager
     async def connect(endpoint: str='inproc://controller'):
         async with trio_aio_loop(), zmq_trio_ctx() as ctx:
@@ -102,7 +102,7 @@ async def client_req(trio_aio_loop, zmq_trio_ctx):
 
 
 @pytest.fixture
-async def client_dealer(trio_aio_loop, zmq_trio_ctx):
+def client_dealer(trio_aio_loop, zmq_trio_ctx):
     @asynccontextmanager
     async def connect(endpoint: str='inproc://controller'):
         async with trio_aio_loop(), zmq_trio_ctx() as ctx:
@@ -114,7 +114,7 @@ async def client_dealer(trio_aio_loop, zmq_trio_ctx):
 
 
 @pytest.fixture
-async def conn_req(hedgehog_server, client_req, handler_dict: handlers.HandlerCallbackDict):
+def conn_req(hedgehog_server, client_req, handler_dict: handlers.HandlerCallbackDict):
     @asynccontextmanager
     async def connect(endpoint: str='inproc://controller', *,
                       handler_dict: handlers.HandlerCallbackDict=handler_dict):
@@ -126,7 +126,7 @@ async def conn_req(hedgehog_server, client_req, handler_dict: handlers.HandlerCa
 
 
 @pytest.fixture
-async def conn_dealer(hedgehog_server, client_dealer, handler_dict: handlers.HandlerCallbackDict):
+def conn_dealer(hedgehog_server, client_dealer, handler_dict: handlers.HandlerCallbackDict):
     @asynccontextmanager
     async def connect(endpoint: str='inproc://controller', *,
                       handler_dict: handlers.HandlerCallbackDict=handler_dict):
@@ -340,7 +340,7 @@ async def test_unsupported(conn_req, autojump_clock):
         await assertReplyReq(socket, motor.Action(0, motor.POWER), ack.UNSUPPORTED_COMMAND)
         await assertReplyReq(socket, motor.StateRequest(0), ack.UNSUPPORTED_COMMAND)
         await assertReplyReq(socket, motor.SetPositionAction(0, 0), ack.UNSUPPORTED_COMMAND)
-        await assertReplyReq(socket, servo.Action(0, True, 0), ack.UNSUPPORTED_COMMAND)
+        await assertReplyReq(socket, servo.Action(0, 0), ack.UNSUPPORTED_COMMAND)
 
 
 @pytest.mark.trio
@@ -756,11 +756,11 @@ async def test_servo(conn_dealer, autojump_clock):
 
         # ### servo.Action
 
-        await assertReplyDealer(socket, servo.Action(0, True, 0), ack.Acknowledgement())
+        await assertReplyDealer(socket, servo.Action(0, 0), ack.Acknowledgement())
 
         # ### servo.CommandRequest
 
-        await assertReplyDealer(socket, servo.CommandRequest(0), servo.CommandReply(0, True, 0))
+        await assertReplyDealer(socket, servo.CommandRequest(0), servo.CommandReply(0, 0))
 
         # ### servo.CommandSubscribe
 
@@ -775,22 +775,22 @@ async def test_servo(conn_dealer, autojump_clock):
             await assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.Acknowledgement())
 
             _, update = await socket.recv_msg()
-            assert update == servo.CommandUpdate(0, True, 0, sub)
+            assert update == servo.CommandUpdate(0, 0, sub)
 
         with assertTimeoutTrio(1):
             await socket.recv_multipart()
 
         with assertImmediate():
-            await assertReplyDealer(socket, servo.Action(0, True, 0), ack.Acknowledgement())
+            await assertReplyDealer(socket, servo.Action(0, 0), ack.Acknowledgement())
 
         with assertTimeoutTrio(1):
             await socket.recv_multipart()
 
         with assertImmediate():
-            await assertReplyDealer(socket, servo.Action(0, True, 1000), ack.Acknowledgement())
+            await assertReplyDealer(socket, servo.Action(0, 1000), ack.Acknowledgement())
 
             _, update = await socket.recv_msg()
-            assert update == servo.CommandUpdate(0, True, 1000, sub)
+            assert update == servo.CommandUpdate(0, 1000, sub)
 
         sub.subscribe = False
         await assertReplyDealer(socket, servo.CommandSubscribe(0, sub), ack.Acknowledgement())
@@ -806,16 +806,24 @@ async def test_servo(conn_dealer, autojump_clock):
             await socket.recv_multipart()
 
         with assertImmediate():
-            await assertReplyDealer(socket, servo.Action(1, True, 1000), ack.Acknowledgement())
+            await assertReplyDealer(socket, servo.Action(1, 1000), ack.Acknowledgement())
 
             _, update = await socket.recv_msg()
-            assert update == servo.CommandUpdate(1, True, 1000, sub)
+            assert update == servo.CommandUpdate(1, 1000, sub)
 
         sub.subscribe = False
         await assertReplyDealer(socket, servo.CommandSubscribe(1, sub), ack.Acknowledgement())
 
         with assertTimeoutTrio(1):
             await socket.recv_multipart()
+
+
+@pytest.mark.trio
+async def test_speaker(conn_dealer, autojump_clock):
+    async with conn_dealer() as socket:
+        # ### speaker.Action
+
+        await assertReplyDealer(socket, speaker.Action(440), ack.Acknowledgement())
 
 
 def handle_streams() -> Callable[[process.StreamUpdate], Dict[int, bytes]]:

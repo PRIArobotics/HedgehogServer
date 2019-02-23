@@ -11,10 +11,17 @@ class SimulatedHardwareAdapter(HardwareAdapter):
         super().__init__(*args, **kwargs)
         self.simulate_sensors = simulate_sensors
 
-        self.io_states = {}  # type: Dict[int, int]
+        self.io_configs = {}  # type: Dict[int, int]
 
-    async def set_io_state(self, port, flags):
-        self.io_states[port] = flags
+    async def get_version(self):
+        return bytes(12), 0, 0
+
+    async def emergency_release(self):
+        # TODO emergency_release
+        pass
+
+    async def set_io_config(self, port, flags):
+        self.io_configs[port] = flags
 
     async def get_analog(self, port):
         if not self.simulate_sensors:
@@ -26,7 +33,7 @@ class SimulatedHardwareAdapter(HardwareAdapter):
             io.INPUT_PULLDOWN: (80, 30),
             io.OUTPUT_ON: (4050, 20),
             io.OUTPUT_OFF: (50, 20),
-        }[self.io_states.get(port, io.INPUT_FLOATING)]
+        }[self.io_configs.get(port, io.INPUT_FLOATING)]
 
         num = int(random.gauss(mu, sigma))
         if num < 0:
@@ -34,6 +41,18 @@ class SimulatedHardwareAdapter(HardwareAdapter):
         if num >= 4096:
             num = 4095
         return num
+
+    async def get_imu_rate(self):
+        # TODO get_imu_rate
+        return 0, 0, 0
+
+    async def get_imu_acceleration(self):
+        # TODO get_imu_acceleration
+        return 0, 0, 0
+
+    async def get_imu_pose(self):
+        # TODO get_imu_pose
+        return 0, 0, 0
 
     async def get_digital(self, port):
         if not self.simulate_sensors:
@@ -45,10 +64,10 @@ class SimulatedHardwareAdapter(HardwareAdapter):
             io.INPUT_PULLDOWN: False,
             io.OUTPUT_ON: True,
             io.OUTPUT_OFF: False,
-        }[self.io_states.get(port, io.INPUT_FLOATING)]
+        }[self.io_configs.get(port, io.INPUT_FLOATING)]
         return value
 
-    async def set_motor(self, port, state, amount=0, reached_state=POWER, relative=None, absolute=None):
+    async def set_motor(self, port, mode, amount=0, reached_state=POWER, relative=None, absolute=None):
         # TODO set motor action
         pass
 
@@ -59,7 +78,18 @@ class SimulatedHardwareAdapter(HardwareAdapter):
         # TODO set motor position
         pass
 
-    async def set_servo(self, port, active, position):
-        # TODO set servo position
+    async def set_motor_config(self, port, config):
+        # TODO set_motor_config
         pass
 
+    async def set_servo(self, port, active, position):
+        # TODO set_servo
+        pass
+
+    async def send_uart(self, data):
+        # TODO send_uart
+        pass
+
+    async def set_speaker(self, frequency):
+        # TODO set_speaker
+        pass
