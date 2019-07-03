@@ -217,19 +217,19 @@ async def test_server_slow_job(caplog, check_caplog, conn_req, autojump_clock):
         async def task(*, task_status=trio.TASK_STATUS_IGNORED):
             task_status.started()
             async with server.job():
-                await trio.sleep(0.2)
+                await trio.sleep(0.3)
 
         await server.add_task(task)
         return ack.Acknowledgement()
 
     async with conn_req(handler_dict={io.Action: handler_callback}) as socket:
         await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.OK)
-        await trio.sleep(0.3)
+        await trio.sleep(0.4)
 
     records = [record for record in caplog.records if record.levelno >= logging.WARNING]
     assert len(records) == 2 \
            and "Long running job on server loop" in records[0].message \
-           and "Long running job finished after 200.0 ms" in records[1].message
+           and "Long running job finished after 300.0 ms" in records[1].message
     check_caplog.expected.update(records)
 
 

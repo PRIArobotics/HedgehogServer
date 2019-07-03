@@ -1,5 +1,6 @@
 from typing import AsyncIterator, Awaitable, Callable, Dict, Type
 
+import inspect
 import logging
 import trio
 import zmq
@@ -54,7 +55,7 @@ class HedgehogServer:
         task_status.started()
         while True:
             ident, msgs_raw = await self.socket.recv_msgs_raw()
-            async with self.job():
+            async with self.job(f"handle {len(msgs_raw)} requests"):
                 await self.socket.send_msgs_raw(ident, [await handle_msg(ident, msg) for msg in msgs_raw])
 
     async def add_task(self, async_fn, *args, name=None):
@@ -70,12 +71,15 @@ class HedgehogServer:
         return await self._nursery.start(async_fn_wrapper)
 
     @asynccontextmanager
-    async def job(self) -> None:
-        LONG_RUNNING_THRESHOLD = 0.1
+    async def job(self, job_name=None) -> None:
+        LONG_RUNNING_THRESHOLD = 0.2
         CANCEL_THRESHOLD = 10
 
+        if job_name is None:
+            # one frame for context manager, two frames for caller
+            _, _, _, job_name, _, _ = inspect.stack()[2]
+
         async with self._lock:
-            job = None  # TODO identify the job
             nursery = None
             manually_cancelled = False
             begin = trio.current_time()
@@ -86,7 +90,7 @@ class HedgehogServer:
                     @nursery.start_soon
                     async def warn_long_running():
                         await trio.sleep(LONG_RUNNING_THRESHOLD)
-                        logger.warning("Long running job on server loop: %s", job)
+                        logger.warning("Long running job on server loop: %s", job_name)
 
                     yield
 
@@ -98,10 +102,10 @@ class HedgehogServer:
 
                 end = trio.current_time()
                 if nursery.cancel_scope.cancelled_caught and not manually_cancelled:
-                    logger.error("Long running job cancelled after %.1f ms: %s", (end - begin) * 1000, job)
+                    logger.error("Long running job cancelled after %.1f ms: %s", (end - begin) * 1000, job_name)
                     raise trio.TooSlowError
                 elif end - begin > LONG_RUNNING_THRESHOLD:
-                    logger.warning("Long running job finished after %.1f ms: %s", (end - begin) * 1000, job)
+                    logger.warning("Long running job finished after %.1f ms: %s", (end - begin) * 1000, job_name)
 
     async def send_async(self, ident: Header, *msgs: Message) -> None:
         for msg in msgs:

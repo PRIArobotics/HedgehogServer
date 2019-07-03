@@ -369,7 +369,7 @@ class TriggeredSubscribable(Subscribable[T, Upd]):
 
     async def _update_sender(self, server: HedgehogServer, ident: Header, subscription: Subscription):
         async for value in self.streamer.subscribe(subscription.timeout / 1000):
-            async with server.job():
+            async with server.job("triggered subscription update"):
                 await server.send_async(ident, self.compose_update(server, ident, subscription, value))
 
     async def subscribe(self, server: HedgehogServer, ident: Header, subscription: Subscription) -> None:
@@ -439,7 +439,7 @@ class PolledSubscribable(Subscribable[T, Upd]):
 
     async def _update_sender(self, server: HedgehogServer, ident: Header, subscription: Subscription):
         async for value in self.streamer.subscribe(subscription.timeout / 1000):
-            async with server.job():
+            async with server.job("polled subscription update"):
                 await server.send_async(ident, self.compose_update(server, ident, subscription, value))
 
     async def register(self, server: HedgehogServer) -> None:
