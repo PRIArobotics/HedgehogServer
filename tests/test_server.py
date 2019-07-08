@@ -34,7 +34,7 @@ def hardware_adapter():
 
 @pytest.fixture
 def handler_dict(hardware_adapter: HardwareAdapter) -> handlers.HandlerCallbackDict:
-    return handlers.merge(HardwareHandler(hardware_adapter), ProcessHandler(hardware_adapter))
+    return handlers.merge(HardwareHandler(hardware_adapter), ProcessHandler())
 
 
 @pytest.fixture
@@ -187,9 +187,9 @@ async def assertReplyDealer(socket, req: Message,
     return response
 
 
-def test_merge(hardware_adapter):
+def test_merge():
     with pytest.raises(ValueError):
-        handlers.merge(ProcessHandler(hardware_adapter), ProcessHandler(hardware_adapter))
+        handlers.merge(ProcessHandler(), ProcessHandler())
 
 
 @pytest.mark.trio
