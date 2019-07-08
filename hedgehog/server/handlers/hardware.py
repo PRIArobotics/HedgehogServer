@@ -1,4 +1,4 @@
-from typing import cast, Dict, Optional, Tuple, Type
+from typing import cast, Dict, List, Optional, Tuple, Type
 
 from contextlib import AsyncExitStack
 import itertools
@@ -196,9 +196,9 @@ class HardwareHandler(CommandHandler):
         self.adapter = adapter
         self._stack: AsyncExitStack = None
         # TODO hard-coded number of ports
-        self.ios = {port: _IOHandler(adapter, port) for port in itertools.chain(range(0, 16), (0x80, 0x90, 0x91))}
-        self.motors = [_MotorHandler(adapter, port) for port in range(0, 4)]
-        self.servos = [_ServoHandler(adapter, port) for port in range(0, 6)]
+        self.ios: Dict[int, _IOHandler] = None
+        self.motors: List[_MotorHandler] = None
+        self.servos: List[_ServoHandler] = None
         # self.motor_cb = {}
         # self.adapter.motor_state_update_cb = self.motor_state_update
 
@@ -217,6 +217,23 @@ class HardwareHandler(CommandHandler):
             logger.debug(f"HWC firmware version = {sw_version}")
         except HedgehogCommandError:
             logger.debug(f"HWC firmware old (get_version failed)")
+
+            uc_id, hw_version, sw_version = bytes(12), 3, 0
+
+        port_numbers = {
+            # hw_version: IO, motors, servos
+            # TODO HW revisions 0-2
+            3: (16, 4, 6),
+        }
+
+        # default to HW version 3 (
+        effective_hw_version = hw_version if hw_version in port_numbers else 3
+
+        ios, motors, servos = port_numbers[effective_hw_version]
+
+        self.ios = {port: _IOHandler(self.adapter, port) for port in itertools.chain(range(0, ios), (0x80, 0x90, 0x91))}
+        self.motors = [_MotorHandler(self.adapter, port) for port in range(0, motors)]
+        self.servos = [_ServoHandler(self.adapter, port) for port in range(0, servos)]
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         return await self._stack.__aexit__(exc_type, exc_val, exc_tb)
