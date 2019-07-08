@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 
 from hedgehog.protocol import ClientSide
 from hedgehog.protocol.errors import FailedCommandError
-from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, speaker, process
+from hedgehog.protocol.messages import Message, ack, io, analog, digital, imu, motor, servo, speaker, process
 from hedgehog.protocol.proto.subscription_pb2 import Subscription
 from hedgehog.protocol.zmq.trio import ReqSocket, DealerRouterSocket
 from hedgehog.server import handlers, HedgehogServer
@@ -342,6 +342,9 @@ async def test_unsupported(conn_req, autojump_clock):
         await assertReplyReq(socket, io.Action(0, io.INPUT_PULLDOWN), ack.UNSUPPORTED_COMMAND)
         await assertReplyReq(socket, analog.Request(0), ack.UNSUPPORTED_COMMAND)
         await assertReplyReq(socket, digital.Request(0), ack.UNSUPPORTED_COMMAND)
+        await assertReplyReq(socket, imu.RateRequest(), ack.UNSUPPORTED_COMMAND)
+        await assertReplyReq(socket, imu.AccelerationRequest(), ack.UNSUPPORTED_COMMAND)
+        await assertReplyReq(socket, imu.PoseRequest(), ack.UNSUPPORTED_COMMAND)
         await assertReplyReq(socket, motor.Action(0, motor.POWER), ack.UNSUPPORTED_COMMAND)
         await assertReplyReq(socket, motor.StateRequest(0), ack.UNSUPPORTED_COMMAND)
         await assertReplyReq(socket, motor.SetPositionAction(0, 0), ack.UNSUPPORTED_COMMAND)
@@ -635,6 +638,87 @@ async def test_digital(conn_dealer, autojump_clock):
 
         sub.subscribe = False
         await assertReplyDealer(socket, digital.Subscribe(0, sub), ack.Acknowledgement())
+
+
+@pytest.mark.trio
+async def test_imu_rate(conn_dealer, autojump_clock):
+    async with conn_dealer() as socket:
+        # ### imu.RateRequest
+
+        await assertReplyDealer(socket, imu.RateRequest(), imu.RateReply(0, 0, 0))
+
+        # ### imu.RateSubscribe
+
+        sub = Subscription()
+        sub.subscribe = False
+        sub.timeout = 1000
+        await assertReplyDealer(socket, imu.RateSubscribe(sub), ack.FAILED_COMMAND)
+
+        with assertImmediate():
+            sub = Subscription()
+            sub.subscribe = True
+            sub.timeout = 1000
+            await assertReplyDealer(socket, imu.RateSubscribe(sub), ack.Acknowledgement())
+
+            _, update = await socket.recv_msg()
+            assert update == imu.RateUpdate(0, 0, 0, sub)
+
+        sub.subscribe = False
+        await assertReplyDealer(socket, imu.RateSubscribe(sub), ack.Acknowledgement())
+
+
+@pytest.mark.trio
+async def test_imu_acceleration(conn_dealer, autojump_clock):
+    async with conn_dealer() as socket:
+        # ### imu.AccelerationRequest
+
+        await assertReplyDealer(socket, imu.AccelerationRequest(), imu.AccelerationReply(0, 0, 0))
+
+        # ### imu.AccelerationSubscribe
+
+        sub = Subscription()
+        sub.subscribe = False
+        sub.timeout = 1000
+        await assertReplyDealer(socket, imu.AccelerationSubscribe(sub), ack.FAILED_COMMAND)
+
+        with assertImmediate():
+            sub = Subscription()
+            sub.subscribe = True
+            sub.timeout = 1000
+            await assertReplyDealer(socket, imu.AccelerationSubscribe(sub), ack.Acknowledgement())
+
+            _, update = await socket.recv_msg()
+            assert update == imu.AccelerationUpdate(0, 0, 0, sub)
+
+        sub.subscribe = False
+        await assertReplyDealer(socket, imu.AccelerationSubscribe(sub), ack.Acknowledgement())
+
+
+@pytest.mark.trio
+async def test_imu_pose(conn_dealer, autojump_clock):
+    async with conn_dealer() as socket:
+        # ### imu.PoseRequest
+
+        await assertReplyDealer(socket, imu.PoseRequest(), imu.PoseReply(0, 0, 0))
+
+        # ### imu.PoseSubscribe
+
+        sub = Subscription()
+        sub.subscribe = False
+        sub.timeout = 1000
+        await assertReplyDealer(socket, imu.PoseSubscribe(sub), ack.FAILED_COMMAND)
+
+        with assertImmediate():
+            sub = Subscription()
+            sub.subscribe = True
+            sub.timeout = 1000
+            await assertReplyDealer(socket, imu.PoseSubscribe(sub), ack.Acknowledgement())
+
+            _, update = await socket.recv_msg()
+            assert update == imu.PoseUpdate(0, 0, 0, sub)
+
+        sub.subscribe = False
+        await assertReplyDealer(socket, imu.PoseSubscribe(sub), ack.Acknowledgement())
 
 
 @pytest.mark.trio

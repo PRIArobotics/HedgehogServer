@@ -5,7 +5,7 @@ import itertools
 import logging
 from hedgehog.protocol import Header, Message
 from hedgehog.protocol.errors import HedgehogCommandError, FailedCommandError, UnsupportedCommandError
-from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo, speaker
+from hedgehog.protocol.messages import ack, io, analog, digital, imu, motor, servo, speaker
 from hedgehog.protocol.proto.subscription_pb2 import Subscription
 
 from . import CommandHandler, CommandRegistry
@@ -91,6 +91,62 @@ class _IOHandler(_HWHandler):
     @property
     async def digital_value(self) -> bool:
         return await self.adapter.get_digital(self.port)
+
+
+class _IMUHandler(_HWHandler):
+    def __rate_subscribable(self) -> subscription.PolledSubscribable[Tuple[int, int, int], imu.RateUpdate]:
+        outer_self = self
+
+        class Subs(subscription.PolledSubscribable[Tuple[int, int, int], imu.RateUpdate]):
+            async def poll(self):
+                return await outer_self.rate_value
+
+            def compose_update(self, server, ident, subscription, value):
+                return imu.RateUpdate(*value, subscription)
+
+        return Subs()
+
+    def __accelleration_subscribable(self) -> subscription.PolledSubscribable[Tuple[int, int, int], imu.AccelerationUpdate]:
+        outer_self = self
+
+        class Subs(subscription.PolledSubscribable[Tuple[int, int, int], imu.AccelerationUpdate]):
+            async def poll(self):
+                return await outer_self.acceleration_value
+
+            def compose_update(self, server, ident, subscription, value):
+                return imu.AccelerationUpdate(*value, subscription)
+
+        return Subs()
+
+    def __pose_subscribable(self) -> subscription.PolledSubscribable[Tuple[int, int, int], imu.PoseUpdate]:
+        outer_self = self
+
+        class Subs(subscription.PolledSubscribable[Tuple[int, int, int], imu.PoseUpdate]):
+            async def poll(self):
+                return await outer_self.pose_value
+
+            def compose_update(self, server, ident, subscription, value):
+                return imu.PoseUpdate(*value, subscription)
+
+        return Subs()
+
+    def __init__(self, adapter: HardwareAdapter) -> None:
+        super(_IMUHandler, self).__init__(adapter)
+        self.subscribables[imu.RateSubscribe] = self.__rate_subscribable()
+        self.subscribables[imu.AccelerationSubscribe] = self.__accelleration_subscribable()
+        self.subscribables[imu.PoseSubscribe] = self.__pose_subscribable()
+
+    @property
+    async def rate_value(self) -> Tuple[int, int, int]:
+        return await self.adapter.get_imu_rate()
+
+    @property
+    async def acceleration_value(self) -> Tuple[int, int, int]:
+        return await self.adapter.get_imu_acceleration()
+
+    @property
+    async def pose_value(self) -> Tuple[int, int, int]:
+        return await self.adapter.get_imu_pose()
 
 
 class _MotorHandler(_HWHandler):
@@ -196,6 +252,7 @@ class HardwareHandler(CommandHandler):
         self.adapter = adapter
         self._stack: AsyncExitStack = None
         # TODO hard-coded number of ports
+        self.imu: _IMUHandler = None
         self.ios: Dict[int, _IOHandler] = None
         self.motors: List[_MotorHandler] = None
         self.servos: List[_ServoHandler] = None
@@ -231,6 +288,7 @@ class HardwareHandler(CommandHandler):
 
         ios, motors, servos = port_numbers[effective_hw_version]
 
+        self.imu = _IMUHandler(self.adapter)
         self.ios = {port: _IOHandler(self.adapter, port) for port in itertools.chain(range(0, ios), (0x80, 0x90, 0x91))}
         self.motors = [_MotorHandler(self.adapter, port) for port in range(0, motors)]
         self.servos = [_ServoHandler(self.adapter, port) for port in range(0, servos)]
@@ -277,6 +335,36 @@ class HardwareHandler(CommandHandler):
     @_commands.register(digital.Subscribe)
     async def digital_subscribe(self, server, ident, msg):
         await self.ios[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
+        return ack.Acknowledgement()
+
+    @_commands.register(imu.RateRequest)
+    async def imu_rate_request(self, server, ident, msg):
+        value = await self.imu.rate_value
+        return imu.RateReply(*value)
+
+    @_commands.register(imu.RateSubscribe)
+    async def imu_rate_subscribe(self, server, ident, msg):
+        await self.imu.subscribe(server, ident, msg.__class__, msg.subscription)
+        return ack.Acknowledgement()
+
+    @_commands.register(imu.AccelerationRequest)
+    async def imu_acceleration_request(self, server, ident, msg):
+        value = await self.imu.acceleration_value
+        return imu.AccelerationReply(*value)
+
+    @_commands.register(imu.AccelerationSubscribe)
+    async def imu_acceleration_subscribe(self, server, ident, msg):
+        await self.imu.subscribe(server, ident, msg.__class__, msg.subscription)
+        return ack.Acknowledgement()
+
+    @_commands.register(imu.PoseRequest)
+    async def imu_pose_request(self, server, ident, msg):
+        value = await self.imu.pose_value
+        return imu.PoseReply(*value)
+
+    @_commands.register(imu.PoseSubscribe)
+    async def imu_pose_subscribe(self, server, ident, msg):
+        await self.imu.subscribe(server, ident, msg.__class__, msg.subscription)
         return ack.Acknowledgement()
 
     @_commands.register(motor.Action)
