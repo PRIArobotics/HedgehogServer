@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 
 from hedgehog.protocol import ClientSide
 from hedgehog.protocol.errors import FailedCommandError
-from hedgehog.protocol.messages import Message, ack, io, analog, digital, imu, motor, servo, speaker, process
+from hedgehog.protocol.messages import Message, ack, version, emergency, io, analog, digital, imu, motor, servo, speaker, process
 from hedgehog.protocol.proto.subscription_pb2 import Subscription
 from hedgehog.protocol.zmq.trio import ReqSocket, DealerRouterSocket
 from hedgehog.server import handlers, HedgehogServer
@@ -349,6 +349,22 @@ async def test_unsupported(conn_req, autojump_clock):
         await assertReplyReq(socket, motor.StateRequest(0), ack.UNSUPPORTED_COMMAND)
         await assertReplyReq(socket, motor.SetPositionAction(0, 0), ack.UNSUPPORTED_COMMAND)
         await assertReplyReq(socket, servo.Action(0, 0), ack.UNSUPPORTED_COMMAND)
+
+
+@pytest.mark.trio
+async def test_version(conn_dealer, autojump_clock):
+    async with conn_dealer() as socket:
+        # ### version.Request
+
+        await assertReplyDealer(socket, version.Request(), version.Reply(bytes(12), "3", "0", "0.9.0a2"))
+
+
+@pytest.mark.trio
+async def test_emergency(conn_dealer, autojump_clock):
+    async with conn_dealer() as socket:
+        # ### emergency.ReleaseAction
+
+        await assertReplyDealer(socket, emergency.ReleaseAction(), ack.Acknowledgement())
 
 
 @pytest.mark.trio

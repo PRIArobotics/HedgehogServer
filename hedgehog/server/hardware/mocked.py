@@ -75,7 +75,7 @@ class MockedHardwareAdapter(HardwareAdapter):
                 self._enqueue_update(update)
 
     async def get_version(self):
-        return bytes(12), 0, 0
+        return bytes(12), 3, 0
 
     async def emergency_release(self):
         # TODO emergency_release

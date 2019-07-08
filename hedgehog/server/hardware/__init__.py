@@ -6,7 +6,7 @@ import trio
 
 from hedgehog.protocol.errors import UnsupportedCommandError
 from hedgehog.protocol import messages
-from hedgehog.protocol.messages import io, analog, imu, digital, motor, servo, speaker
+from hedgehog.protocol.messages import version, emergency, io, analog, imu, digital, motor, servo, speaker
 from hedgehog.protocol.messages.motor import POWER
 
 
@@ -67,12 +67,10 @@ class HardwareAdapter(object):
         return self._updates_out
 
     async def get_version(self) -> Tuple[bytes, int, int]:
-        # TODO not exposed in protocol
-        raise UnsupportedCommandError("get_version")
+        raise UnsupportedCommandError(messages.version.Request.msg_name())
 
     async def emergency_release(self) -> None:
-        # TODO not exposed in protocol
-        raise UnsupportedCommandError("emergency_release")
+        raise UnsupportedCommandError(messages.emergency.ReleaseAction.msg_name())
 
     async def set_io_config(self, port: int, flags: int) -> None:
         raise UnsupportedCommandError(messages.io.Action.msg_name())

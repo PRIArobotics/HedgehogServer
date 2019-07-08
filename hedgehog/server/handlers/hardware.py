@@ -5,7 +5,7 @@ import itertools
 import logging
 from hedgehog.protocol import Header, Message
 from hedgehog.protocol.errors import HedgehogCommandError, FailedCommandError, UnsupportedCommandError
-from hedgehog.protocol.messages import ack, io, analog, digital, imu, motor, servo, speaker
+from hedgehog.protocol.messages import ack, version, emergency, io, analog, digital, imu, motor, servo, speaker
 from hedgehog.protocol.proto.subscription_pb2 import Subscription
 
 from . import CommandHandler, CommandRegistry
@@ -295,6 +295,16 @@ class HardwareHandler(CommandHandler):
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         return await self._stack.__aexit__(exc_type, exc_val, exc_tb)
+
+    @_commands.register(version.Request)
+    async def version_request(self, server, ident, msg):
+        uc_id, hw_version, sw_version = await self.adapter.get_version()
+        return version.Reply(uc_id, str(hw_version), str(sw_version), "0.9.0a2")
+
+    @_commands.register(emergency.ReleaseAction)
+    async def emergency_release_action(self, server, ident, msg):
+        await self.adapter.emergency_release()
+        return ack.Acknowledgement()
 
     @_commands.register(io.Action)
     async def io_config_action(self, server, ident, msg):
