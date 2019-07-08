@@ -33,8 +33,13 @@ def hardware_adapter():
 
 
 @pytest.fixture
-def handler_dict(hardware_adapter: HardwareAdapter) -> handlers.HandlerCallbackDict:
-    return handlers.merge(HardwareHandler(hardware_adapter), ProcessHandler())
+def hardware_handler(hardware_adapter: HardwareAdapter):
+    return HardwareHandler(hardware_adapter)
+
+
+@pytest.fixture
+def handler_dict(hardware_handler: HardwareHandler) -> handlers.HandlerCallbackDict:
+    return handlers.merge(hardware_handler, ProcessHandler())
 
 
 @pytest.fixture
@@ -73,11 +78,11 @@ def zmq_trio_ctx():
 
 @pytest.fixture
 def hedgehog_server(trio_aio_loop, zmq_trio_ctx,
-                    hardware_adapter: HardwareAdapter, handler_dict: handlers.HandlerCallbackDict):
+                    hardware_handler: HardwareHandler, handler_dict: handlers.HandlerCallbackDict):
     @asynccontextmanager
     async def start_server(endpoint: str='inproc://controller', *,
                            handler_dict: handlers.HandlerCallbackDict=handler_dict):
-        async with trio_aio_loop(), zmq_trio_ctx() as ctx, hardware_adapter, trio.open_nursery() as nursery:
+        async with trio_aio_loop(), zmq_trio_ctx() as ctx, hardware_handler, trio.open_nursery() as nursery:
             server = HedgehogServer(ctx, endpoint, handler_dict)
             await nursery.start(server.run)
 

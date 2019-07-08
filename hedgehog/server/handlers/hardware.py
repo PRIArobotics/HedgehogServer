@@ -1,8 +1,10 @@
 from typing import cast, Dict, Optional, Tuple, Type
 
+from contextlib import AsyncExitStack
 import itertools
+import logging
 from hedgehog.protocol import Header, Message
-from hedgehog.protocol.errors import FailedCommandError, UnsupportedCommandError
+from hedgehog.protocol.errors import HedgehogCommandError, FailedCommandError, UnsupportedCommandError
 from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo, speaker
 from hedgehog.protocol.proto.subscription_pb2 import Subscription
 
@@ -10,6 +12,8 @@ from . import CommandHandler, CommandRegistry
 from .. import subscription
 from ..hardware import HardwareAdapter
 from ..hedgehog_server import HedgehogServer
+
+logger = logging.getLogger(__name__)
 
 
 class _HWHandler(object):
@@ -190,12 +194,32 @@ class HardwareHandler(CommandHandler):
     def __init__(self, adapter: HardwareAdapter) -> None:
         super().__init__()
         self.adapter = adapter
+        self._stack: AsyncExitStack = None
         # TODO hard-coded number of ports
         self.ios = {port: _IOHandler(adapter, port) for port in itertools.chain(range(0, 16), (0x80, 0x90, 0x91))}
         self.motors = [_MotorHandler(adapter, port) for port in range(0, 4)]
         self.servos = [_ServoHandler(adapter, port) for port in range(0, 6)]
         # self.motor_cb = {}
         # self.adapter.motor_state_update_cb = self.motor_state_update
+
+    async def __aenter__(self):
+        self._stack = AsyncExitStack()
+        await self._stack.enter_async_context(self.adapter)
+
+        try:
+            uc_id, hw_version, sw_version = await self.adapter.get_version()
+
+            if uc_id == bytes(12):
+                logger.debug(f"HWC ID = {':'.join(f'{b:02x}' for b in uc_id)} (simulated)")
+            else:  # pragma: nocover
+                logger.debug(f"HWC ID = {':'.join(f'{b:02x}' for b in uc_id)}")
+            logger.debug(f"HWC hardware version = {hw_version}")
+            logger.debug(f"HWC firmware version = {sw_version}")
+        except HedgehogCommandError:
+            logger.debug(f"HWC firmware old (get_version failed)")
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        return await self._stack.__aexit__(exc_type, exc_val, exc_tb)
 
     @_commands.register(io.Action)
     async def io_config_action(self, server, ident, msg):
