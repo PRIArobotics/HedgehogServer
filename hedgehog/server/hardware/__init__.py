@@ -69,7 +69,7 @@ class HardwareAdapter(object):
     async def get_version(self) -> Tuple[bytes, int, int]:
         raise UnsupportedCommandError(messages.version.Request.msg_name())
 
-    async def emergency_release(self) -> None:
+    async def emergency_action(self, activate) -> None:
         raise UnsupportedCommandError(messages.emergency.Action.msg_name())
 
     async def set_io_config(self, port: int, flags: int) -> None:

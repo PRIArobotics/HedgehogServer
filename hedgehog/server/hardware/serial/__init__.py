@@ -10,7 +10,7 @@ import serial
 import serial_asyncio
 from hedgehog.platform import Controller
 from hedgehog.protocol.messages import motor
-from hedgehog.protocol.errors import FailedCommandError
+from hedgehog.protocol.errors import FailedCommandError, UnsupportedCommandError
 from hedgehog.utils import Registry
 from .constants import Command, Reply
 from .. import HardwareAdapter, HardwareUpdate, POWER
@@ -157,8 +157,11 @@ class SerialHardwareAdapter(HardwareAdapter):
         reply = await self.repeatable_command([Command.VERSION_REQ], Reply.VERSION_REP)
         return bytes(reply[1:13]), reply[13], reply[14]
 
-    async def emergency_release(self):
-        await self.repeatable_command([Command.EMERGENCY_RELEASE])
+    async def emergency_action(self, activate) -> None:
+        if activate:
+            raise UnsupportedCommandError("only deactivating HWC emergency stop is implemented at the moment")
+        else:
+            await self.repeatable_command([Command.EMERGENCY_RELEASE])
 
     async def set_io_config(self, port, flags):
         await self.repeatable_command([Command.IO_CONFIG, port, flags])

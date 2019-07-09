@@ -365,7 +365,6 @@ async def test_emergency(conn_dealer, autojump_clock):
         # ### emergency.Action
 
         await assertReplyDealer(socket, emergency.Action(False), ack.Acknowledgement())
-        await assertReplyDealer(socket, emergency.Action(True), ack.UNSUPPORTED_COMMAND)
 
         # ### emergency.Request
 

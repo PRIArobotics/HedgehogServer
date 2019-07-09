@@ -53,11 +53,7 @@ class _EmergencyHandler(_HWHandler):
                    self.subscribables[emergency.Subscribe]).update(active)
 
     async def action(self, activate: bool) -> None:
-        if activate:
-            raise UnsupportedCommandError("only deactivating HWC emergency stop is implemented at the moment")
-        else:
-            await self.adapter.emergency_release()
-
+        await self.adapter.emergency_action(activate)
         self.state = activate,
         await self.state_update()
 

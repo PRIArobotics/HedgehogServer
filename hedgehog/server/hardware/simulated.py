@@ -16,8 +16,8 @@ class SimulatedHardwareAdapter(HardwareAdapter):
     async def get_version(self):
         return bytes(12), 0, 0
 
-    async def emergency_release(self):
-        # TODO emergency_release
+    async def emergency_action(self, activate):
+        # TODO emergency_action
         pass
 
     async def set_io_config(self, port, flags):
