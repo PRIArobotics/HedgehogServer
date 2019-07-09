@@ -367,6 +367,30 @@ async def test_emergency(conn_dealer, autojump_clock):
         await assertReplyDealer(socket, emergency.Action(False), ack.Acknowledgement())
         await assertReplyDealer(socket, emergency.Action(True), ack.UNSUPPORTED_COMMAND)
 
+        # ### emergency.Request
+
+        await assertReplyDealer(socket, emergency.Request(), ack.UNSUPPORTED_COMMAND)
+
+        # ### emergency.Subscribe
+
+        sub = Subscription()
+        sub.subscribe = False
+        sub.timeout = 1000
+        await assertReplyDealer(socket, emergency.Subscribe(sub), ack.FAILED_COMMAND)
+
+        with assertImmediate():
+            sub = Subscription()
+            sub.subscribe = True
+            sub.timeout = 1000
+            await assertReplyDealer(socket, emergency.Subscribe(sub), ack.Acknowledgement())
+
+            # TODO subscriptions dont work properly yet
+            # _, update = await socket.recv_msg()
+            # assert update == emergency.Update(False, sub)
+
+        sub.subscribe = False
+        await assertReplyDealer(socket, emergency.Subscribe(sub), ack.Acknowledgement())
+
 
 @pytest.mark.trio
 async def test_io(conn_dealer, autojump_clock):

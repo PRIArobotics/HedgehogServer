@@ -30,6 +30,42 @@ class _HWHandler(object):
             await subscribable.subscribe(server, ident, subscription)
 
 
+class _EmergencyHandler(_HWHandler):
+    def __state_subscribable(self) -> subscription.TriggeredSubscribable[bool, emergency.Update]:
+        outer_self = self
+
+        class Subs(subscription.TriggeredSubscribable[bool, emergency.Update]):
+            def compose_update(self, server, ident, subscription, active):
+                return emergency.Update(active, subscription)
+
+        return Subs()
+
+    def __init__(self, adapter: HardwareAdapter) -> None:
+        super(_EmergencyHandler, self).__init__(adapter)
+        self.state = None  # type: Tuple[bool]
+        self.subscribables[emergency.Subscribe] = self.__state_subscribable()
+
+    async def state_update(self) -> None:
+        if self.state is None:
+            return
+        active, = self.state
+        await cast(subscription.TriggeredSubscribable[bool, emergency.Update],
+                   self.subscribables[emergency.Subscribe]).update(active)
+
+    async def action(self, activate: bool) -> None:
+        if activate:
+            raise UnsupportedCommandError("only deactivating HWC emergency stop is implemented at the moment")
+        else:
+            await self.adapter.emergency_release()
+
+        self.state = activate,
+        await self.state_update()
+
+    @property
+    async def emergency_state(self) -> bool:
+        raise UnsupportedCommandError("getting HWC emergency stop state is not implemented at the moment")
+
+
 class _IOHandler(_HWHandler):
     def __command_subscribable(self) -> subscription.TriggeredSubscribable[int, io.CommandUpdate]:
         outer_self = self
@@ -251,7 +287,7 @@ class HardwareHandler(CommandHandler):
         super().__init__()
         self.adapter = adapter
         self._stack: AsyncExitStack = None
-        # TODO hard-coded number of ports
+        self.emergency: _EmergencyHandler = None
         self.imu: _IMUHandler = None
         self.ios: Dict[int, _IOHandler] = None
         self.motors: List[_MotorHandler] = None
@@ -288,6 +324,7 @@ class HardwareHandler(CommandHandler):
 
         ios, motors, servos = port_numbers[effective_hw_version]
 
+        self.emergency = _EmergencyHandler(self.adapter)
         self.imu = _IMUHandler(self.adapter)
         self.ios = {port: _IOHandler(self.adapter, port) for port in itertools.chain(range(0, ios), (0x80, 0x90, 0x91))}
         self.motors = [_MotorHandler(self.adapter, port) for port in range(0, motors)]
@@ -303,11 +340,18 @@ class HardwareHandler(CommandHandler):
 
     @_commands.register(emergency.Action)
     async def emergency_release_action(self, server, ident, msg):
-        if msg.activate:
-            raise UnsupportedCommandError("only deactivating HWC emergency stop is implemented at the moment")
-        else:
-            await self.adapter.emergency_release()
-            return ack.Acknowledgement()
+        await self.emergency.action(msg.activate)
+        return ack.Acknowledgement()
+
+    @_commands.register(emergency.Request)
+    async def emergency_request(self, server, ident, msg):
+        active = await self.emergency.emergency_state
+        return emergency.Reply(active)
+
+    @_commands.register(emergency.Subscribe)
+    async def emergency_subscribe(self, server, ident, msg):
+        await self.emergency.subscribe(server, ident, msg.__class__, msg.subscription)
+        return ack.Acknowledgement()
 
     @_commands.register(io.Action)
     async def io_config_action(self, server, ident, msg):
