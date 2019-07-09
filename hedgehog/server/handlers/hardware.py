@@ -301,10 +301,13 @@ class HardwareHandler(CommandHandler):
         uc_id, hw_version, sw_version = await self.adapter.get_version()
         return version.Reply(uc_id, str(hw_version), str(sw_version), "0.9.0a2")
 
-    @_commands.register(emergency.ReleaseAction)
+    @_commands.register(emergency.Action)
     async def emergency_release_action(self, server, ident, msg):
-        await self.adapter.emergency_release()
-        return ack.Acknowledgement()
+        if msg.activate:
+            raise UnsupportedCommandError("only deactivating HWC emergency stop is implemented at the moment")
+        else:
+            await self.adapter.emergency_release()
+            return ack.Acknowledgement()
 
     @_commands.register(io.Action)
     async def io_config_action(self, server, ident, msg):

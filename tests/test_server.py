@@ -362,9 +362,10 @@ async def test_version(conn_dealer, autojump_clock):
 @pytest.mark.trio
 async def test_emergency(conn_dealer, autojump_clock):
     async with conn_dealer() as socket:
-        # ### emergency.ReleaseAction
+        # ### emergency.Action
 
-        await assertReplyDealer(socket, emergency.ReleaseAction(), ack.Acknowledgement())
+        await assertReplyDealer(socket, emergency.Action(False), ack.Acknowledgement())
+        await assertReplyDealer(socket, emergency.Action(True), ack.UNSUPPORTED_COMMAND)
 
 
 @pytest.mark.trio
