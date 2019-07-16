@@ -72,6 +72,9 @@ class HardwareAdapter(object):
     async def emergency_action(self, activate) -> None:
         raise UnsupportedCommandError(messages.emergency.Action.msg_name())
 
+    async def get_emergency_state(self) -> bool:
+        raise UnsupportedCommandError(messages.emergency.Request.msg_name())
+
     async def set_io_config(self, port: int, flags: int) -> None:
         raise UnsupportedCommandError(messages.io.Action.msg_name())
 

@@ -339,6 +339,8 @@ async def test_multipart(conn_req, autojump_clock):
 @pytest.mark.parametrize('hardware_adapter', [HardwareAdapter()])
 async def test_unsupported(conn_req, autojump_clock):
     async with conn_req() as socket:
+        await assertReplyReq(socket, emergency.Action(True), ack.UNSUPPORTED_COMMAND)
+        await assertReplyReq(socket, emergency.Request(), ack.UNSUPPORTED_COMMAND)
         await assertReplyReq(socket, io.Action(0, io.INPUT_PULLDOWN), ack.UNSUPPORTED_COMMAND)
         await assertReplyReq(socket, analog.Request(0), ack.UNSUPPORTED_COMMAND)
         await assertReplyReq(socket, digital.Request(0), ack.UNSUPPORTED_COMMAND)
@@ -368,7 +370,7 @@ async def test_emergency(conn_dealer, autojump_clock):
 
         # ### emergency.Request
 
-        await assertReplyDealer(socket, emergency.Request(), ack.UNSUPPORTED_COMMAND)
+        await assertReplyDealer(socket, emergency.Request(), emergency.Reply(False))
 
         # ### emergency.Subscribe
 

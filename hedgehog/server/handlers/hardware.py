@@ -59,7 +59,8 @@ class _EmergencyHandler(_HWHandler):
 
     @property
     async def emergency_state(self) -> bool:
-        raise UnsupportedCommandError("getting HWC emergency stop state is not implemented at the moment")
+        # don't update the saved state; do that when the HWC sends an update by itself
+        return await self.adapter.get_emergency_state()
 
 
 class _IOHandler(_HWHandler):

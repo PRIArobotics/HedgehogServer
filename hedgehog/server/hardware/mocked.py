@@ -81,6 +81,10 @@ class MockedHardwareAdapter(HardwareAdapter):
         # TODO emergency_action
         pass
 
+    async def get_emergency_state(self) -> bool:
+        # TODO get_emergency_state
+        return False
+
     async def set_io_config(self, port, flags):
         self.io_configs[port] = flags
 
