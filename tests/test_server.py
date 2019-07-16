@@ -347,10 +347,12 @@ async def test_unsupported(conn_req, autojump_clock):
         await assertReplyReq(socket, imu.RateRequest(), ack.UNSUPPORTED_COMMAND)
         await assertReplyReq(socket, imu.AccelerationRequest(), ack.UNSUPPORTED_COMMAND)
         await assertReplyReq(socket, imu.PoseRequest(), ack.UNSUPPORTED_COMMAND)
+        await assertReplyReq(socket, motor.ConfigAction(0, motor.DcConfig()), ack.UNSUPPORTED_COMMAND)
         await assertReplyReq(socket, motor.Action(0, motor.POWER), ack.UNSUPPORTED_COMMAND)
         await assertReplyReq(socket, motor.StateRequest(0), ack.UNSUPPORTED_COMMAND)
         await assertReplyReq(socket, motor.SetPositionAction(0, 0), ack.UNSUPPORTED_COMMAND)
         await assertReplyReq(socket, servo.Action(0, 0), ack.UNSUPPORTED_COMMAND)
+        await assertReplyReq(socket, speaker.Action(440), ack.UNSUPPORTED_COMMAND)
 
 
 @pytest.mark.trio
