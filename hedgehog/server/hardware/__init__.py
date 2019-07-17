@@ -15,9 +15,24 @@ class HardwareUpdate:
 
 
 @dataclass
+class ShutdownUpdate(HardwareUpdate):
+    pass
+
+
+@dataclass
+class EmergencyStopUpdate(HardwareUpdate):
+    pass
+
+
+@dataclass
 class MotorStateUpdate(HardwareUpdate):
     port: int
     state: int
+
+
+@dataclass
+class UartUpdate(HardwareUpdate):
+    data: bytes
 
 
 class HardwareAdapter(object):
