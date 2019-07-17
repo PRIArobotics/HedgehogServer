@@ -57,6 +57,7 @@ class MockedHardwareAdapter(HardwareAdapter):
         super().__init__(*args, **kwargs)
 
         self.io_configs: Dict[int, int] = {}
+        self.emergency: bool = False
         self._updates: MockedUpdates = MockedUpdates()
         self._imu_rate: MockedState[Tuple[int, int, int]] = MockedState()
         self._imu_acceleration: MockedState[Tuple[int, int, int]] = MockedState()
@@ -78,12 +79,10 @@ class MockedHardwareAdapter(HardwareAdapter):
         return bytes(12), 3, 0
 
     async def emergency_action(self, activate):
-        # TODO emergency_action
-        pass
+        self.emergency = activate
 
     async def get_emergency_state(self) -> bool:
-        # TODO get_emergency_state
-        return False
+        return self.emergency
 
     async def set_io_config(self, port, flags):
         self.io_configs[port] = flags

@@ -11,18 +11,17 @@ class SimulatedHardwareAdapter(HardwareAdapter):
         super().__init__(*args, **kwargs)
         self.simulate_sensors = simulate_sensors
 
-        self.io_configs = {}  # type: Dict[int, int]
+        self.io_configs: Dict[int, int] = {}
+        self.emergency: bool = False
 
     async def get_version(self):
         return bytes(12), 0, 0
 
     async def emergency_action(self, activate):
-        # TODO emergency_action
-        pass
+        self.emergency = activate
 
     async def get_emergency_state(self) -> bool:
-        # TODO get_emergency_state
-        return False
+        return self.emergency
 
     async def set_io_config(self, port, flags):
         self.io_configs[port] = flags
