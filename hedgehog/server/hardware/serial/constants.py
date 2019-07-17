@@ -3,9 +3,13 @@ class Command:
     # --> VERSION_REP u8, uc_id u96, hw_version u8, sw_version u8
     VERSION_REQ = 0x01
 
-    # EMERGENCY_RELEASE u8
+    # EMERGENCY_ACTION u8, activate bool
     # --> OK u8
-    EMERGENCY_RELEASE = 0x05
+    EMERGENCY_ACTION = 0x05
+
+    # EMERGENCY_REQ u8
+    # --> EMERGENCY_REP u8, active bool
+    EMERGENCY_REQ = 0x06
 
     # IO_CONFIG u8, port u8, on bool|pulldown bool|pullup bool|output bool
     # --> OK u8
@@ -72,6 +76,7 @@ class Reply:
     VERSION_REP = 0x02
     SHUTDOWN = 0x03
     EMERGENCY_STOP = 0x04
+    EMERGENCY_REP = 0x05
     OK = 0x80
     UNKNOWN_OPCODE = 0x81
     INVALID_OPCODE = 0x82
@@ -92,6 +97,7 @@ class Reply:
     # possibly followed by a payload
     SUCCESS_REPLIES = {
         VERSION_REP,
+        EMERGENCY_REP,
         OK,
         ANALOG_REP,
         IMU_RATE_REP,
@@ -138,6 +144,7 @@ class Reply:
         VERSION_REP: 15,
         SHUTDOWN: 1,
         EMERGENCY_STOP: 1,
+        EMERGENCY_REP: 2,
         OK: 1,
         UNKNOWN_OPCODE: 1,
         INVALID_OPCODE: 1,

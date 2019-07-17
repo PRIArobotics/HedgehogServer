@@ -158,13 +158,12 @@ class SerialHardwareAdapter(HardwareAdapter):
         return bytes(reply[1:13]), reply[13], reply[14]
 
     async def emergency_action(self, activate) -> None:
-        if activate:
-            raise UnsupportedCommandError("only deactivating HWC emergency stop is implemented at the moment")
-        else:
-            await self.repeatable_command([Command.EMERGENCY_RELEASE])
+        await self.repeatable_command([Command.EMERGENCY_ACTION, 1 if activate else 0])
 
     async def get_emergency_state(self) -> bool:
-        raise UnsupportedCommandError("getting HWC emergency stop state is not implemented at the moment")
+        reply = await self.repeatable_command([Command.EMERGENCY_REQ], Reply.EMERGENCY_REP)
+        assert reply[1] & ~0x01 == 0x00
+        return reply[1] != 0
 
     async def set_io_config(self, port, flags):
         await self.repeatable_command([Command.IO_CONFIG, port, flags])
