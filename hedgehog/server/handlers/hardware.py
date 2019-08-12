@@ -1,15 +1,19 @@
-from typing import cast, Dict, Optional, Tuple, Type
+from typing import cast, Dict, List, Optional, Tuple, Type
 
+from contextlib import AsyncExitStack
 import itertools
+import logging
 from hedgehog.protocol import Header, Message
-from hedgehog.protocol.errors import FailedCommandError, UnsupportedCommandError
-from hedgehog.protocol.messages import ack, io, analog, digital, motor, servo, speaker
+from hedgehog.protocol.errors import HedgehogCommandError, FailedCommandError, UnsupportedCommandError
+from hedgehog.protocol.messages import ack, version, emergency, io, analog, digital, imu, motor, servo, speaker
 from hedgehog.protocol.proto.subscription_pb2 import Subscription
 
 from . import CommandHandler, CommandRegistry
 from .. import subscription
 from ..hardware import HardwareAdapter
 from ..hedgehog_server import HedgehogServer
+
+logger = logging.getLogger(__name__)
 
 
 class _HWHandler(object):
@@ -24,6 +28,39 @@ class _HWHandler(object):
             raise UnsupportedCommandError(msg.msg_name()) from err
         else:
             await subscribable.subscribe(server, ident, subscription)
+
+
+class _EmergencyHandler(_HWHandler):
+    def __state_subscribable(self) -> subscription.TriggeredSubscribable[bool, emergency.Update]:
+        outer_self = self
+
+        class Subs(subscription.TriggeredSubscribable[bool, emergency.Update]):
+            def compose_update(self, server, ident, subscription, active):
+                return emergency.Update(active, subscription)
+
+        return Subs()
+
+    def __init__(self, adapter: HardwareAdapter) -> None:
+        super(_EmergencyHandler, self).__init__(adapter)
+        self.state = None  # type: Tuple[bool]
+        self.subscribables[emergency.Subscribe] = self.__state_subscribable()
+
+    async def state_update(self) -> None:
+        if self.state is None:
+            return
+        active, = self.state
+        await cast(subscription.TriggeredSubscribable[bool, emergency.Update],
+                   self.subscribables[emergency.Subscribe]).update(active)
+
+    async def action(self, activate: bool) -> None:
+        await self.adapter.emergency_action(activate)
+        self.state = activate,
+        await self.state_update()
+
+    @property
+    async def emergency_state(self) -> bool:
+        # don't update the saved state; do that when the HWC sends an update by itself
+        return await self.adapter.get_emergency_state()
 
 
 class _IOHandler(_HWHandler):
@@ -87,6 +124,62 @@ class _IOHandler(_HWHandler):
     @property
     async def digital_value(self) -> bool:
         return await self.adapter.get_digital(self.port)
+
+
+class _IMUHandler(_HWHandler):
+    def __rate_subscribable(self) -> subscription.PolledSubscribable[Tuple[int, int, int], imu.RateUpdate]:
+        outer_self = self
+
+        class Subs(subscription.PolledSubscribable[Tuple[int, int, int], imu.RateUpdate]):
+            async def poll(self):
+                return await outer_self.rate_value
+
+            def compose_update(self, server, ident, subscription, value):
+                return imu.RateUpdate(*value, subscription)
+
+        return Subs()
+
+    def __accelleration_subscribable(self) -> subscription.PolledSubscribable[Tuple[int, int, int], imu.AccelerationUpdate]:
+        outer_self = self
+
+        class Subs(subscription.PolledSubscribable[Tuple[int, int, int], imu.AccelerationUpdate]):
+            async def poll(self):
+                return await outer_self.acceleration_value
+
+            def compose_update(self, server, ident, subscription, value):
+                return imu.AccelerationUpdate(*value, subscription)
+
+        return Subs()
+
+    def __pose_subscribable(self) -> subscription.PolledSubscribable[Tuple[int, int, int], imu.PoseUpdate]:
+        outer_self = self
+
+        class Subs(subscription.PolledSubscribable[Tuple[int, int, int], imu.PoseUpdate]):
+            async def poll(self):
+                return await outer_self.pose_value
+
+            def compose_update(self, server, ident, subscription, value):
+                return imu.PoseUpdate(*value, subscription)
+
+        return Subs()
+
+    def __init__(self, adapter: HardwareAdapter) -> None:
+        super(_IMUHandler, self).__init__(adapter)
+        self.subscribables[imu.RateSubscribe] = self.__rate_subscribable()
+        self.subscribables[imu.AccelerationSubscribe] = self.__accelleration_subscribable()
+        self.subscribables[imu.PoseSubscribe] = self.__pose_subscribable()
+
+    @property
+    async def rate_value(self) -> Tuple[int, int, int]:
+        return await self.adapter.get_imu_rate()
+
+    @property
+    async def acceleration_value(self) -> Tuple[int, int, int]:
+        return await self.adapter.get_imu_acceleration()
+
+    @property
+    async def pose_value(self) -> Tuple[int, int, int]:
+        return await self.adapter.get_imu_pose()
 
 
 class _MotorHandler(_HWHandler):
@@ -190,12 +283,75 @@ class HardwareHandler(CommandHandler):
     def __init__(self, adapter: HardwareAdapter) -> None:
         super().__init__()
         self.adapter = adapter
-        # TODO hard-coded number of ports
-        self.ios = {port: _IOHandler(adapter, port) for port in itertools.chain(range(0, 16), (0x80, 0x90, 0x91))}
-        self.motors = [_MotorHandler(adapter, port) for port in range(0, 4)]
-        self.servos = [_ServoHandler(adapter, port) for port in range(0, 6)]
+        self._stack: AsyncExitStack = None
+        self.emergency: _EmergencyHandler = None
+        self.imu: _IMUHandler = None
+        self.ios: Dict[int, _IOHandler] = None
+        self.motors: List[_MotorHandler] = None
+        self.servos: List[_ServoHandler] = None
         # self.motor_cb = {}
         # self.adapter.motor_state_update_cb = self.motor_state_update
+
+    async def __aenter__(self):
+        self._stack = AsyncExitStack()
+        await self._stack.enter_async_context(self.adapter)
+
+        try:
+            uc_id, hw_version, sw_version = await self.adapter.get_version()
+
+            if uc_id == bytes(12):
+                logger.debug(f"HWC ID = {':'.join(f'{b:02x}' for b in uc_id)} (simulated)")
+            else:  # pragma: nocover
+                logger.debug(f"HWC ID = {':'.join(f'{b:02x}' for b in uc_id)}")
+            logger.debug(f"HWC hardware version = {hw_version}")
+            logger.debug(f"HWC firmware version = {sw_version}")
+        except HedgehogCommandError:
+            logger.debug(f"HWC firmware old (get_version failed)")
+
+            uc_id, hw_version, sw_version = bytes(12), 3, 0
+
+        port_numbers = {
+            # hw_version: IO, motors, servos
+            # TODO HW revisions 0-2
+            3: (16, 4, 6),
+        }
+
+        # default to HW version 3 (
+        effective_hw_version = hw_version if hw_version in port_numbers else 3
+
+        ios, motors, servos = port_numbers[effective_hw_version]
+
+        self.emergency = _EmergencyHandler(self.adapter)
+        self.imu = _IMUHandler(self.adapter)
+        self.ios = {port: _IOHandler(self.adapter, port) for port in itertools.chain(range(0, ios), (0x80, 0x90, 0x91))}
+        self.motors = [_MotorHandler(self.adapter, port) for port in range(0, motors)]
+        self.servos = [_ServoHandler(self.adapter, port) for port in range(0, servos)]
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        return await self._stack.__aexit__(exc_type, exc_val, exc_tb)
+
+    @_commands.register(version.Request)
+    async def version_request(self, server, ident, msg):
+        # avoid cyclic import
+        from .. import __version__ as server_version
+
+        uc_id, hw_version, sw_version = await self.adapter.get_version()
+        return version.Reply(uc_id, str(hw_version), str(sw_version), server_version)
+
+    @_commands.register(emergency.Action)
+    async def emergency_release_action(self, server, ident, msg):
+        await self.emergency.action(msg.activate)
+        return ack.Acknowledgement()
+
+    @_commands.register(emergency.Request)
+    async def emergency_request(self, server, ident, msg):
+        active = await self.emergency.emergency_state
+        return emergency.Reply(active)
+
+    @_commands.register(emergency.Subscribe)
+    async def emergency_subscribe(self, server, ident, msg):
+        await self.emergency.subscribe(server, ident, msg.__class__, msg.subscription)
+        return ack.Acknowledgement()
 
     @_commands.register(io.Action)
     async def io_config_action(self, server, ident, msg):
@@ -236,6 +392,36 @@ class HardwareHandler(CommandHandler):
     @_commands.register(digital.Subscribe)
     async def digital_subscribe(self, server, ident, msg):
         await self.ios[msg.port].subscribe(server, ident, msg.__class__, msg.subscription)
+        return ack.Acknowledgement()
+
+    @_commands.register(imu.RateRequest)
+    async def imu_rate_request(self, server, ident, msg):
+        value = await self.imu.rate_value
+        return imu.RateReply(*value)
+
+    @_commands.register(imu.RateSubscribe)
+    async def imu_rate_subscribe(self, server, ident, msg):
+        await self.imu.subscribe(server, ident, msg.__class__, msg.subscription)
+        return ack.Acknowledgement()
+
+    @_commands.register(imu.AccelerationRequest)
+    async def imu_acceleration_request(self, server, ident, msg):
+        value = await self.imu.acceleration_value
+        return imu.AccelerationReply(*value)
+
+    @_commands.register(imu.AccelerationSubscribe)
+    async def imu_acceleration_subscribe(self, server, ident, msg):
+        await self.imu.subscribe(server, ident, msg.__class__, msg.subscription)
+        return ack.Acknowledgement()
+
+    @_commands.register(imu.PoseRequest)
+    async def imu_pose_request(self, server, ident, msg):
+        value = await self.imu.pose_value
+        return imu.PoseReply(*value)
+
+    @_commands.register(imu.PoseSubscribe)
+    async def imu_pose_subscribe(self, server, ident, msg):
+        await self.imu.subscribe(server, ident, msg.__class__, msg.subscription)
         return ack.Acknowledgement()
 
     @_commands.register(motor.Action)

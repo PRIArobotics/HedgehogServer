@@ -15,6 +15,8 @@ from .hedgehog_server import HedgehogServer
 from .handlers.hardware import HardwareHandler
 from .handlers.process import ProcessHandler
 
+from ._version import __version__
+
 logger = logging.getLogger(__name__)
 
 
@@ -102,10 +104,10 @@ def start(hardware, port=0):
     ctx = zmq_trio.Context.instance()
 
     async def run():
-        adapter = hardware()
-        handler = handlers.merge(HardwareHandler(adapter), ProcessHandler(adapter))
+        hardware_handler = HardwareHandler(hardware())
+        handler = handlers.merge(hardware_handler, ProcessHandler())
 
-        async with trio_asyncio.open_loop(), adapter:
+        async with trio_asyncio.open_loop(), hardware_handler:
             await HedgehogServer(ctx, 'tcp://*:{}'.format(port), handler).run()
 
     trio.run(run)

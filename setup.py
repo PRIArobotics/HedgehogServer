@@ -13,13 +13,16 @@ from os import path
 
 here = path.abspath(path.dirname(__file__))
 
+# this will load the __version__ variable
+exec(open("hedgehog/server/_version.py", encoding="utf-8").read())
+
 # Get the long description from the README file
 with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
     long_description = f.read()
 
 setup(
     name='hedgehog-server',
-    version='0.9.0a2',
+    version=__version__,
     description='Hedgehog Robot Controller Server',
     long_description=long_description,
     url="https://github.com/PRIArobotics/HedgehogServer",
@@ -46,7 +49,7 @@ setup(
     # your project is installed. For an analysis of "install_requires" vs pip's
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
-    install_requires=['concurrent-utils ~=0.2.0', 'hedgehog-protocol ~=0.8.0rc2',
+    install_requires=['concurrent-utils ~=0.2.0', 'hedgehog-protocol ~=0.9.0rc1',
                       'hedgehog-utils[protobuf,zmq,trio] ~=0.7.0rc1', 'hedgehog-platform ~=0.2.0'],
 
     # You can install these using the following syntax, for example:

@@ -57,7 +57,11 @@ class MockedHardwareAdapter(HardwareAdapter):
         super().__init__(*args, **kwargs)
 
         self.io_configs: Dict[int, int] = {}
+        self.emergency: bool = False
         self._updates: MockedUpdates = MockedUpdates()
+        self._imu_rate: MockedState[Tuple[int, int, int]] = MockedState()
+        self._imu_acceleration: MockedState[Tuple[int, int, int]] = MockedState()
+        self._imu_pose: MockedState[Tuple[int, int, int]] = MockedState()
         self._analogs: List[MockedState[int]] = [MockedState() for port in range(16)]
         self._digitals: List[MockedState[bool]] = [MockedState() for port in range(16)]
         self._motors: List[MockedState[Tuple[float, float]]] = [MockedState() for port in range(4)]
@@ -72,11 +76,13 @@ class MockedHardwareAdapter(HardwareAdapter):
                 self._enqueue_update(update)
 
     async def get_version(self):
-        return bytes(12), 0, 0
+        return bytes(12), 3, 0
 
-    async def emergency_release(self):
-        # TODO emergency_release
-        pass
+    async def emergency_action(self, activate):
+        self.emergency = activate
+
+    async def get_emergency_state(self) -> bool:
+        return self.emergency
 
     async def set_io_config(self, port, flags):
         self.io_configs[port] = flags
@@ -87,17 +93,23 @@ class MockedHardwareAdapter(HardwareAdapter):
     async def get_analog(self, port):
         return self._analogs[port].get(default=0)
 
+    def set_imu_rate(self, time: float, x: int, y: int, z: int) -> None:
+        self._imu_rate.set(time, (x, y, z))
+
     async def get_imu_rate(self):
-        # TODO get_imu_rate
-        return 0, 0, 0
+        return self._imu_rate.get(default=(0, 0, 0))
+
+    def set_imu_acceleration(self, time: float, x: int, y: int, z: int) -> None:
+        self._imu_acceleration.set(time, (x, y, z))
 
     async def get_imu_acceleration(self):
-        # TODO get_imu_acceleration
-        return 0, 0, 0
+        return self._imu_acceleration.get(default=(0, 0, 0))
+
+    def set_imu_pose(self, time: float, x: int, y: int, z: int) -> None:
+        self._imu_pose.set(time, (x, y, z))
 
     async def get_imu_pose(self):
-        # TODO get_imu_pose
-        return 0, 0, 0
+        return self._imu_pose.get(default=(0, 0, 0))
 
     def set_digital(self, port: int, time: float, value: bool) -> None:
         self._digitals[port].set(time, value)

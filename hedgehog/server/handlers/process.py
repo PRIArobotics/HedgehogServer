@@ -5,20 +5,18 @@ import trio
 import trio_asyncio
 
 from hedgehog.protocol.errors import FailedCommandError
-from hedgehog.protocol.messages import ack, process, motor
+from hedgehog.protocol.messages import ack, process
 
 from . import CommandHandler, CommandRegistry
 from ..hedgehog_server import Job
-from ..hardware import HardwareAdapter
 
 
 class ProcessHandler(CommandHandler):
     _commands = CommandRegistry()
 
-    def __init__(self, adapter: HardwareAdapter) -> None:
+    def __init__(self) -> None:
         super().__init__()
         self._processes = {}  # type: Dict[int, asyncio.subprocess.Process]
-        self.adapter = adapter
 
     async def _handle_process(self, server, ident, msg, *, task_status=trio.TASK_STATUS_IGNORED) -> AsyncIterator[Job]:
         proc = await trio_asyncio.aio_as_trio(asyncio.create_subprocess_exec)(
@@ -48,19 +46,6 @@ class ProcessHandler(CommandHandler):
         exit_code = await trio_asyncio.aio_as_trio(proc.wait)()
 
         try:
-            # turn off all actuators
-            # TODO hard coded number of ports
-            for port in range(4):
-                async with server.job():
-                    await self.adapter.set_motor(port, motor.POWER, 0)
-            for port in range(4):
-                async with server.job():
-                    await self.adapter.set_servo(port, False, 0)
-        except Exception:  # pragma: nocover
-            async with server.job():
-                await server.send_async(ident, process.ExitUpdate(pid, exit_code))
-            raise
-        else:
             async with server.job():
                 await server.send_async(ident, process.ExitUpdate(pid, exit_code))
         finally:

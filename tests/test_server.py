@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 
 from hedgehog.protocol import ClientSide
 from hedgehog.protocol.errors import FailedCommandError
-from hedgehog.protocol.messages import Message, ack, io, analog, digital, motor, servo, speaker, process
+from hedgehog.protocol.messages import Message, ack, version, emergency, io, analog, digital, imu, motor, servo, speaker, process
 from hedgehog.protocol.proto.subscription_pb2 import Subscription
 from hedgehog.protocol.zmq.trio import ReqSocket, DealerRouterSocket
 from hedgehog.server import handlers, HedgehogServer
@@ -33,8 +33,13 @@ def hardware_adapter():
 
 
 @pytest.fixture
-def handler_dict(hardware_adapter: HardwareAdapter) -> handlers.HandlerCallbackDict:
-    return handlers.merge(HardwareHandler(hardware_adapter), ProcessHandler(hardware_adapter))
+def hardware_handler(hardware_adapter: HardwareAdapter):
+    return HardwareHandler(hardware_adapter)
+
+
+@pytest.fixture
+def handler_dict(hardware_handler: HardwareHandler) -> handlers.HandlerCallbackDict:
+    return handlers.merge(hardware_handler, ProcessHandler())
 
 
 @pytest.fixture
@@ -73,11 +78,11 @@ def zmq_trio_ctx():
 
 @pytest.fixture
 def hedgehog_server(trio_aio_loop, zmq_trio_ctx,
-                    hardware_adapter: HardwareAdapter, handler_dict: handlers.HandlerCallbackDict):
+                    hardware_handler: HardwareHandler, handler_dict: handlers.HandlerCallbackDict):
     @asynccontextmanager
     async def start_server(endpoint: str='inproc://controller', *,
                            handler_dict: handlers.HandlerCallbackDict=handler_dict):
-        async with trio_aio_loop(), zmq_trio_ctx() as ctx, hardware_adapter, trio.open_nursery() as nursery:
+        async with trio_aio_loop(), zmq_trio_ctx() as ctx, hardware_handler, trio.open_nursery() as nursery:
             server = HedgehogServer(ctx, endpoint, handler_dict)
             await nursery.start(server.run)
 
@@ -187,9 +192,9 @@ async def assertReplyDealer(socket, req: Message,
     return response
 
 
-def test_merge(hardware_adapter):
+def test_merge():
     with pytest.raises(ValueError):
-        handlers.merge(ProcessHandler(hardware_adapter), ProcessHandler(hardware_adapter))
+        handlers.merge(ProcessHandler(), ProcessHandler())
 
 
 @pytest.mark.trio
@@ -217,19 +222,19 @@ async def test_server_slow_job(caplog, check_caplog, conn_req, autojump_clock):
         async def task(*, task_status=trio.TASK_STATUS_IGNORED):
             task_status.started()
             async with server.job():
-                await trio.sleep(0.2)
+                await trio.sleep(0.3)
 
         await server.add_task(task)
         return ack.Acknowledgement()
 
     async with conn_req(handler_dict={io.Action: handler_callback}) as socket:
         await assertReplyReq(socket, io.Action(0, io.INPUT_FLOATING), ack.OK)
-        await trio.sleep(0.3)
+        await trio.sleep(0.4)
 
     records = [record for record in caplog.records if record.levelno >= logging.WARNING]
     assert len(records) == 2 \
            and "Long running job on server loop" in records[0].message \
-           and "Long running job finished after 200.0 ms" in records[1].message
+           and "Long running job finished after 300.0 ms" in records[1].message
     check_caplog.expected.update(records)
 
 
@@ -334,13 +339,60 @@ async def test_multipart(conn_req, autojump_clock):
 @pytest.mark.parametrize('hardware_adapter', [HardwareAdapter()])
 async def test_unsupported(conn_req, autojump_clock):
     async with conn_req() as socket:
+        await assertReplyReq(socket, emergency.Action(True), ack.UNSUPPORTED_COMMAND)
+        await assertReplyReq(socket, emergency.Request(), ack.UNSUPPORTED_COMMAND)
         await assertReplyReq(socket, io.Action(0, io.INPUT_PULLDOWN), ack.UNSUPPORTED_COMMAND)
         await assertReplyReq(socket, analog.Request(0), ack.UNSUPPORTED_COMMAND)
         await assertReplyReq(socket, digital.Request(0), ack.UNSUPPORTED_COMMAND)
+        await assertReplyReq(socket, imu.RateRequest(), ack.UNSUPPORTED_COMMAND)
+        await assertReplyReq(socket, imu.AccelerationRequest(), ack.UNSUPPORTED_COMMAND)
+        await assertReplyReq(socket, imu.PoseRequest(), ack.UNSUPPORTED_COMMAND)
+        await assertReplyReq(socket, motor.ConfigAction(0, motor.DcConfig()), ack.UNSUPPORTED_COMMAND)
         await assertReplyReq(socket, motor.Action(0, motor.POWER), ack.UNSUPPORTED_COMMAND)
         await assertReplyReq(socket, motor.StateRequest(0), ack.UNSUPPORTED_COMMAND)
         await assertReplyReq(socket, motor.SetPositionAction(0, 0), ack.UNSUPPORTED_COMMAND)
         await assertReplyReq(socket, servo.Action(0, 0), ack.UNSUPPORTED_COMMAND)
+        await assertReplyReq(socket, speaker.Action(440), ack.UNSUPPORTED_COMMAND)
+
+
+@pytest.mark.trio
+async def test_version(conn_dealer, autojump_clock):
+    async with conn_dealer() as socket:
+        # ### version.Request
+
+        await assertReplyDealer(socket, version.Request(), version.Reply(bytes(12), "3", "0", "0.9.0a2"))
+
+
+@pytest.mark.trio
+async def test_emergency(conn_dealer, autojump_clock):
+    async with conn_dealer() as socket:
+        # ### emergency.Action
+
+        await assertReplyDealer(socket, emergency.Action(False), ack.Acknowledgement())
+
+        # ### emergency.Request
+
+        await assertReplyDealer(socket, emergency.Request(), emergency.Reply(False))
+
+        # ### emergency.Subscribe
+
+        sub = Subscription()
+        sub.subscribe = False
+        sub.timeout = 1000
+        await assertReplyDealer(socket, emergency.Subscribe(sub), ack.FAILED_COMMAND)
+
+        with assertImmediate():
+            sub = Subscription()
+            sub.subscribe = True
+            sub.timeout = 1000
+            await assertReplyDealer(socket, emergency.Subscribe(sub), ack.Acknowledgement())
+
+            # TODO subscriptions dont work properly yet
+            # _, update = await socket.recv_msg()
+            # assert update == emergency.Update(False, sub)
+
+        sub.subscribe = False
+        await assertReplyDealer(socket, emergency.Subscribe(sub), ack.Acknowledgement())
 
 
 @pytest.mark.trio
@@ -630,6 +682,87 @@ async def test_digital(conn_dealer, autojump_clock):
 
         sub.subscribe = False
         await assertReplyDealer(socket, digital.Subscribe(0, sub), ack.Acknowledgement())
+
+
+@pytest.mark.trio
+async def test_imu_rate(conn_dealer, autojump_clock):
+    async with conn_dealer() as socket:
+        # ### imu.RateRequest
+
+        await assertReplyDealer(socket, imu.RateRequest(), imu.RateReply(0, 0, 0))
+
+        # ### imu.RateSubscribe
+
+        sub = Subscription()
+        sub.subscribe = False
+        sub.timeout = 1000
+        await assertReplyDealer(socket, imu.RateSubscribe(sub), ack.FAILED_COMMAND)
+
+        with assertImmediate():
+            sub = Subscription()
+            sub.subscribe = True
+            sub.timeout = 1000
+            await assertReplyDealer(socket, imu.RateSubscribe(sub), ack.Acknowledgement())
+
+            _, update = await socket.recv_msg()
+            assert update == imu.RateUpdate(0, 0, 0, sub)
+
+        sub.subscribe = False
+        await assertReplyDealer(socket, imu.RateSubscribe(sub), ack.Acknowledgement())
+
+
+@pytest.mark.trio
+async def test_imu_acceleration(conn_dealer, autojump_clock):
+    async with conn_dealer() as socket:
+        # ### imu.AccelerationRequest
+
+        await assertReplyDealer(socket, imu.AccelerationRequest(), imu.AccelerationReply(0, 0, 0))
+
+        # ### imu.AccelerationSubscribe
+
+        sub = Subscription()
+        sub.subscribe = False
+        sub.timeout = 1000
+        await assertReplyDealer(socket, imu.AccelerationSubscribe(sub), ack.FAILED_COMMAND)
+
+        with assertImmediate():
+            sub = Subscription()
+            sub.subscribe = True
+            sub.timeout = 1000
+            await assertReplyDealer(socket, imu.AccelerationSubscribe(sub), ack.Acknowledgement())
+
+            _, update = await socket.recv_msg()
+            assert update == imu.AccelerationUpdate(0, 0, 0, sub)
+
+        sub.subscribe = False
+        await assertReplyDealer(socket, imu.AccelerationSubscribe(sub), ack.Acknowledgement())
+
+
+@pytest.mark.trio
+async def test_imu_pose(conn_dealer, autojump_clock):
+    async with conn_dealer() as socket:
+        # ### imu.PoseRequest
+
+        await assertReplyDealer(socket, imu.PoseRequest(), imu.PoseReply(0, 0, 0))
+
+        # ### imu.PoseSubscribe
+
+        sub = Subscription()
+        sub.subscribe = False
+        sub.timeout = 1000
+        await assertReplyDealer(socket, imu.PoseSubscribe(sub), ack.FAILED_COMMAND)
+
+        with assertImmediate():
+            sub = Subscription()
+            sub.subscribe = True
+            sub.timeout = 1000
+            await assertReplyDealer(socket, imu.PoseSubscribe(sub), ack.Acknowledgement())
+
+            _, update = await socket.recv_msg()
+            assert update == imu.PoseUpdate(0, 0, 0, sub)
+
+        sub.subscribe = False
+        await assertReplyDealer(socket, imu.PoseSubscribe(sub), ack.Acknowledgement())
 
 
 @pytest.mark.trio

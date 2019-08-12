@@ -10,7 +10,7 @@ import serial
 import serial_asyncio
 from hedgehog.platform import Controller
 from hedgehog.protocol.messages import motor
-from hedgehog.protocol.errors import FailedCommandError
+from hedgehog.protocol.errors import FailedCommandError, UnsupportedCommandError
 from hedgehog.utils import Registry
 from .constants import Command, Reply
 from .. import HardwareAdapter, HardwareUpdate, POWER
@@ -157,8 +157,13 @@ class SerialHardwareAdapter(HardwareAdapter):
         reply = await self.repeatable_command([Command.VERSION_REQ], Reply.VERSION_REP)
         return bytes(reply[1:13]), reply[13], reply[14]
 
-    async def emergency_release(self):
-        await self.repeatable_command([Command.EMERGENCY_RELEASE])
+    async def emergency_action(self, activate) -> None:
+        await self.repeatable_command([Command.EMERGENCY_ACTION, 1 if activate else 0])
+
+    async def get_emergency_state(self) -> bool:
+        reply = await self.repeatable_command([Command.EMERGENCY_REQ], Reply.EMERGENCY_REP)
+        assert reply[1] & ~0x01 == 0x00
+        return reply[1] != 0
 
     async def set_io_config(self, port, flags):
         await self.repeatable_command([Command.IO_CONFIG, port, flags])
