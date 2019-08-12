@@ -13,13 +13,16 @@ from os import path
 
 here = path.abspath(path.dirname(__file__))
 
+# this will load the __version__ variable
+exec(open("hedgehog/server/_version.py", encoding="utf-8").read())
+
 # Get the long description from the README file
 with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
     long_description = f.read()
 
 setup(
     name='hedgehog-server',
-    version='0.9.0a2',
+    version=__version__,
     description='Hedgehog Robot Controller Server',
     long_description=long_description,
     url="https://github.com/PRIArobotics/HedgehogServer",
