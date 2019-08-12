@@ -15,7 +15,7 @@ from hedgehog.protocol.errors import FailedCommandError
 from hedgehog.protocol.messages import Message, ack, version, emergency, io, analog, digital, imu, motor, servo, speaker, process
 from hedgehog.protocol.proto.subscription_pb2 import Subscription
 from hedgehog.protocol.zmq.trio import ReqSocket, DealerRouterSocket
-from hedgehog.server import handlers, HedgehogServer
+from hedgehog.server import handlers, HedgehogServer, __version__ as server_version
 from hedgehog.server.handlers.hardware import HardwareHandler
 from hedgehog.server.handlers.process import ProcessHandler
 from hedgehog.server.hardware import HardwareAdapter
@@ -360,7 +360,7 @@ async def test_version(conn_dealer, autojump_clock):
     async with conn_dealer() as socket:
         # ### version.Request
 
-        await assertReplyDealer(socket, version.Request(), version.Reply(bytes(12), "3", "0", "0.9.0a2"))
+        await assertReplyDealer(socket, version.Request(), version.Reply(bytes(12), "3", "0", server_version))
 
 
 @pytest.mark.trio
