@@ -108,7 +108,10 @@ class SerialHardwareAdapter(HardwareAdapter):
 
             logger.debug(f"Listening for HWC message")
             cmd = await read_command()
-            logger.debug(f"Got HWC message: {' '.join(f'{b:02X}' for b in cmd)}")
+            if cmd[0] in Reply.ERROR_REPLIES:
+                logger.info(f"Got HWC message: {' '.join(f'{b:02X}' for b in cmd)}")
+            else:
+                logger.debug(f"Got HWC message: {' '.join(f'{b:02X}' for b in cmd)}")
             if cmd[0] in Reply.UPDATES:
                 decode = decoders[cmd[0]]
                 self._enqueue_update(decode(cmd))

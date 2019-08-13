@@ -42,7 +42,9 @@ class HedgehogServer:
                     raise UnsupportedCommandError(msg.__class__.msg_name())
                 try:
                     result = await handler(self, ident, msg)
-                except HedgehogCommandError:
+                except HedgehogCommandError as err:
+                    logger.info("For command:     %s", msg)
+                    logger.info("-> Error:        %s", err)
                     raise
                 except Exception as err:
                     logger.exception("Uncaught exception in command handler")
