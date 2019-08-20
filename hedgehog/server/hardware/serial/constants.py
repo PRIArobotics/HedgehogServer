@@ -74,9 +74,7 @@ class Command:
 
 class Reply:
     VERSION_REP = 0x02
-    SHUTDOWN = 0x03
-    EMERGENCY_STOP = 0x04
-    EMERGENCY_REP = 0x05
+    EMERGENCY_REP = 0x07
     OK = 0x80
     UNKNOWN_OPCODE = 0x81
     INVALID_OPCODE = 0x82
@@ -90,6 +88,9 @@ class Reply:
     IMU_ACCEL_REP = 0xA3
     IMU_POSE_REP = 0xA4
     DIGITAL_REP = 0xB1
+
+    SHUTDOWN = 0x03
+    EMERGENCY_STOP = 0x04
     MOTOR_DONE_UPDATE = 0xC3
     UART_UPDATE = 0xE1
 
