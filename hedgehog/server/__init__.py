@@ -7,6 +7,7 @@ import subprocess
 import trio
 import trio_asyncio
 from contextlib import suppress
+from functools import partial
 
 from hedgehog.utils.zmq import trio as zmq_trio
 
@@ -77,10 +78,7 @@ def launch(hardware_factory):
         logging.config.fileConfig(args.logging_conf)
 
     if simulator and args.simulate_sensors:
-        _hardware_factory = hardware_factory
-
-        def hardware_factory(*args, **kwargs):
-            return _hardware_factory(*args, simulate_sensors=True, **kwargs)
+        hardware_factory = partial(hardware_factory, simulate_sensors=True)
 
     config = configparser.ConfigParser()
     config.read(args.config_file)
