@@ -2,6 +2,7 @@ from typing import AsyncIterator, Awaitable, Callable, Dict, Type
 
 import inspect
 import logging
+import subprocess
 import trio
 import zmq
 from contextlib import asynccontextmanager
@@ -10,6 +11,7 @@ from hedgehog.utils.zmq import trio as zmq_trio
 from hedgehog.protocol import ServerSide, Header, RawMessage, Message, RawPayload
 from hedgehog.protocol.zmq.trio import DealerRouterSocket
 from hedgehog.protocol.errors import HedgehogCommandError, UnsupportedCommandError, FailedCommandError
+from .hardware import EmergencyStopUpdate, ShutdownUpdate
 
 
 # TODO importing this from .handlers does not work...
@@ -67,7 +69,12 @@ class HedgehogServer:
             return
 
         async for update in self.updates:
-            logger.debug("Update:          %s", update)
+            logger.debug("Got HWC update:  %s", update)
+            if isinstance(update, ShutdownUpdate):
+                logger.info("Initiating shutdown")
+                subprocess.run(['sudo', 'shutdown', '-h', '0'])
+            else:
+                logger.info("Ignored update:  %s", update)
 
     async def add_task(self, async_fn, *args, name=None):
         async def async_fn_wrapper(*, task_status=trio.TASK_STATUS_IGNORED) -> None:
