@@ -20,12 +20,13 @@ logger = logging.getLogger(__name__)
 
 
 class HedgehogServer:
-    def __init__(self, ctx: zmq_trio.Context, endpoint: str, handlers: Dict[Type[Message], HandlerCallback]) -> None:
+    def __init__(self, ctx: zmq_trio.Context, endpoint: str, handlers: Dict[Type[Message], HandlerCallback], updates: trio.abc.ReceiveChannel=None) -> None:
         self.ctx = ctx
         self._nursery = None
         self._lock = trio.StrictFIFOLock()
         self.endpoint = endpoint
         self.handlers = handlers
+        self.updates = updates
         self.socket: DealerRouterSocket = None
 
     def stop(self):
@@ -59,6 +60,14 @@ class HedgehogServer:
             ident, msgs_raw = await self.socket.recv_msgs_raw()
             async with self.job(f"handle {len(msgs_raw)} requests"):
                 await self.socket.send_msgs_raw(ident, [await handle_msg(ident, msg) for msg in msgs_raw])
+
+    async def _updates_task(self, *, task_status=trio.TASK_STATUS_IGNORED) -> None:
+        task_status.started()
+        if self.updates is None:
+            return
+
+        async for update in self.updates:
+            logger.debug("Update:          %s", update)
 
     async def add_task(self, async_fn, *args, name=None):
         async def async_fn_wrapper(*, task_status=trio.TASK_STATUS_IGNORED) -> None:
@@ -121,4 +130,5 @@ class HedgehogServer:
                 task_status.started()
 
                 await self._nursery.start(self._requests_task)
+                await self._nursery.start(self._updates_task)
         logger.info("Server stopped")

@@ -107,6 +107,6 @@ def start(hardware_factory, port=0):
         handler = handlers.merge(hardware_handler, ProcessHandler())
 
         async with trio_asyncio.open_loop(), hardware_handler:
-            await HedgehogServer(ctx, 'tcp://*:{}'.format(port), handler).run()
+            await HedgehogServer(ctx, 'tcp://*:{}'.format(port), handler, hardware.updates).run()
 
     trio.run(run)
