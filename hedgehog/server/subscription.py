@@ -325,10 +325,10 @@ class Subscribable(Generic[T, Upd]):
         self.subscriptions = {}  # type: Dict[Header, SubscriptionHandle]
 
     def compose_update(self, server: HedgehogServer, ident: Header, subscription: Subscription, value: T) -> Upd:
-        raise NotImplemented
+        raise NotImplementedError
 
     async def subscribe(self, server: HedgehogServer, ident: Header, subscription: Subscription) -> None:
-        raise NotImplemented
+        raise NotImplementedError
 
 
 class SubscriptionHandle(object):
@@ -410,7 +410,7 @@ class PolledSubscribable(Subscribable[T, Upd]):
         return self.intervals is not None
 
     async def poll(self) -> T:
-        raise NotImplemented
+        raise NotImplementedError
 
     async def _poll_task(self, *, task_status=trio.TASK_STATUS_IGNORED):
         self.intervals, intervals = trio.open_memory_channel(0)

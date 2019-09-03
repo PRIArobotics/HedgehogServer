@@ -69,19 +69,19 @@ class SerialHardwareAdapter(HardwareAdapter):
 
         @decoders.register(Reply.SHUTDOWN)
         def decode_shutdown(cmd: List[int]) -> HardwareUpdate:
-            raise NotImplemented
+            raise NotImplementedError
 
         @decoders.register(Reply.EMERGENCY_STOP)
         def decode_emergency_stop(cmd: List[int]) -> HardwareUpdate:
-            raise NotImplemented
+            raise NotImplementedError
 
         @decoders.register(Reply.MOTOR_DONE_UPDATE)
         def decode_motor_done_update(cmd: List[int]) -> HardwareUpdate:
-            raise NotImplemented
+            raise NotImplementedError
 
         @decoders.register(Reply.UART_UPDATE)
         def decode_uart_update(cmd: List[int]) -> HardwareUpdate:
-            raise NotImplemented
+            raise NotImplementedError
 
         async def read_command() -> List[int]:
             cmd = await read(1)
