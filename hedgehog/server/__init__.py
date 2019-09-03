@@ -67,9 +67,9 @@ def apply_scan_config(config, scan_config):
         subprocess.Popen(['wpa_cli'], stdin=subprocess.PIPE).communicate(wifi_commands.encode())
 
 
-def launch(hardware):
+def launch(hardware_factory):
     from hedgehog.server.hardware.simulated import SimulatedHardwareAdapter
-    simulator = hardware == SimulatedHardwareAdapter
+    simulator = hardware_factory == SimulatedHardwareAdapter
 
     args = parse_args(simulator)
 
@@ -77,10 +77,10 @@ def launch(hardware):
         logging.config.fileConfig(args.logging_conf)
 
     if simulator and args.simulate_sensors:
-        _hardware = hardware
+        _hardware_factory = hardware_factory
 
-        def hardware(*args, **kwargs):
-            return _hardware(*args, simulate_sensors=True, **kwargs)
+        def hardware_factory(*args, **kwargs):
+            return _hardware_factory(*args, simulate_sensors=True, **kwargs)
 
     config = configparser.ConfigParser()
     config.read(args.config_file)
@@ -97,14 +97,15 @@ def launch(hardware):
     port = args.port or config.getint('default', 'port', fallback=0)
 
     with suppress(KeyboardInterrupt):
-        start(hardware, port)
+        start(hardware_factory, port)
 
 
-def start(hardware, port=0):
+def start(hardware_factory, port=0):
     ctx = zmq_trio.Context.instance()
 
     async def run():
-        hardware_handler = HardwareHandler(hardware())
+        hardware = hardware_factory()
+        hardware_handler = HardwareHandler(hardware)
         handler = handlers.merge(hardware_handler, ProcessHandler())
 
         async with trio_asyncio.open_loop(), hardware_handler:
