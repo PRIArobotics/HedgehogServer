@@ -13,7 +13,7 @@ from hedgehog.protocol.messages import motor
 from hedgehog.protocol.errors import FailedCommandError, UnsupportedCommandError
 from hedgehog.utils import Registry
 from .constants import Command, Reply
-from .. import HardwareAdapter, HardwareUpdate, POWER
+from .. import HardwareAdapter, HardwareUpdate, POWER, ShutdownUpdate, EmergencyStopUpdate
 
 
 logger = logging.getLogger(__name__)
@@ -69,11 +69,11 @@ class SerialHardwareAdapter(HardwareAdapter):
 
         @decoders.register(Reply.SHUTDOWN)
         def decode_shutdown(cmd: List[int]) -> HardwareUpdate:
-            raise NotImplementedError
+            return ShutdownUpdate()
 
         @decoders.register(Reply.EMERGENCY_STOP)
         def decode_emergency_stop(cmd: List[int]) -> HardwareUpdate:
-            raise NotImplementedError
+            return EmergencyStopUpdate()
 
         @decoders.register(Reply.MOTOR_DONE_UPDATE)
         def decode_motor_done_update(cmd: List[int]) -> HardwareUpdate:
