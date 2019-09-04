@@ -154,6 +154,8 @@ class SerialHardwareAdapter(HardwareAdapter):
                 raise FailedCommandError("unsupported motor power/velocity")
             elif reply[0] == Reply.INVALID_VALUE and cmd[0] == Command.SERVO:
                 raise FailedCommandError("unsupported servo position")
+            elif reply[0] == Reply.FAIL_EMERGENCY_ACTIVE:
+                raise FailedCommandError("Emergency Shutdown activated")
             raise FailedCommandError("unknown hardware controller response")
 
     async def get_version(self):

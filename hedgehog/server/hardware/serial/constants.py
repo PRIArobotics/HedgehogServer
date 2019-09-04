@@ -83,6 +83,7 @@ class Reply:
     INVALID_MODE = 0x85
     INVALID_FLAGS = 0x86
     INVALID_VALUE = 0x87
+    FAIL_EMERGENCY_ACTIVE = 0x88
     ANALOG_REP = 0xA1
     IMU_RATE_REP = 0xA2
     IMU_ACCEL_REP = 0xA3
@@ -116,6 +117,7 @@ class Reply:
         INVALID_MODE,
         INVALID_FLAGS,
         INVALID_VALUE,
+        FAIL_EMERGENCY_ACTIVE,
     }
 
     # these may be received at any time and aren't responses to previous commands
@@ -154,6 +156,7 @@ class Reply:
         INVALID_MODE: 1,
         INVALID_FLAGS: 1,
         INVALID_VALUE: 1,
+        FAIL_EMERGENCY_ACTIVE: 1,
         ANALOG_REP: 4,
         IMU_RATE_REP: 7,
         IMU_ACCEL_REP: 7,
