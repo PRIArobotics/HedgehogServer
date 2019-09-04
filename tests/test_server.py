@@ -360,7 +360,7 @@ async def test_version(conn_dealer, autojump_clock):
     async with conn_dealer() as socket:
         # ### version.Request
 
-        await assertReplyDealer(socket, version.Request(), version.Reply(bytes(12), "3", "0", server_version))
+        await assertReplyDealer(socket, version.Request(), version.Reply(bytes(12), "0.3", "0", server_version))
 
 
 @pytest.mark.trio

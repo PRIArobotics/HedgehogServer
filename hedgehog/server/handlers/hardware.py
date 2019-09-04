@@ -336,7 +336,20 @@ class HardwareHandler(CommandHandler):
         from .. import __version__ as server_version
 
         uc_id, hw_version, sw_version = await self.adapter.get_version()
-        return version.Reply(uc_id, str(hw_version), str(sw_version), server_version)
+
+        hw_version = {
+            1: '0.1',
+            2: '0.2',
+            3: '0.3',
+            4: '0.4',
+            10: '1.0',
+        }.get(hw_version, str(hw_version))
+
+        # TODO maybe add explicit SW version strings later
+        sw_version = {
+        }.get(sw_version, str(sw_version))
+
+        return version.Reply(uc_id, hw_version, sw_version, server_version)
 
     @_commands.register(emergency.Action)
     async def emergency_release_action(self, server, ident, msg):
