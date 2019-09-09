@@ -58,9 +58,7 @@ def apply_scan_config(config, scan_config):
         set(out_cfg, section, option, value)
         return value
 
-    copy(scan_config, config, 'default', 'name')
     copy(scan_config, config, 'default', 'port')
-    copy(scan_config, config, 'default', 'services')
     wifi_commands = get(scan_config, 'wifi', 'commands')
 
     if wifi_commands:
