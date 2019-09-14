@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 
 from hedgehog.protocol import ClientSide
 from hedgehog.protocol.errors import FailedCommandError
-from hedgehog.protocol.messages import Message, ack, version, emergency, io, analog, digital, imu, motor, servo, speaker, process
+from hedgehog.protocol.messages import Message, ack, version, emergency, io, analog, digital, imu, motor, servo, speaker, process, vision
 from hedgehog.protocol.proto.subscription_pb2 import Subscription
 from hedgehog.protocol.zmq.trio import ReqSocket, DealerRouterSocket
 from hedgehog.server import handlers, HedgehogServer, __version__ as server_version
@@ -1093,3 +1093,19 @@ async def test_process_sleep(conn_dealer, autojump_clock):
 
         _, msg = await socket.recv_msg()
         assert msg == process.ExitUpdate(pid, -signal.SIGINT)
+
+
+@pytest.mark.trio
+async def test_vision(conn_dealer, autojump_clock):
+    async with conn_dealer() as socket:
+        # ### vision.CameraAction
+
+        await assertReplyDealer(socket, vision.CameraAction(True), ack.Acknowledgement())
+
+        # ### vision.ReadFrameAction
+
+        await assertReplyDealer(socket, vision.ReadFrameAction(), ack.Acknowledgement())
+
+        # ### vision.CameraAction
+
+        await assertReplyDealer(socket, vision.CameraAction(False), ack.Acknowledgement())
