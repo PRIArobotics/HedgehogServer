@@ -18,6 +18,7 @@ from hedgehog.protocol.zmq.trio import ReqSocket, DealerRouterSocket
 from hedgehog.server import handlers, HedgehogServer, __version__ as server_version
 from hedgehog.server.handlers.hardware import HardwareHandler
 from hedgehog.server.handlers.process import ProcessHandler
+from hedgehog.server.handlers.vision import VisionHandler
 from hedgehog.server.hardware import HardwareAdapter
 from hedgehog.server.hardware.mocked import MockedHardwareAdapter
 
@@ -39,7 +40,7 @@ def hardware_handler(hardware_adapter: HardwareAdapter):
 
 @pytest.fixture
 def handler_dict(hardware_handler: HardwareHandler) -> handlers.HandlerCallbackDict:
-    return handlers.merge(hardware_handler, ProcessHandler())
+    return handlers.merge(hardware_handler, ProcessHandler(), VisionHandler())
 
 
 @pytest.fixture
