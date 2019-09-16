@@ -19,7 +19,6 @@ class Grabber:
     Grabber offers an async interface for trio as well, with an async context manager and the `aread` method.
     """
 
-
     _EMPTY = 0
     _GRABBED = 1
     _CLOSED = 2
@@ -83,3 +82,27 @@ def open_camera():
     cam.set(cv2.CAP_PROP_FRAME_WIDTH, 160)
     cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 120)
     return cam
+
+
+def detect_faces(f_cascade, img, scaleFactor=1.1, minNeighbors=5):
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    return f_cascade.detectMultiScale(gray, scaleFactor=scaleFactor, minNeighbors=minNeighbors)
+
+
+def highlight_faces(img, faces):
+    for (x, y, w, h) in faces:
+        cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
+    return img
+
+
+def detect_contours(img, min_hsv, max_hsv):
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV_FULL)
+    mask = cv2.inRange(hsv, min_hsv, max_hsv)
+    mask = mask.reshape((*mask.shape, 1))
+
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_L1)
+    return contours
+
+
+def highlight_contours(img, contours):
+    return cv2.drawContours(img, contours, -1, (0, 0, 255), 2)
