@@ -1100,7 +1100,7 @@ async def test_vision(conn_dealer, autojump_clock):
     async with conn_dealer() as socket:
         # ### vision.CameraAction
 
-        await assertReplyDealer(socket, vision.CameraAction(True), ack.Acknowledgement())
+        await assertReplyDealer(socket, vision.OpenCameraAction(), ack.Acknowledgement())
 
         # ### vision.ReadFrameAction
 
@@ -1108,4 +1108,4 @@ async def test_vision(conn_dealer, autojump_clock):
 
         # ### vision.CameraAction
 
-        await assertReplyDealer(socket, vision.CameraAction(False), ack.Acknowledgement())
+        await assertReplyDealer(socket, vision.CloseCameraAction(), ack.Acknowledgement())
