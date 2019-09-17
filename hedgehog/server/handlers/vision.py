@@ -45,8 +45,8 @@ class VisionHandler(CommandHandler):
 
         return ack.Acknowledgement()
 
-    @_commands.register(vision_msg.RetrieveFrameAction)
-    async def retrieve_frame_action(self, server, ident, msg):
+    @_commands.register(vision_msg.CaptureFrameAction)
+    async def capture_frame_action(self, server, ident, msg):
         if self._grabber is None:
             raise FailedCommandError("camer is closed")
 
