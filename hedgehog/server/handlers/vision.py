@@ -92,8 +92,8 @@ class VisionHandler(CommandHandler):
             elif isinstance(channel, vision_msg.ContoursChannel):
                 self._channels[key] = Channel(
                     channel,
-                    partial(vision.detect_contours, min_hsv=channel.hsv_min, max_hsv=channel.hsv_max),
-                    vision.highlight_contours
+                    partial(vision.detect_blobs, min_hsv=channel.hsv_min, max_hsv=channel.hsv_max),
+                    vision.highlight_blobs
                 )
             else:  # pragma: nocover
                 assert False

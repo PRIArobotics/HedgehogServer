@@ -98,14 +98,39 @@ def highlight_faces(img, faces):
     return img
 
 
-def detect_contours(img, min_hsv, max_hsv):
+def detect_blobs(img, min_hsv, max_hsv):
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV_FULL)
     mask = cv2.inRange(hsv, min_hsv, max_hsv)
     mask = mask.reshape((*mask.shape, 1))
 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_L1)
-    return contours
+
+    blobs = []
+    for c in contours:
+        rect = cv2.boundingRect(c)
+        _, _, w, h = rect
+        if w < 3 or h < 3:
+            continue
+
+        m = cv2.moments(c)
+        m00, m10, m01 = (m[x] for x in ('m00', 'm10', 'm01'))
+        if m00 == 0:
+            continue
+        confidence = m00 / (w*h)
+        centroid = int(m10 / m00), int(m01 / m00)
+
+        blobs.append((rect, centroid, confidence))
+
+    def area(blob):
+        rect, _, _ = blob
+        _, _, w, h = rect
+        return w*h
+
+    blobs.sort(key=area, reverse=True)
+    return blobs
 
 
-def highlight_contours(img, contours):
-    return cv2.drawContours(img, contours, -1, (0, 0, 255), 2)
+def highlight_blobs(img, blobs):
+    for (x, y, w, h), _, _ in blobs:
+        cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
+    return img
