@@ -89,7 +89,7 @@ class VisionHandler(CommandHandler):
                     partial(vision.detect_faces, vision.haar_face_cascade),
                     vision.highlight_faces
                 )
-            elif isinstance(channel, vision_msg.ContoursChannel):
+            elif isinstance(channel, vision_msg.BlobsChannel):
                 self._channels[key] = Channel(
                     channel,
                     partial(vision.detect_blobs, min_hsv=channel.hsv_min, max_hsv=channel.hsv_max),

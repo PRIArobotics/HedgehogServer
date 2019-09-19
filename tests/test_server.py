@@ -1102,7 +1102,7 @@ async def test_vision(conn_dealer, autojump_clock):
 
         await assertReplyDealer(socket, vision.CreateChannelAction({
             'a': vision.FacesChannel(),
-            'b': vision.ContoursChannel((0x22, 0x22, 0x22), (0x88, 0x88, 0x88)),
+            'b': vision.BlobsChannel((0x22, 0x22, 0x22), (0x88, 0x88, 0x88)),
         }), ack.OK)
 
         await assertReplyDealer(socket, vision.CreateChannelAction({
@@ -1112,11 +1112,11 @@ async def test_vision(conn_dealer, autojump_clock):
         # ### vision.UpdateChannelAction
 
         await assertReplyDealer(socket, vision.UpdateChannelAction({
-            'b': vision.ContoursChannel((0x33, 0x33, 0x33), (0x88, 0x88, 0x88)),
+            'b': vision.BlobsChannel((0x33, 0x33, 0x33), (0x88, 0x88, 0x88)),
         }), ack.OK)
 
         await assertReplyDealer(socket, vision.UpdateChannelAction({
-            'b': vision.ContoursChannel((0x22, 0x22, 0x22), (0x88, 0x88, 0x88)),
+            'b': vision.BlobsChannel((0x22, 0x22, 0x22), (0x88, 0x88, 0x88)),
             'c': vision.FacesChannel(),
         }), ack.FAILED_COMMAND)
 
@@ -1124,7 +1124,7 @@ async def test_vision(conn_dealer, autojump_clock):
 
         await assertReplyDealer(socket, vision.ChannelRequest(set()), vision.ChannelReply({
             'a': vision.FacesChannel(),
-            'b': vision.ContoursChannel((0x33, 0x33, 0x33), (0x88, 0x88, 0x88)),
+            'b': vision.BlobsChannel((0x33, 0x33, 0x33), (0x88, 0x88, 0x88)),
         }))
 
         await assertReplyDealer(socket, vision.ChannelRequest({'a'}), vision.ChannelReply({
