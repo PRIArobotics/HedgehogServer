@@ -18,6 +18,7 @@ from .. import vision
 
 T = TypeVar('T')
 
+
 @dataclass
 class Channel(Generic[T]):
     msg: vision_msg.Channel
