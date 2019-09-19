@@ -84,6 +84,9 @@ def open_camera():
     return cam
 
 
+haar_face_cascade = cv2.CascadeClassifier('hedgehog/server/vision/haarcascade_frontalface_alt.xml')
+
+
 def detect_faces(f_cascade, img, scaleFactor=1.1, minNeighbors=5):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     return f_cascade.detectMultiScale(gray, scaleFactor=scaleFactor, minNeighbors=minNeighbors)
