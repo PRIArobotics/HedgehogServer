@@ -48,7 +48,7 @@ class VisionHandler(CommandHandler):
     @_commands.register(vision_msg.CaptureFrameAction)
     async def capture_frame_action(self, server, ident, msg):
         if self._grabber is None:
-            raise FailedCommandError("camer is closed")
+            raise FailedCommandError("camera is closed")
 
         s, img = await self._grabber.aread()
         if not s:
