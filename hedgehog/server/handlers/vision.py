@@ -19,27 +19,49 @@ from .. import vision
 T = TypeVar('T')
 
 
+def pack_faces(feature) -> vision_msg.Feature:
+    return vision_msg.FacesFeature([
+        vision_msg.Face(rect)
+        for rect in feature
+    ])
+
+
+def pack_blobs(feature) -> vision_msg.Feature:
+    return vision_msg.BlobsFeature([
+        vision_msg.Blob(rect, centroid, confidence)
+        for rect, centroid, confidence in feature
+    ])
+
+
 @dataclass
 class Channel(Generic[T]):
     msg: vision_msg.Channel
     detect: Callable[[np.ndarray], T]
     highlight: Callable[[np.ndarray, T], np.ndarray]
+    pack: Callable[[T], vision_msg.Feature]
 
 
 class ChannelData(Generic[T]):
-    result: Optional[T] = None
+    feature: Optional[T] = None
     highlight: Optional[np.ndarray] = None
+    packed: Optional[vision_msg.Feature] = None
 
-    def get_result(self, img: np.ndarray, channel: Channel[T]):
-        if self.result is None:
-            self.result = channel.detect(img)
-        return self.result
+    def get_feature(self, img: np.ndarray, channel: Channel[T]):
+        if self.feature is None:
+            self.feature = channel.detect(img)
+        return self.feature
 
     def get_highlight(self, img: np.ndarray, channel: Channel[T]):
         if self.highlight is None:
-            result = self.get_result(img, channel)
-            self.highlight = channel.highlight(img, result)
+            feature = self.get_feature(img, channel)
+            self.highlight = channel.highlight(img, feature)
         return self.highlight
+
+    def get_packed(self, img: np.ndarray, channel: Channel[T]):
+        if self.packed is None:
+            feature = self.get_feature(img, channel)
+            self.packed = channel.pack(feature)
+        return self.packed
 
 
 class VisionHandler(CommandHandler):
@@ -87,13 +109,15 @@ class VisionHandler(CommandHandler):
                 self._channels[key] = Channel(
                     channel,
                     partial(vision.detect_faces, vision.haar_face_cascade),
-                    vision.highlight_faces
+                    vision.highlight_faces,
+                    pack_faces,
                 )
             elif isinstance(channel, vision_msg.BlobsChannel):
                 self._channels[key] = Channel(
                     channel,
                     partial(vision.detect_blobs, min_hsv=channel.hsv_min, max_hsv=channel.hsv_max),
-                    vision.highlight_blobs
+                    vision.highlight_blobs,
+                    pack_blobs,
                 )
             else:  # pragma: nocover
                 assert False
@@ -171,3 +195,15 @@ class VisionHandler(CommandHandler):
             raise FailedCommandError("encoding image failed")
 
         return vision_msg.FrameReply(msg.highlight, img.tostring())
+
+    @_commands.register(vision_msg.FeatureRequest)
+    async def feature_request(self, server, ident, msg):
+        if self._img is None:
+            raise FailedCommandError("no frame available")
+
+        if msg.channel in self._channels:
+            channel_data = self._channel_data[msg.channel]
+            packed = channel_data.get_packed(self._img, self._channels[msg.channel])
+            return vision_msg.FeatureReply(msg.channel, packed)
+        else:
+            raise FailedCommandError(f"no such channel: {msg.highlight}")
