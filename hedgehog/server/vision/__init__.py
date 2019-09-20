@@ -1,5 +1,6 @@
 import logging
 import cv2
+import numpy as np
 import trio
 
 from threading import Condition, Thread
@@ -93,6 +94,7 @@ def detect_faces(f_cascade, img, scaleFactor=1.1, minNeighbors=5):
 
 
 def highlight_faces(img, faces):
+    img = np.copy(img)
     for (x, y, w, h) in faces:
         cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
     return img
@@ -131,6 +133,7 @@ def detect_blobs(img, min_hsv, max_hsv):
 
 
 def highlight_blobs(img, blobs):
+    img = np.copy(img)
     for (x, y, w, h), _, _ in blobs:
         cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
     return img
