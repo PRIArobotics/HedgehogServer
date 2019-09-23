@@ -102,7 +102,13 @@ def highlight_faces(img, faces):
 
 def detect_blobs(img, min_hsv, max_hsv):
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV_FULL)
-    mask = cv2.inRange(hsv, min_hsv, max_hsv)
+    if min_hsv[0] <= max_hsv[0]:
+        mask = cv2.inRange(hsv, min_hsv, max_hsv)
+    else:
+        mask = (
+                cv2.inRange(hsv, (0, *min_hsv[1:3]), max_hsv) |
+                cv2.inRange(hsv, min_hsv, (255, *max_hsv[1:3]))
+        )
     mask = mask.reshape((*mask.shape, 1))
 
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_L1)
