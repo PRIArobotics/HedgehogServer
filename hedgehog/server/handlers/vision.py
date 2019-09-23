@@ -1,7 +1,6 @@
 from typing import Callable, Dict, DefaultDict, Generic, Optional, TypeVar
 
 from collections import defaultdict
-from contextlib import AsyncExitStack
 from dataclasses import dataclass
 from functools import partial
 
@@ -65,12 +64,18 @@ class ChannelData(Generic[T]):
         return self.packed
 
 
+@dataclass
+class Camera:
+    grabber: vision.Grabber
+    scope: trio.CancelScope
+
+
 class VisionHandler(CommandHandler):
     _commands = CommandRegistry()
 
     open_count: int = 0
-    _stack: Optional[AsyncExitStack] = None
-    _grabber: Optional[vision.Grabber] = None
+    _camera: Optional[Camera] = None
+
     _channels: Dict[str, Channel]
     _img: Optional[np.ndarray] = None
     _channel_data: Optional[DefaultDict[str, ChannelData]] = None
@@ -78,13 +83,16 @@ class VisionHandler(CommandHandler):
     def __init__(self) -> None:
         self._channels = {}
 
+    async def _handle_camera(self, *, task_status=trio.TASK_STATUS_IGNORED):
+        async with trio.open_nursery() as nursery:
+            grabber = vision.Grabber(vision.camera())
+            await nursery.start(grabber.run)
+            task_status.started(Camera(grabber, nursery.cancel_scope))
+
     @_commands.register(vision_msg.OpenCameraAction)
     async def open_camera_action(self, server, ident, msg):
         if self.open_count == 0:
-            self._stack = AsyncExitStack()
-            cam = await trio.to_thread.run_sync(vision.open_camera)
-            self._grabber = vision.Grabber(cam)
-            await self._stack.enter_async_context(self._grabber)
+            self._camera = await server.add_task(self._handle_camera)
         self.open_count += 1
 
         return ack.Acknowledgement()
@@ -96,9 +104,8 @@ class VisionHandler(CommandHandler):
 
         self.open_count -= 1
         if self.open_count == 0:
-            await self._stack.aclose()
-            self._grabber = None
-            self._stack = None
+            self._camera.scope.cancel()
+            self._camera = None
             self._img = None
             self._channel_data = None
 
@@ -164,11 +171,11 @@ class VisionHandler(CommandHandler):
 
     @_commands.register(vision_msg.CaptureFrameAction)
     async def capture_frame_action(self, server, ident, msg):
-        if self._grabber is None:
+        if self._camera is None:
             raise FailedCommandError("camera is closed")
 
-        s, img = await self._grabber.aread()
-        if not s:
+        img = await self._camera.grabber.read()
+        if img is None:
             self._img = None
             self._channel_data = None
             raise FailedCommandError("camera did not return an image")

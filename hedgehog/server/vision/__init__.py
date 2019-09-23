@@ -3,86 +3,68 @@ import cv2
 import numpy as np
 import trio
 
-from threading import Condition, Thread
+from contextlib import contextmanager
+from functools import partial
+from threading import Thread
 
 logger = logging.getLogger(__name__)
 
 
 class Grabber:
-    """
-    Grabber ensures that camera frames are grabbed as soon as they arrive, so that the latest frame is always processed.
-    To do this, Grabber starts a background thread for reading the camera.
-    Grabber manages that thread as a context manager.
-    Only when the application wants to process a frame, that frame is retrieved using the `read` method.
-    `read` will always return the latest data fetched from the capture device,
-    even if that data indicated there are no frames left.
+    def __init__(self, cap_ctx):
+        # context manager that opens and closes an cv2.VideoCapture object
+        self._cap_ctx = cap_ctx
 
-    Grabber offers an async interface for trio as well, with an async context manager and the `aread` method.
-    """
+        # ## capture thread management
+        # stop flag for cancellation
+        self._stop = False
 
-    _EMPTY = 0
-    _GRABBED = 1
-    _CLOSED = 2
+        # ## frame synchronization
+        # event for waiting for next frame
+        self._event = trio.Event()
+        # next available frame
+        self._frame = None
 
-    def __init__(self, cap):
-        self._cap = cap
-        self._state = Grabber._EMPTY
-        self._cond = Condition()
+    async def run(self, *, task_status=trio.TASK_STATUS_IGNORED):
+        try:
+            Thread(target=partial(self._run, trio.hazmat.current_trio_token())).start()
+            task_status.started()
+            await trio.sleep_forever()
+        finally:
+            self._stop = True
 
-    def __enter__(self):
-        Thread(target=self._grabber).start()
-        return self
-
-    async def __aenter__(self):
-        self.__enter__()
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        with self._cond:
-            self._state = Grabber._CLOSED
-
-    async def __aexit__(self, exc_type, exc_value, traceback):
-        await trio.to_thread.run_sync(self.__exit__, exc_type, exc_value, traceback)
-
-    def _grabber(self):
+    def _run(self, trio_token):
         logger.info("Grabber thread started")
-        while True:
-            with self._cond:
-                if self._state == Grabber._CLOSED:
-                    break
-                elif self._cap.grab():
-                    # set a flag that a frame may be retrieved
-                    self._state = Grabber._GRABBED
-                    self._cond.notify_all()
-                else:
-                    # set a flag that EOF was reached
-                    # grab() has probably invalidated the previous frame
-                    # that's ok; it's old by now and we don't want it
-                    self._state = Grabber._CLOSED
-                    self._cond.notify_all()
-                    break
-        self._cap.release()
-        logger.info("Grabber thread finished")
+        try:
+            with self._cap_ctx as cap:
+                s = True
+                while s and not self._stop:
+                    s, frame = cap.read()
+                    trio.from_thread.run(self._publish, frame, trio_token=trio_token)
+            trio.from_thread.run(self._publish, None, trio_token=trio_token)
+        finally:
+            logger.info("Grabber thread finished")
 
-    def read(self):
-        with self._cond:
-            self._cond.wait_for(lambda: self._state != Grabber._EMPTY)
-            if self._state == Grabber._GRABBED:
-                # decode and retrieve the latest grabbed frame
-                self._state = Grabber._EMPTY
-                return self._cap.retrieve()
-            else:
-                # grabber was closed
-                return False, None
+    async def _publish(self, frame):
+        self._frame = frame
+        self._event.set()
 
-    async def aread(self):
-        return await trio.to_thread.run_sync(self.read)
+    async def read(self):
+        await self._event.wait()
+        if self._frame is not None:
+            # as we're on the event loop thread,
+            # there can come no race condition from replacing the Event
+            self._event = trio.Event()
+        return self._frame
 
 
-def open_camera():
+@contextmanager
+def camera():
     cam = cv2.VideoCapture(0)
     cam.set(cv2.CAP_PROP_FRAME_WIDTH, 160)
     cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 120)
-    return cam
+    yield cam
+    cam.release()
 
 
 haar_face_cascade = cv2.CascadeClassifier('hedgehog/server/vision/haarcascade_frontalface_alt.xml')
