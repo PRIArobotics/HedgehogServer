@@ -129,10 +129,11 @@ def detect_blobs(img, min_hsv, max_hsv):
         return w*h
 
     blobs.sort(key=area, reverse=True)
-    return blobs
+    return blobs, mask
 
 
-def highlight_blobs(img, blobs):
+def highlight_blobs(img, blobs_data):
+    blobs, mask = blobs_data
     img = np.copy(img)
     for (x, y, w, h), _, _ in blobs:
         cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)

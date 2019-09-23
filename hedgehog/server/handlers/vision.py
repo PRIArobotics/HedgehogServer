@@ -27,9 +27,10 @@ def pack_faces(feature) -> vision_msg.Feature:
 
 
 def pack_blobs(feature) -> vision_msg.Feature:
+    blobs, _ = feature
     return vision_msg.BlobsFeature([
         vision_msg.Blob(rect, centroid, confidence)
-        for rect, centroid, confidence in feature
+        for rect, centroid, confidence in blobs
     ])
 
 
