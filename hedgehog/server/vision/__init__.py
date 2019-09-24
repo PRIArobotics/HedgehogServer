@@ -32,6 +32,11 @@ class Grabber:
             await trio.sleep_forever()
         finally:
             self._stop = True
+            with trio.CancelScope(shield=True):
+                # wait for the background thread to finish
+                while await self.read() is not None:
+                    logger.info("wait")
+                logger.info("done")
 
     def _run(self, trio_token):
         logger.info("Grabber thread started")
@@ -52,6 +57,7 @@ class Grabber:
     async def read(self):
         await self._event.wait()
         if self._frame is not None:
+            # there will be further frames
             # as we're on the event loop thread,
             # there can come no race condition from replacing the Event
             self._event = trio.Event()
