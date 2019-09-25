@@ -74,9 +74,7 @@ class Command:
 
 class Reply:
     VERSION_REP = 0x02
-    SHUTDOWN = 0x03
-    EMERGENCY_STOP = 0x04
-    EMERGENCY_REP = 0x05
+    EMERGENCY_REP = 0x07
     OK = 0x80
     UNKNOWN_OPCODE = 0x81
     INVALID_OPCODE = 0x82
@@ -85,11 +83,15 @@ class Reply:
     INVALID_MODE = 0x85
     INVALID_FLAGS = 0x86
     INVALID_VALUE = 0x87
+    FAIL_EMERGENCY_ACTIVE = 0x88
     ANALOG_REP = 0xA1
     IMU_RATE_REP = 0xA2
     IMU_ACCEL_REP = 0xA3
     IMU_POSE_REP = 0xA4
     DIGITAL_REP = 0xB1
+
+    SHUTDOWN = 0x03
+    EMERGENCY_STOP = 0x04
     MOTOR_DONE_UPDATE = 0xC3
     UART_UPDATE = 0xE1
 
@@ -115,6 +117,7 @@ class Reply:
         INVALID_MODE,
         INVALID_FLAGS,
         INVALID_VALUE,
+        FAIL_EMERGENCY_ACTIVE,
     }
 
     # these may be received at any time and aren't responses to previous commands
@@ -153,6 +156,7 @@ class Reply:
         INVALID_MODE: 1,
         INVALID_FLAGS: 1,
         INVALID_VALUE: 1,
+        FAIL_EMERGENCY_ACTIVE: 1,
         ANALOG_REP: 4,
         IMU_RATE_REP: 7,
         IMU_ACCEL_REP: 7,

@@ -13,7 +13,7 @@ from hedgehog.protocol.messages import motor
 from hedgehog.protocol.errors import FailedCommandError, UnsupportedCommandError
 from hedgehog.utils import Registry
 from .constants import Command, Reply
-from .. import HardwareAdapter, HardwareUpdate, POWER
+from .. import HardwareAdapter, HardwareUpdate, POWER, ShutdownUpdate, EmergencyStopUpdate
 
 
 logger = logging.getLogger(__name__)
@@ -69,19 +69,19 @@ class SerialHardwareAdapter(HardwareAdapter):
 
         @decoders.register(Reply.SHUTDOWN)
         def decode_shutdown(cmd: List[int]) -> HardwareUpdate:
-            raise NotImplemented
+            return ShutdownUpdate()
 
         @decoders.register(Reply.EMERGENCY_STOP)
         def decode_emergency_stop(cmd: List[int]) -> HardwareUpdate:
-            raise NotImplemented
+            return EmergencyStopUpdate()
 
         @decoders.register(Reply.MOTOR_DONE_UPDATE)
         def decode_motor_done_update(cmd: List[int]) -> HardwareUpdate:
-            raise NotImplemented
+            raise NotImplementedError
 
         @decoders.register(Reply.UART_UPDATE)
         def decode_uart_update(cmd: List[int]) -> HardwareUpdate:
-            raise NotImplemented
+            raise NotImplementedError
 
         async def read_command() -> List[int]:
             cmd = await read(1)
@@ -108,7 +108,10 @@ class SerialHardwareAdapter(HardwareAdapter):
 
             logger.debug(f"Listening for HWC message")
             cmd = await read_command()
-            logger.debug(f"Got HWC message: {' '.join(f'{b:02X}' for b in cmd)}")
+            if cmd[0] in Reply.ERROR_REPLIES:
+                logger.info(f"Got HWC message: {' '.join(f'{b:02X}' for b in cmd)}")
+            else:
+                logger.debug(f"Got HWC message: {' '.join(f'{b:02X}' for b in cmd)}")
             if cmd[0] in Reply.UPDATES:
                 decode = decoders[cmd[0]]
                 self._enqueue_update(decode(cmd))
@@ -151,6 +154,8 @@ class SerialHardwareAdapter(HardwareAdapter):
                 raise FailedCommandError("unsupported motor power/velocity")
             elif reply[0] == Reply.INVALID_VALUE and cmd[0] == Command.SERVO:
                 raise FailedCommandError("unsupported servo position")
+            elif reply[0] == Reply.FAIL_EMERGENCY_ACTIVE:
+                raise FailedCommandError("Emergency Shutdown activated")
             raise FailedCommandError("unknown hardware controller response")
 
     async def get_version(self):

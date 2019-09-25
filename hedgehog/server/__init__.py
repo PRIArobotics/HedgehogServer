@@ -7,6 +7,7 @@ import subprocess
 import trio
 import trio_asyncio
 from contextlib import suppress
+from functools import partial
 
 from hedgehog.utils.zmq import trio as zmq_trio
 
@@ -57,9 +58,7 @@ def apply_scan_config(config, scan_config):
         set(out_cfg, section, option, value)
         return value
 
-    copy(scan_config, config, 'default', 'name')
     copy(scan_config, config, 'default', 'port')
-    copy(scan_config, config, 'default', 'services')
     wifi_commands = get(scan_config, 'wifi', 'commands')
 
     if wifi_commands:
@@ -67,9 +66,9 @@ def apply_scan_config(config, scan_config):
         subprocess.Popen(['wpa_cli'], stdin=subprocess.PIPE).communicate(wifi_commands.encode())
 
 
-def launch(hardware):
+def launch(hardware_factory):
     from hedgehog.server.hardware.simulated import SimulatedHardwareAdapter
-    simulator = hardware == SimulatedHardwareAdapter
+    simulator = hardware_factory == SimulatedHardwareAdapter
 
     args = parse_args(simulator)
 
@@ -77,10 +76,7 @@ def launch(hardware):
         logging.config.fileConfig(args.logging_conf)
 
     if simulator and args.simulate_sensors:
-        _hardware = hardware
-
-        def hardware(*args, **kwargs):
-            return _hardware(*args, simulate_sensors=True, **kwargs)
+        hardware_factory = partial(hardware_factory, simulate_sensors=True)
 
     config = configparser.ConfigParser()
     config.read(args.config_file)
@@ -97,17 +93,18 @@ def launch(hardware):
     port = args.port or config.getint('default', 'port', fallback=0)
 
     with suppress(KeyboardInterrupt):
-        start(hardware, port)
+        start(hardware_factory, port)
 
 
-def start(hardware, port=0):
+def start(hardware_factory, port=0):
     ctx = zmq_trio.Context.instance()
 
     async def run():
-        hardware_handler = HardwareHandler(hardware())
+        hardware = hardware_factory()
+        hardware_handler = HardwareHandler(hardware)
         handler = handlers.merge(hardware_handler, ProcessHandler())
 
         async with trio_asyncio.open_loop(), hardware_handler:
-            await HedgehogServer(ctx, 'tcp://*:{}'.format(port), handler).run()
+            await HedgehogServer(ctx, 'tcp://*:{}'.format(port), handler, hardware.updates).run()
 
     trio.run(run)
