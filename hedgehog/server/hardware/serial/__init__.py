@@ -85,38 +85,40 @@ class SerialHardwareAdapter(HardwareAdapter):
 
         async def read_command() -> List[int]:
             cmd = await read(1)
-            if cmd[0] not in (Reply.SUCCESS_REPLIES | Reply.ERROR_REPLIES | Reply.UPDATES):
-                raise RuntimeError(f"HWC speaks a language we don't understand: 0x{cmd[0]:02X}")
-            if cmd[0] in Reply.LENGTHS:
-                length = Reply.LENGTHS[cmd[0]]
-                if length > 1:
-                    cmd += await read(length - 1)
-            else:
-                cmd += await read(1)
-                length = cmd[1] + 2
-                if length > 2:
-                    cmd += await read(length - 2)
-            if len(cmd) != length:
-                raise TruncatedCommandError(f"HWC sent a truncated response: {' '.join(f'{b:02X}' for b in cmd)}")
-            return list(cmd)
+            with trio.move_on_after(0.5):
+                if cmd[0] not in (Reply.SUCCESS_REPLIES | Reply.ERROR_REPLIES | Reply.UPDATES):
+                    raise RuntimeError(f"HWC speaks a language we don't understand: 0x{cmd[0]:02X}")
+                if cmd[0] in Reply.LENGTHS:
+                    length = Reply.LENGTHS[cmd[0]]
+                else:
+                    cmd += await read(1)
+                    length = cmd[1] + 2
+                while len(cmd) < length:
+                    cmd += await read(length - len(cmd))
+                return list(cmd)
+
+            # response timed out
+            raise TruncatedCommandError(f"HWC sent a truncated response: {' '.join(f'{b:02X}' for b in cmd)}")
 
         task_status.started()
 
         while True:
-            # TODO handle TruncatedCommandError
-            # TODO will this abort when there's nothing to receive? We have a receive timeout configured...
-
             logger.debug(f"Listening for HWC message")
-            cmd = await read_command()
-            if cmd[0] in Reply.ERROR_REPLIES:
-                logger.info(f"Got HWC message: {' '.join(f'{b:02X}' for b in cmd)}")
+            try:
+                cmd = await read_command()
+            except TruncatedCommandError as err:
+                logger.warning(f"{err}")
+                await self._replies_in.send(err)
             else:
-                logger.debug(f"Got HWC message: {' '.join(f'{b:02X}' for b in cmd)}")
-            if cmd[0] in Reply.UPDATES:
-                decode = decoders[cmd[0]]
-                self._enqueue_update(decode(cmd))
-            else:
-                await self._replies_in.send(cmd)
+                if cmd[0] in Reply.ERROR_REPLIES:
+                    logger.info(f"Got HWC message: {' '.join(f'{b:02X}' for b in cmd)}")
+                else:
+                    logger.debug(f"Got HWC message: {' '.join(f'{b:02X}' for b in cmd)}")
+                if cmd[0] in Reply.UPDATES:
+                    decode = decoders[cmd[0]]
+                    self._enqueue_update(decode(cmd))
+                else:
+                    await self._replies_in.send(cmd)
 
     async def repeatable_command(self, cmd: List[int], reply_code: int=Reply.OK, tries: int=3) -> List[int]:
         for i in range(tries - 1):
@@ -130,6 +132,8 @@ class SerialHardwareAdapter(HardwareAdapter):
         logger.debug(f"Send to HWC:     {' '.join(f'{b:02X}' for b in cmd)}")
         self.writer.write(bytes(cmd))
         reply = await self._replies_out.receive()
+        if isinstance(reply, TruncatedCommandError):
+            raise reply
 
         if reply[0] in Reply.SUCCESS_REPLIES:
             assert reply[0] == reply_code
@@ -236,4 +240,6 @@ class SerialHardwareAdapter(HardwareAdapter):
         await self.repeatable_command([Command.UART, len(data), *data])
 
     async def set_speaker(self, frequency):
-        await self.repeatable_command([Command.SPEAKER, frequency])
+        if frequency is None:
+            frequency = 0
+        await self.repeatable_command([Command.SPEAKER, *frequency.to_bytes(2, 'big', signed=False)])
