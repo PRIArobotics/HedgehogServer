@@ -236,4 +236,6 @@ class SerialHardwareAdapter(HardwareAdapter):
         await self.repeatable_command([Command.UART, len(data), *data])
 
     async def set_speaker(self, frequency):
-        await self.repeatable_command([Command.SPEAKER, frequency])
+        if frequency is None:
+            frequency = 0
+        await self.repeatable_command([Command.SPEAKER, *frequency.to_bytes(2, 'big', signed=False)])
