@@ -10,6 +10,9 @@ matrix:
 # install other libraries using pip
 install:
   - pip install -U setuptools coveralls
+  # for now install OpenCV like this.
+  # It's not in the dependencies, as it's not installed via pip on the Raspberry Pi
+  - pip install -U opencv-python
   - pip install -Ue .[dev,raspberry]
 
 # command to run tests
