@@ -12,12 +12,13 @@ from contextlib import asynccontextmanager
 
 from hedgehog.protocol import ClientSide
 from hedgehog.protocol.errors import FailedCommandError
-from hedgehog.protocol.messages import Message, ack, version, emergency, io, analog, digital, imu, motor, servo, speaker, process
+from hedgehog.protocol.messages import Message, ack, version, emergency, io, analog, digital, imu, motor, servo, speaker, process, vision
 from hedgehog.protocol.proto.subscription_pb2 import Subscription
 from hedgehog.protocol.zmq.trio import ReqSocket, DealerRouterSocket
 from hedgehog.server import handlers, HedgehogServer, __version__ as server_version
 from hedgehog.server.handlers.hardware import HardwareHandler
 from hedgehog.server.handlers.process import ProcessHandler
+from hedgehog.server.handlers.vision import VisionHandler
 from hedgehog.server.hardware import HardwareAdapter
 from hedgehog.server.hardware.mocked import MockedHardwareAdapter
 
@@ -39,7 +40,7 @@ def hardware_handler(hardware_adapter: HardwareAdapter):
 
 @pytest.fixture
 def handler_dict(hardware_handler: HardwareHandler) -> handlers.HandlerCallbackDict:
-    return handlers.merge(hardware_handler, ProcessHandler())
+    return handlers.merge(hardware_handler, ProcessHandler(), VisionHandler())
 
 
 @pytest.fixture
@@ -1092,3 +1093,60 @@ async def test_process_sleep(conn_dealer, autojump_clock):
 
         _, msg = await socket.recv_msg()
         assert msg == process.ExitUpdate(pid, -signal.SIGINT)
+
+
+@pytest.mark.trio
+async def test_vision(conn_dealer, autojump_clock):
+    async with conn_dealer() as socket:
+        # ### vision.CreateChannelAction
+
+        await assertReplyDealer(socket, vision.CreateChannelAction({
+            'a': vision.FacesChannel(),
+            'b': vision.BlobsChannel((0x22, 0x22, 0x22), (0x88, 0x88, 0x88)),
+        }), ack.OK)
+
+        await assertReplyDealer(socket, vision.CreateChannelAction({
+            'a': vision.FacesChannel(),
+        }), ack.FAILED_COMMAND)
+
+        # ### vision.UpdateChannelAction
+
+        await assertReplyDealer(socket, vision.UpdateChannelAction({
+            'b': vision.BlobsChannel((0x33, 0x33, 0x33), (0x88, 0x88, 0x88)),
+        }), ack.OK)
+
+        await assertReplyDealer(socket, vision.UpdateChannelAction({
+            'b': vision.BlobsChannel((0x22, 0x22, 0x22), (0x88, 0x88, 0x88)),
+            'c': vision.FacesChannel(),
+        }), ack.FAILED_COMMAND)
+
+        # ### vision.ChannelRequest
+
+        await assertReplyDealer(socket, vision.ChannelRequest(set()), vision.ChannelReply({
+            'a': vision.FacesChannel(),
+            'b': vision.BlobsChannel((0x33, 0x33, 0x33), (0x88, 0x88, 0x88)),
+        }))
+
+        await assertReplyDealer(socket, vision.ChannelRequest({'a'}), vision.ChannelReply({
+            'a': vision.FacesChannel(),
+        }))
+
+        await assertReplyDealer(socket, vision.ChannelRequest({'c'}), ack.FAILED_COMMAND)
+
+        # ### vision.DeleteChannelAction
+
+        await assertReplyDealer(socket, vision.DeleteChannelAction({'b'}), ack.OK)
+
+        await assertReplyDealer(socket, vision.DeleteChannelAction({'c'}), ack.FAILED_COMMAND)
+
+        # # ### vision.OpenCameraAction
+        #
+        # await assertReplyDealer(socket, vision.OpenCameraAction(), ack.OK)
+        #
+        # # ### vision.ReadFrameAction
+        #
+        # await assertReplyDealer(socket, vision.CaptureFrameAction(), ack.OK)
+        #
+        # # ### vision.CloseCameraAction
+        #
+        # await assertReplyDealer(socket, vision.CloseCameraAction(), ack.OK)

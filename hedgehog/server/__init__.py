@@ -15,6 +15,7 @@ from . import handlers
 from .hedgehog_server import HedgehogServer
 from .handlers.hardware import HardwareHandler
 from .handlers.process import ProcessHandler
+from .handlers.vision import VisionHandler
 
 from ._version import __version__
 
@@ -102,7 +103,7 @@ def start(hardware_factory, port=0):
     async def run():
         hardware = hardware_factory()
         hardware_handler = HardwareHandler(hardware)
-        handler = handlers.merge(hardware_handler, ProcessHandler())
+        handler = handlers.merge(hardware_handler, ProcessHandler(), VisionHandler())
 
         async with trio_asyncio.open_loop(), hardware_handler:
             await HedgehogServer(ctx, 'tcp://*:{}'.format(port), handler, hardware.updates).run()
