@@ -1,4 +1,4 @@
-from typing import Callable, Dict, DefaultDict, Generic, Optional, TypeVar
+from typing import Callable, Dict, DefaultDict, Generic, Optional, Set, TypeVar
 
 from collections import defaultdict
 from dataclasses import dataclass
@@ -8,6 +8,7 @@ import trio
 import cv2
 import numpy as np
 
+from hedgehog.protocol import Header
 from hedgehog.protocol.errors import FailedCommandError
 from hedgehog.protocol.messages import ack, vision as vision_msg
 
@@ -68,12 +69,13 @@ class ChannelData(Generic[T]):
 class Camera:
     grabber: vision.Grabber
     scope: trio.CancelScope
+    closed: trio.Event
 
 
 class VisionHandler(CommandHandler):
     _commands = CommandRegistry()
 
-    open_count: int = 0
+    _connections: Set[Header] = set()
     _camera: Optional[Camera] = None
 
     _channels: Dict[str, Channel]
@@ -84,30 +86,45 @@ class VisionHandler(CommandHandler):
         self._channels = {}
 
     async def _handle_camera(self, *, task_status=trio.TASK_STATUS_IGNORED):
-        async with trio.open_nursery() as nursery:
-            grabber = vision.Grabber(vision.camera())
-            await nursery.start(grabber.run)
-            task_status.started(Camera(grabber, nursery.cancel_scope))
+        try:
+            async with trio.open_nursery() as nursery:
+                grabber = vision.Grabber(vision.camera())
+                await nursery.start(grabber.run)
+                self._camera = Camera(grabber, nursery.cancel_scope, trio.Event())
+                task_status.started()
+        finally:
+            self._camera.closed.set()
+            self._connections.clear()
+            self._camera = None
+            self._img = None
+            self._channel_data = None
+
+    async def _close_camera(self):
+        self._camera.scope.cancel()
+        await self._camera.closed.wait()
 
     @_commands.register(vision_msg.OpenCameraAction)
     async def open_camera_action(self, server, ident, msg):
-        if self.open_count == 0:
-            self._camera = await server.add_task(self._handle_camera)
-        self.open_count += 1
+        if ident in self._connections:
+            raise FailedCommandError("trying to open already opened camera")
+
+        if not self._connections:
+            await server.add_task(self._handle_camera)
+
+        self._connections.add(ident)
 
         return ack.Acknowledgement()
 
     @_commands.register(vision_msg.CloseCameraAction)
     async def close_camera_action(self, server, ident, msg):
-        if self.open_count == 0:
-            raise FailedCommandError("trying to close already closed camera")
+        if ident not in self._connections:
+            # don't fail on closing if we're not open
+            return ack.Acknowledgement()
 
-        self.open_count -= 1
-        if self.open_count == 0:
-            self._camera.scope.cancel()
-            self._camera = None
-            self._img = None
-            self._channel_data = None
+        self._connections.remove(ident)
+
+        if not self._connections and self._camera:
+            await self._close_camera()
 
         return ack.Acknowledgement()
 
