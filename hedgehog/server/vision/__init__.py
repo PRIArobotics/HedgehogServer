@@ -1,6 +1,7 @@
 import logging
 import cv2
 import numpy as np
+import os
 import trio
 
 from contextlib import contextmanager
@@ -73,7 +74,9 @@ def camera():
     cam.release()
 
 
-haar_face_cascade = cv2.CascadeClassifier('hedgehog/server/vision/haarcascade_frontalface_alt.xml')
+haar_face_cascade = cv2.CascadeClassifier(
+    os.path.join(os.path.dirname(__file__), 'haarcascade_frontalface_alt.xml')
+)
 
 
 def detect_faces(f_cascade, img, scaleFactor=1.1, minNeighbors=5):
