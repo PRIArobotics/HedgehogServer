@@ -1139,7 +1139,7 @@ async def test_vision(conn_dealer, autojump_clock):
 
         await assertReplyDealer(socket, vision.DeleteChannelAction({'c'}), ack.FAILED_COMMAND)
 
-        # # ### vision.CameraAction
+        # # ### vision.OpenCameraAction
         #
         # await assertReplyDealer(socket, vision.OpenCameraAction(), ack.OK)
         #
@@ -1147,6 +1147,6 @@ async def test_vision(conn_dealer, autojump_clock):
         #
         # await assertReplyDealer(socket, vision.CaptureFrameAction(), ack.OK)
         #
-        # # ### vision.CameraAction
+        # # ### vision.CloseCameraAction
         #
         # await assertReplyDealer(socket, vision.CloseCameraAction(), ack.OK)
