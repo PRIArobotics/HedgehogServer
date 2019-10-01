@@ -1098,47 +1098,47 @@ async def test_process_sleep(conn_dealer, autojump_clock):
 @pytest.mark.trio
 async def test_vision(conn_dealer, autojump_clock):
     async with conn_dealer() as socket:
-        # ### vision.CreateChannelAction
-
-        await assertReplyDealer(socket, vision.CreateChannelAction({
-            'a': vision.FacesChannel(),
-            'b': vision.BlobsChannel((0x22, 0x22, 0x22), (0x88, 0x88, 0x88)),
-        }), ack.OK)
-
-        await assertReplyDealer(socket, vision.CreateChannelAction({
-            'a': vision.FacesChannel(),
-        }), ack.FAILED_COMMAND)
-
-        # ### vision.UpdateChannelAction
-
-        await assertReplyDealer(socket, vision.UpdateChannelAction({
-            'b': vision.BlobsChannel((0x33, 0x33, 0x33), (0x88, 0x88, 0x88)),
-        }), ack.OK)
-
-        await assertReplyDealer(socket, vision.UpdateChannelAction({
-            'b': vision.BlobsChannel((0x22, 0x22, 0x22), (0x88, 0x88, 0x88)),
-            'c': vision.FacesChannel(),
-        }), ack.FAILED_COMMAND)
-
-        # ### vision.ChannelRequest
-
-        await assertReplyDealer(socket, vision.ChannelRequest(set()), vision.ChannelReply({
-            'a': vision.FacesChannel(),
-            'b': vision.BlobsChannel((0x33, 0x33, 0x33), (0x88, 0x88, 0x88)),
-        }))
-
-        await assertReplyDealer(socket, vision.ChannelRequest({'a'}), vision.ChannelReply({
-            'a': vision.FacesChannel(),
-        }))
-
-        await assertReplyDealer(socket, vision.ChannelRequest({'c'}), ack.FAILED_COMMAND)
-
-        # ### vision.DeleteChannelAction
-
-        await assertReplyDealer(socket, vision.DeleteChannelAction({'b'}), ack.OK)
-
-        await assertReplyDealer(socket, vision.DeleteChannelAction({'c'}), ack.FAILED_COMMAND)
-
+        # # ### vision.CreateChannelAction
+        #
+        # await assertReplyDealer(socket, vision.CreateChannelAction({
+        #     'a': vision.FacesChannel(),
+        #     'b': vision.BlobsChannel((0x22, 0x22, 0x22), (0x88, 0x88, 0x88)),
+        # }), ack.OK)
+        #
+        # await assertReplyDealer(socket, vision.CreateChannelAction({
+        #     'a': vision.FacesChannel(),
+        # }), ack.FAILED_COMMAND)
+        #
+        # # ### vision.UpdateChannelAction
+        #
+        # await assertReplyDealer(socket, vision.UpdateChannelAction({
+        #     'b': vision.BlobsChannel((0x33, 0x33, 0x33), (0x88, 0x88, 0x88)),
+        # }), ack.OK)
+        #
+        # await assertReplyDealer(socket, vision.UpdateChannelAction({
+        #     'b': vision.BlobsChannel((0x22, 0x22, 0x22), (0x88, 0x88, 0x88)),
+        #     'c': vision.FacesChannel(),
+        # }), ack.FAILED_COMMAND)
+        #
+        # # ### vision.ChannelRequest
+        #
+        # await assertReplyDealer(socket, vision.ChannelRequest(set()), vision.ChannelReply({
+        #     'a': vision.FacesChannel(),
+        #     'b': vision.BlobsChannel((0x33, 0x33, 0x33), (0x88, 0x88, 0x88)),
+        # }))
+        #
+        # await assertReplyDealer(socket, vision.ChannelRequest({'a'}), vision.ChannelReply({
+        #     'a': vision.FacesChannel(),
+        # }))
+        #
+        # await assertReplyDealer(socket, vision.ChannelRequest({'c'}), ack.FAILED_COMMAND)
+        #
+        # # ### vision.DeleteChannelAction
+        #
+        # await assertReplyDealer(socket, vision.DeleteChannelAction({'b'}), ack.OK)
+        #
+        # await assertReplyDealer(socket, vision.DeleteChannelAction({'c'}), ack.FAILED_COMMAND)
+        #
         # # ### vision.OpenCameraAction
         #
         # await assertReplyDealer(socket, vision.OpenCameraAction(), ack.OK)
@@ -1150,3 +1150,4 @@ async def test_vision(conn_dealer, autojump_clock):
         # # ### vision.CloseCameraAction
         #
         # await assertReplyDealer(socket, vision.CloseCameraAction(), ack.OK)
+        pass
