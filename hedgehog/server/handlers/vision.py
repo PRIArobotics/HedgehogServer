@@ -268,4 +268,4 @@ class VisionHandler(CommandHandler):
                 packed = channel_data.get_packed(self._img, conn.channels[msg.channel])
                 return vision_msg.FeatureReply(msg.channel, packed)
             else:
-                raise FailedCommandError(f"no such channel: {msg.highlight}")
+                raise FailedCommandError(f"no such channel: {msg.channel}")
