@@ -61,9 +61,9 @@ setup(
         'raspberry': ['RPi.GPIO', 'pyserial-asyncio'],
     },
 
-    # package_data={
-    #     'proto': ['*.proto'],
-    # },
+    package_data={
+        'hedgehog': ['server/vision/haarcascade_frontalface_alt.xml'],
+    },
 
     entry_points={
         'console_scripts': [
